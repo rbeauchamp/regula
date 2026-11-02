@@ -194,7 +194,7 @@ theorem unseenWeight_le (next : Name → List Name) (us : List Name) (seen : Std
     simp only [List.filter_cons, List.map_cons, List.sum_cons]
     split <;> (try simp only [List.map_cons, List.sum_cons]) <;> omega
 
-/-- Every name that `seeds` reach through `next`. -/
+/-- Search from `seeds` through `next`, complete under the hypotheses of `mem_reach`. -/
 def reach (next : Name → List Name) (weight : Nat) (seeds : List Name) : Std.HashSet Name :=
   reachGo next (seeds.length + weight) {} seeds
 

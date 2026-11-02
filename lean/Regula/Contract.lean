@@ -27,9 +27,10 @@ The other is the function that applies `f` to the fields of one structure, which
 argument whose type depends on an earlier one, or a type, instance or proof argument. The kind
 about that function is the kind about `f` when every tuple of arguments is the fields of some
 value, which a type with one constructor and no index gives. No other way of supplying the
-arguments has this form. A function that fixes an argument or gives a field twice, a structure
-with a field that `f` does not take, and a type with an index each decide `f` on part of its
-domain. Nested dependent pairs are not a form for three or more arguments: each projection carries
+arguments has this form. A function that fixes an argument or gives a field twice decides `f` on
+part of its domain. A structure with a field that `f` does not take can restrict the domain; a type
+with an index holds only the tuples whose fields compute that index. Nested dependent pairs are
+not a form for three or more arguments: each projection carries
 the pair's type, so the elaborated statement grows by a large factor with each argument, while a
 structure declared for the arguments has projections of constant size.
 
