@@ -2,7 +2,7 @@
 
 ## Mission and scope
 
-- This repository delivers Regula, a checker of Lean builds that exists to be trusted and to be the example of how Lean 4 code should be written. `README.md` states the purpose under "Purpose and constraint", and `specification/README.md` in its first paragraph.
+- This repository delivers Regula, a checker of Lean builds whose claim is meant to be exact and proved, so that people can trust it, and whose code is meant to be the example of how Lean 4 code should be written. `README.md` states the purpose under "Purpose and constraint", and `specification/README.md` in its first paragraph.
 - Regula's checks are exactly RG1001 to RG1006, RG1010 and RG2001. `lean/Regula/` implements them, and `specification/` states and proves them. Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap.
 - Simplicity governs every change, by the owner's constraint of 2026-11-01. The aim, never to be stated as fact, is to be to Lean linters what seL4 is to kernels: the most trusted one, because its claim is exact and proved. Simplicity is how that becomes achievable.
   - Before adding or repairing anything, ask whether it can be deleted, or its input narrowed, so the need goes away.
@@ -33,7 +33,7 @@
 
 - State the exact elaborated theorem, quantifiers, assumptions, and transitive dependencies. Do not strengthen a Lean result into a claim about an unrelated implementation.
 - Ban `sorryAx`, project logical `axiom` declarations, `sorry`, and `admit` from every proof surface. Express assumptions as parameters, hypotheses, or proof-bearing fields.
-- Report exact foundation strength: Kernel-only is empty; Choice-Free permits only `propext` and `Quot.sound`; Standard-Logical additionally permits `Classical.choice`. Do not treat these as general software-assurance rankings.
+- Report exact foundation strength: Kernel-only is empty; Choice-Free permits only `propext` and `Quot.sound`; Standard-Logical also permits `Classical.choice`. Do not treat these as general software-assurance rankings.
 - Distinguish logical and executable decidability, noncomputability, kernel reduction, native evaluation, `partial`, `unsafe`, runtime replacement, `extern`, and FFI wherever the distinction affects a Lean claim.
 - Discover modules, declarations, and dependencies through Lean/Lake semantics, not fixed file lists or source-format regexes. Unknowns and omissions fail the affected claim.
 
