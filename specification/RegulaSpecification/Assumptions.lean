@@ -50,6 +50,8 @@ inductive Owner where
 inductive Platform where
   /-- macOS 27.2 on Apple silicon (arm64). -/
   | macOS
+  /-- Ubuntu 24.04.5 LTS on x86-64. -/
+  | ubuntu
   deriving DecidableEq, Repr
 
 /-- Where an assumption is stated. -/
@@ -59,7 +61,7 @@ inductive Source where
   /-- The source directory, in Lean's repository at the tag of the pinned release and by its path from the repository's
   root, of a component that the owner's account trusts whole. -/
   | component (dir : String)
-  /-- A page of the platform's own documentation, as installed on the platform. -/
+  /-- A page of the platform's own documentation, as the named release of the platform ships it. -/
   | manual (page : String)
   deriving DecidableEq, Repr
 
@@ -107,8 +109,8 @@ inductive Assumption where
   | leanImport
   /-- {name}`Lean.versionString` and {name}`Lean.githash` are the release and the commit of the Lean that compiled the checker. -/
   | leanVersion
-  /-- On the named platforms Lean's runtime gives {lean}`System.Platform.isWindows = false` and {lit}`isOSX = true`, so the functions of
-  {name}`System.FilePath` read a path as POSIX does. -/
+  /-- On the named platforms Lean's runtime gives {lean}`System.Platform.isWindows = false`, and {lit}`isOSX` true on macOS and false
+  on Ubuntu, so the functions of {name}`System.FilePath` read a path as POSIX does. -/
   | platform
   /-- What Lake's loads give, and what `Regula.Load.rootOf` selects of them: `Lake.loadWorkspace` of a directory with Lake's
   default configuration name, and `Lake.loadWorkspaceRoot` with {lit}`relConfigFile := "lakefile.toml"`, which loads that file
@@ -132,9 +134,10 @@ inductive Assumption where
   /-- How Lake starts the checker. {lit}`lake lint` builds the executable that {lit}`lintDriver` names and starts it with
   {lit}`lintDriverArgs` as its arguments, and {lit}`lake exe lint` starts the same program through the same call: in Lake's working
   directory, with the environment that Lake inherited and `Workspace.augmentedEnvVars` over it, which sets {lit}`LEAN_SYSROOT` and
-  {lit}`LEAN_PATH`, with the workspace's libraries first, sets {lit}`DYLD_LIBRARY_PATH` on macOS to the toolchain's two library
-  directories, then the library directory of each package of the workspace, its {lit}`buildDir` joined with its
-  {lit}`nativeLibDir`, which a package's configuration sets, then the value that Lake inherited, and holds no {lit}`REGULA_FULL`.
+  {lit}`LEAN_PATH`, with the workspace's libraries first, sets {lit}`DYLD_LIBRARY_PATH` on macOS, and {lit}`LD_LIBRARY_PATH` on
+  Ubuntu, to the toolchain's two library directories, then the library directory of each package of the workspace, its
+  {lit}`buildDir` joined with its {lit}`nativeLibDir`, which a package's configuration sets, then the value that Lake inherited,
+  and holds no {lit}`REGULA_FULL`.
   `lakefile.toml` has no key that sets a variable. With no option of Lake's, Lake loads the workspace in {lit}`.` with the
   configuration {lit}`lakefile`. -/
   | lakeStart
@@ -152,12 +155,16 @@ inductive Assumption where
   /-- Processes. {name}`IO.getEnv` gives a variable as the process inherited it; {name}`IO.println` and a flush write to standard
   output; {name}`IO.Process.spawn` starts `/usr/bin/env` in the directory given, with standard input null, and waiting for the child gives
   its exit code; {lit}`env -i` starts the program with the variables given and no other; `/usr/bin:/bin` holds the programs
-  that Lake asks for by name; and the dynamic loader looks for each library that a program uses by its leaf name in each
-  directory that the program's {lit}`DYLD_LIBRARY_PATH` names, then at the path that the image using it records, then, when it
-  is not there, in each directory of {lit}`DYLD_FALLBACK_LIBRARY_PATH`, which by default names none for a binary built since
-  fall 2023 and {lit}`/usr/local/lib:/usr/lib` for an older one. So a program started with neither variable, as {lit}`env -i`
-  starts one, takes its libraries from the paths that its images record and those defaults, and a program whose
-  {lit}`DYLD_LIBRARY_PATH` names a directory takes from it any library placed there under a leaf name that it uses. -/
+  that Lake asks for by name; and the dynamic loader looks for each library as the platform's page states. On macOS,
+  {lit}`dyld(1)` looks for each library that a program uses by its leaf name in each directory that the program's
+  {lit}`DYLD_LIBRARY_PATH` names, then at the path that the image using it records, then, when it is not there, in each directory
+  of {lit}`DYLD_FALLBACK_LIBRARY_PATH`, which by default names none for a binary built since fall 2023 and
+  {lit}`/usr/local/lib:/usr/lib` for an older one. On Ubuntu, {lit}`ld.so(8)` looks for each library that a program names with no
+  slash in the directories of the program's {lit}`DT_RPATH` when it has no {lit}`DT_RUNPATH`, then in each directory of
+  {lit}`LD_LIBRARY_PATH`, then in those of its {lit}`DT_RUNPATH`, then in {lit}`/etc/ld.so.cache` and then in the default directories.
+  So a program started with none of these variables, as {lit}`env -i` starts one, takes its libraries from the paths that its images
+  record and the system's, and a program whose {lit}`DYLD_LIBRARY_PATH` names a directory, or on Ubuntu a program with no
+  {lit}`DT_RPATH` whose {lit}`LD_LIBRARY_PATH` names one, takes from it any library placed there under a leaf name that it uses. -/
   | processes
   deriving DecidableEq, Repr
 
@@ -207,7 +214,7 @@ def owner : Assumption → Owner
 
 /-- The platforms on which each entry that depends on a platform was observed. -/
 def platforms : Assumption → List Platform
-  | platform | h4 | files | processes => [.macOS]
+  | platform | h4 | files | processes => [.macOS, .ubuntu]
   | _ => []
 
 /-- Each entry of the operating system is tied to a named platform. -/
@@ -275,11 +282,13 @@ def sources : Assumption → List Source
       .file "src/lake/Lake/Config/Workspace.lean" "372-373, 409-410, 417-431", .file "src/lake/Lake/Config/Env.lean" "188, 289-303",
       .file "src/lake/Lake/Config/InstallPath.lean" "160-164", .file "src/lake/Lake/Config/Package.lean" "228-229, 382-383",
       .file "src/lake/Lake/Util/NativeLib.lean" "35-41", .file "src/lake/Lake/CLI/Main.lean" "47-48, 131-138"]
-  | h4 => [.file "src/Init/System/IO.lean" "874-879", .manual "realpath(3)"]
-  | files => [.file "src/Init/System/IO.lean" "943, 1058-1060, 1156, 1229-1233, 1316, 1335-1342", .manual "open(2)",
-      .manual "stat(2)", .manual "mkdir(2)", .manual "mktemp(3)"]
-  | processes => [.file "src/Init/System/IO.lean" "1434-1440, 1489", .manual "env(1)", .manual "posix_spawn(2)",
-      .manual "getenv(3)", .manual "dyld(1)"]
+  | h4 => [.file "src/Init/System/IO.lean" "874-879", .file "src/runtime/io.cpp" "1056", .manual "realpath(3)"]
+  | files => [.file "src/Init/System/IO.lean" "943, 1058-1060, 1156, 1229-1233, 1316, 1335-1342",
+      .file "src/runtime/io.cpp" "417, 1169, 1189, 1310, 1339", .manual "open(2)", .manual "stat(2)", .manual "mkdir(2)",
+      .manual "mktemp(3)", .manual "mkdtemp(3)"]
+  | processes => [.file "src/Init/System/IO.lean" "1434-1440, 1489, 1494", .file "src/runtime/io.cpp" "1005",
+      .file "src/runtime/process.cpp" "358, 453, 475, 496, 510", .manual "env(1)", .manual "fork(2)", .manual "execvp(3)",
+      .manual "waitpid(2)", .manual "getenv(3)", .manual "dyld(1)", .manual "ld.so(8)"]
 
 /-- Each entry has a source. -/
 theorem sources_ne_nil (a : Assumption) : a.sources ≠ [] := by
