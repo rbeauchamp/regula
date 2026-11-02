@@ -1,8 +1,3 @@
-/-
-Copyright (c) 2026 Regula contributors. All rights reserved.
-Released under MIT license as described in the file LICENSE.
-Authors: Regula contributors
--/
 import RegulaSpecification.Proofs.Program
 import RegulaSpecification.Proofs.Standing
 
@@ -143,6 +138,7 @@ structure RealPathBehaviour (t : List (Event L E)) where
   h4 : ∀ path real, (⟨.realPath path, .ok real⟩ : Event L E) ∈ t →
     Crosses path → parts real ≠ parts path
 
+/-- A model of H4, which says nothing of whether the filesystem is in that state. -/
 theorem realPathBehaviour_crossing (link target : FilePath) (hne : parts target ≠ parts link) :
     ∃ B : RealPathBehaviour (L := L) (E := E)
       [⟨.realPath link, .ok target⟩, ⟨.realPath target, .ok target⟩],
