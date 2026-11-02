@@ -76,7 +76,9 @@ inductive Assumption where
   or its documentation says, and the exit code is the value that `main` returns. -/
   | compiler
   /-- H1: the trees that the check read of a file of an admitted reading are the trees that Lean's frontend elaborates
-  (`LeanBehaviour.h1`). -/
+  (`LeanBehaviour.h1`). The parser reads of the elaborator's state only scoped parser entries and tokens, namespace and open
+  declarations, and the options `internal.parseQuotWithCurrentStage`, `doc.verso` and `doc.verso.module`; none of these
+  options is in the admitted `options`, so an admitted file is parsed with each of them unset, as the reader parses it. -/
   | h1
   /-- H2: elaborating trees that the closed set admits runs no code that the project wrote and installs nothing that replaces
   what the compiler runs for a definition (`LeanBehaviour.h2`). -/
@@ -143,6 +145,42 @@ inductive Assumption where
   | processes
   deriving DecidableEq, Repr
 
+/-- Why no input that the language check admits reaches a file that an entry's stated search matches and that the entry
+does not cite. Each was read in Lean's source at the pinned tag. -/
+inductive Unreached where
+  /-- Each match is a comment, a docstring or a local name, and evaluates nothing. -/
+  | noEvaluation
+  /-- The file defines an evaluation function. Each call of it is by its name, so the search finds it in a file that the
+  entry cites or that this list names. -/
+  | definition
+  /-- Reached only through a command, an attribute, a syntax or a file that the language check refuses, which the detail
+  names. -/
+  | refused
+  /-- Reached only from a Verso doc comment, which needs the option `doc.verso` or `doc.verso.module`, and neither is in the
+  admitted `options`. -/
+  | verso
+  /-- Code of the language server or the infoview, which a build does not run. -/
+  | server
+  /-- Reached by Lake's built-in lint, which the full gate does not run, for checks that an attribute the language check
+  refuses registers. -/
+  | lakeLint
+  /-- Evaluates only constants that the toolchain declares, because declaring one in a project needs a construct that the
+  language check refuses, which the detail names. -/
+  | toolchainOnly
+  deriving DecidableEq, Repr
+
+/-- A file that an entry's stated search matches and that the entry does not cite. -/
+structure Exclusion where
+  /-- The file, by its path from the root of Lean's repository at the tag of the pinned release. -/
+  path : String
+  /-- The lines that the search matches in it. -/
+  lines : String
+  /-- Why no admitted input reaches them. -/
+  reason : Unreached
+  /-- What reaches them, by name. -/
+  detail : String
+  deriving DecidableEq, Repr
+
 namespace Assumption
 
 /-- Who holds each entry. -/
@@ -175,12 +213,14 @@ def sources : Assumption → List Source
   | h1 => [.file "src/Lean/Language/Lean.lean" "595-601", .file "src/Lean/Parser/Extension.lean" "607-612, 765",
       .file "src/Lean/Parser/Module.lean" "124, 135, 146", .file "src/Lean/Elab/Open.lean" "83, 89, 101",
       .file "src/Lean/Elab/BuiltinCommand.lean" "60", .file "src/Lean/Environment.lean" "2108-2190",
-      .file "src/Lean/Elab/Frontend.lean" "287", .file "src/Lean/Shell.lean" "519", .file "src/Lean/Language/Lean.lean" "451"]
+      .file "src/Lean/Elab/Frontend.lean" "287", .file "src/Lean/Shell.lean" "519", .file "src/Lean/Language/Lean.lean" "451",
+      .file "src/Lean/DocString/Parser.lean" "1375-1376, 1400-1407", .file "src/Lean/Parser/Term.lean" "92",
+      .file "src/Lean/Parser/Command.lean" "61", .file "src/Lean/DocString/Extension.lean" "115, 120"]
   | h2 => [.file "src/Lean/Elab/BuiltinEvalCommand.lean" "194, 200, 225, 226",
       .file "src/Lean/Elab/BuiltinNotation.lean" "588, 594",
       .file "src/Lean/Elab/BuiltinTerm.lean" "432", .file "src/Lean/Elab/Tactic/BuiltinTactic.lean" "683",
       .file "src/Lean/Elab/Tactic/Guard.lean" "163", .file "src/Lean/Meta/Native.lean" "57, 67",
-      .file "src/Lean/Elab/Tactic/Config.lean" "151", .file "src/Lean/Elab/ConfigEval.lean" "54",
+      .file "src/Lean/Elab/Tactic/Config.lean" "24, 151", .file "src/Lean/Elab/ConfigEval.lean" "54",
       .file "src/Lean/Elab/ConfigEval/Basic.lean" "24, 27, 42, 48, 53", .file "src/Lean/Elab/ConfigEval/Commands.lean" "42",
       .file "src/Lean/Elab/ConfigEval/DeriveEvalExpr.lean" "48, 61, 68, 109, 113, 125",
       .file "src/Lean/Elab/ConfigEval/DeriveEvalTerm.lean" "101, 117, 124",
@@ -188,11 +228,11 @@ def sources : Assumption → List Source
         "118, 122, 126, 130, 134, 138, 142, 146, 150, 154, 251, 255, 259, 263, 267, 271, 275, 279, 283",
       .file "src/Lean/Elab/ConfigEval/Types.lean" "40, 46, 66, 73",
       .file "src/Lean/Elab/Tactic/Try.lean" "1033", .file "src/Lean/Elab/Util.lean" "108",
-      .file "src/Lean/KeyedDeclsAttribute.lean" "125, 166", .file "src/Lean/Meta/Tactic/Simp/Simproc.lean" "130",
+      .file "src/Lean/KeyedDeclsAttribute.lean" "66, 125, 166, 170", .file "src/Lean/Meta/Tactic/Simp/Simproc.lean" "130, 132",
       .file "src/Lean/Attributes.lean" "450", .file "src/Lean/Elab/DocString.lean" "1193, 1200, 1250, 1273, 1292, 1310",
-      .file "src/Lean/Linter/MissingDocs.lean" "43", .file "src/Lean/Linter/UnusedVariables.lean" "143",
+      .file "src/Lean/Linter/MissingDocs.lean" "43, 46", .file "src/Lean/Linter/UnusedVariables.lean" "143",
       .file "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean" "648", .file "src/Lean/Compiler/LCNF/PassManager.lean" "217",
-      .file "src/Lean/Compiler/IR/Meta.lean" "56-59", .file "src/Lean/Environment.lean" "2537"]
+      .file "src/Lean/Compiler/IR/Meta.lean" "52, 56-59", .file "src/Lean/Environment.lean" "2537, 2618, 2620, 2627"]
   | usedConstants => [.file "src/Lean/Util/FoldConsts.lean" "51-56"]
   | leanImport => [.file "src/Lean/Environment.lean" "1871, 2079-2080, 2094-2095, 2183, 2313-2317, 2367-2370",
       .file "src/Lean/Util/Path.lean" "117-125", .file "src/Lean/Elab/Import.lean" "141-149",
@@ -223,6 +263,73 @@ def sources : Assumption → List Source
 /-- Each entry has a source. -/
 theorem sources_ne_nil (a : Assumption) : a.sources ≠ [] := by
   cases a <;> nofun
+
+/-- What `h1` says of the options that the parser reads in doc comments: neither is one that a file or the Lake configuration
+may set, so each admitted file is parsed with both unset. -/
+theorem verso_options_not_admitted :
+    `doc.verso ∉ Regula.Language.options ∧ `doc.verso.module ∉ Regula.Language.options := by
+  decide
+
+/-- The files that an entry's stated search matches and that it does not cite, each with why no admitted input reaches it.
+Only `h2` states a search: the whole words `evalConst`, `evalConstCheck`, `evalExpr`, `evalTerm` and `evalDecl` over the
+sources of Lean's repository at the tag `v4.35.0`. At that tag it matches 61 files. `h2`'s sources cite the 26 whose sites
+are reached only through what the tables refuse, each with every line the search matches, and this list names the other 35.
+That the two together are those 61 files is **measured**, by running the search at the tag and comparing, and no theorem
+states it; it is read again at each upgrade with the entry. -/
+def excluded : Assumption → List Exclusion
+  | h2 =>
+    [⟨"src/Lean/Compiler/InitAttr.lean", "193", .refused,
+        "the command `initialize` and the attribute `init`; on import it runs only the toolchain's own initializers"⟩,
+      ⟨"src/Lean/CoreM.lean", "726", .noEvaluation, "a comment"⟩,
+      ⟨"src/Lean/DocString/Markdown.lean", "548, 558", .refused,
+        "the attributes `doc_inline_md` and `doc_block_md`, for elements of a Verso doc comment"⟩,
+      ⟨"src/Lean/Elab/DocString/Builtin/Keywords.lean", "211, 294", .verso, "a role of a Verso doc comment"⟩,
+      ⟨"src/Lean/Elab/DocString/Builtin/Postponed.lean", "87", .verso,
+        "a deferred check of a Verso doc comment, whose handlers the attribute `deferred_doc_check` registers"⟩,
+      ⟨"src/Lean/Elab/ErrorExplanation.lean", "107", .refused, "the command `register_error_explanation`"⟩,
+      ⟨"src/Lean/Elab/Eval.lean", "17, 22", .definition, "`Lean.Elab.Term.evalTerm`"⟩,
+      ⟨"src/Lean/Elab/Idbg.lean", "233, 235", .refused, "the term `idbg`"⟩,
+      ⟨"src/Lean/Elab/Tactic/VCGen/FrameProcAttr.lean", "29", .toolchainOnly,
+        "frame procedures of `vcgen`; a project's needs the attribute `frameproc`"⟩,
+      ⟨"src/Lean/LibrarySuggestions/Basic.lean", "508", .refused,
+        "the command `set_library_suggestions`, read by tactics such as `exact?`"⟩,
+      ⟨"src/Lean/Linter/CodeQuality/Frontend.lean", "48", .lakeLint, "the attribute `package_code_quality_check`"⟩,
+      ⟨"src/Lean/Linter/EnvLinter/Basic.lean", "59", .refused,
+        "the attribute `builtin_env_linter` and the commands that run environment linters"⟩,
+      ⟨"src/Lean/Meta/Eval.lean", "48, 50, 55, 57, 61", .definition, "`Lean.Meta.evalExpr` and its variants"⟩,
+      ⟨"src/Lean/Meta/Sym/Arith/EvalNum.lean", "19, 20", .noEvaluation, "a module docstring"⟩,
+      ⟨"src/Lean/Meta/Tactic/BVDecide/Reflect/ReifiedLemmas.lean", "58, 59, 68, 88, 89, 98", .noEvaluation,
+        "a local name for an expression"⟩,
+      ⟨"src/Lean/Meta/Tactic/BVDecide/Reflect/SatAtBVLogical.lean", "73, 76", .noEvaluation,
+        "a local name for an expression"⟩,
+      ⟨"src/Lean/Meta/Tactic/Cbv/CbvSimproc.lean", "162", .toolchainOnly,
+        "simprocs of `cbv`; a project's needs the command `cbv_simproc`"⟩,
+      ⟨"src/Lean/Meta/Tactic/Grind/Arith/EvalNum.lean", "19, 20, 57", .noEvaluation, "a module docstring and a comment"⟩,
+      ⟨"src/Lean/Meta/Tactic/Simp/Types.lean", "411", .noEvaluation, "a docstring"⟩,
+      ⟨"src/Lean/MonadEnv.lean", "181, 185, 187, 190", .definition, "`Lean.evalConst` and `Lean.evalConstCheck`"⟩,
+      ⟨"src/Lean/Parser/Extension.lean", "266, 269, 272, 276", .toolchainOnly,
+        "parsers; a project's needs `syntax` or a parser attribute"⟩,
+      ⟨"src/Lean/Parser/Term.lean", "758, 759, 760", .noEvaluation, "a docstring"⟩,
+      ⟨"src/Lean/ParserCompiler.lean", "156, 157", .refused, "the parser attributes, which `syntax` applies"⟩,
+      ⟨"src/Lean/ParserCompiler/Attribute.lean", "53", .refused,
+        "the attributes `combinator_formatter` and `combinator_parenthesizer`"⟩,
+      ⟨"src/Lean/PostprocessTraces/Basic.lean", "238, 243, 245", .refused,
+        "the scoped commands of `Lean.PostprocessTraces`"⟩,
+      ⟨"src/Lean/PrettyPrinter/Basic.lean", "27", .toolchainOnly,
+        "parser descriptions of syntax kinds; a project's needs `syntax` or `notation`"⟩,
+      ⟨"src/Lean/PrettyPrinter/Delaborator/Builtins.lean", "1545", .toolchainOnly,
+        "the tactic of an `autoParam`; a project's `autoParam` is refused"⟩,
+      ⟨"src/Lean/Server/CodeActions/Attr.lean", "35, 70", .server, "code actions"⟩,
+      ⟨"src/Lean/Server/CodeActions/Basic.lean", "111", .server, "code action providers"⟩,
+      ⟨"src/Lean/Server/Rpc/RequestHandling.lean", "31", .server, "remote procedures of the server"⟩,
+      ⟨"src/Lean/Util/TestExtern.lean", "34", .refused, "the command `test_extern`"⟩,
+      ⟨"src/Lean/Widget/UserWidget.lean", "20, 26, 246", .server,
+        "widgets of the infoview, which commands and attributes that the tables refuse declare"⟩,
+      ⟨"src/lake/Lake/DSL/Meta.lean", "31, 54", .refused, "`lakefile.lean`"⟩,
+      ⟨"src/lake/Lake/DSL/VerLit.lean", "85", .refused, "`lakefile.lean`"⟩,
+      ⟨"src/lake/Lake/Load/Lean/Eval.lean", "24, 36, 43, 47, 87, 101, 130, 136, 144, 184, 187, 190", .refused,
+        "`lakefile.lean`, of which the full gate's tree holds none (`Reason.configShadowed`)"⟩]
+  | _ => []
 
 /-- The declarations of this package that state an entry formally, as a premise of a theorem of `Meaning`. An entry with
 none is relied on through the meaning of a response, which no theorem here can state. -/
