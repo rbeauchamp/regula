@@ -95,7 +95,6 @@ inductive OccursReaches (f : Regula.Load.Facts) : Name → Name → Prop
       (InfoOccurs k u ∨ ∃ v ∈ f.stated.getD c [], InfoOccurs v u) → OccursReaches f u e →
       OccursReaches f c e
 
-/-- Under the fact about Lean, an occurrence is a mention. -/
 theorem mentions_of_occurs (hused : UsedConstantsComplete) {k : ConstantInfo} {u : Name}
     (h : InfoOccurs k u) : Mentions k u := by
   cases k with
@@ -108,14 +107,12 @@ theorem mentions_of_occurs (hused : UsedConstantsComplete) {k : ConstantInfo} {u
   | recInfo v => exact hused _ _ h
   | inductInfo v => exact h.imp_left (hused _ _)
 
-/-- Under the fact about Lean, an occurrence in a value is a mention in it. -/
 theorem valueMentions_of_occurs (hused : UsedConstantsComplete) {k : ConstantInfo} {u : Name}
     (h : ValueOccurs k u) : ValueMentions k u := by
   cases k with
   | defnInfo v | thmInfo v | opaqueInfo v => exact hused _ _ h
   | axiomInfo v | quotInfo v | ctorInfo v | recInfo v | inductInfo v => exact h
 
-/-- Under the fact about Lean, a walk over occurrences is a walk over mentions. -/
 theorem envReaches_of_occurs (hused : UsedConstantsComplete) {c e : Name}
     (h : OccursReaches f c e) : EnvReaches f c e := by
   induction h with
@@ -124,9 +121,6 @@ theorem envReaches_of_occurs (hused : UsedConstantsComplete) {c e : Name}
     exact .step ⟨k, hk, ho.imp (mentions_of_occurs hused)
       fun ⟨v, hv, hu⟩ => ⟨v, hv, mentions_of_occurs hused hu⟩⟩ ih
 
-/-- The floor of RG1005 and of RG1006's loop constructs, over what occurs in the constants of a
-claimed module, with the fact about Lean as the hypothesis: on a pass, its value holds no loop
-construct, and each axiom that it reaches by occurrences is one that the profile admits. -/
 theorem pass_occurs (hused : UsedConstantsComplete)
     (h : (Regula.Closed.decision (f.input roots p)).verdict = .pass) {n m : Name}
     {info : ConstantInfo} (hn : f.env.constants.map₁[n]? = some info)
@@ -137,10 +131,8 @@ theorem pass_occurs (hused : UsedConstantsComplete)
   exact ⟨fun l hl ho => h7 l hl (valueMentions_of_occurs hused ho),
     fun a hr hax => h8 a (envReaches_of_occurs hused hr) hax⟩
 
-/-- Each pair of `constNames.zip constants` of each claimed module is one that `Facts.claimedConstants` lists, and so one that
-`pass_held` reaches, when the header holds data for each of its modules. Lean builds `moduleData`
-and `modules` from one array (`Lean/Environment.lean:2313-2317` and `2369-2371`), so this is the
-fact about Lean, as the hypothesis `hsize`. -/
+/-- Lean builds `moduleData` and `modules` from one array (`Lean/Environment.lean:2313-2317` and `2369-2371`),
+which is the fact about Lean that the hypothesis `hsize` states. -/
 theorem claimedConstants_complete (hsize : f.env.header.moduleData.size = f.modules.size) {k : Nat}
     {lm : Regula.Load.LoadedModule} (hk : f.modules[k]? = some lm) (hc : lm.claimed = true) :
     ∃ data, f.env.header.moduleData[k]? = some data ∧

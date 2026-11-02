@@ -1,7 +1,4 @@
-# Regula: a checker for Lean projects that refuses proof holes, project axioms, native proofs, axioms
-# outside a stated profile, `unsafe` or `partial` declarations and recursion helper names without the form
-# that RG1006 exempts, and values that mention Lean's loop constructs, and that can refuse, before anything is
-# compiled, a project outside a closed set of allowed constructs. It needs nothing beyond the Lean toolchain.
+# Regula, a checker of Lean builds. It needs nothing beyond the Lean toolchain.
 name = "regula"
 version = "0.11.1"
 description = "A checker of Lean builds: proof holes, project axioms, native proofs, axioms outside a profile, unsafe and partial declarations, Lean's loop constructs, and a closed language checked before anything is compiled."
@@ -21,9 +18,7 @@ autoImplicit = false
 relaxedAutoImplicit = false
 linter.missingDocs = true
 
-# The checker: the closed input, the rules, the verdict and the language decision, each proved against
-# `specification/RegulaSpecification/`, the closed operations and their one table, the language check's reader and
-# the shell: every function of the checker that does not itself call Lake.
+# The checker: every function of it that does not itself call Lake.
 [[lean_lib]]
 name = "RegulaChecker"
 globs = ["Regula.Effect", "Regula.Table", "Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell", "Regula.LanguageSet", "Regula.Language", "Regula.Reader"]

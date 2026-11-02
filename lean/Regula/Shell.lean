@@ -14,30 +14,22 @@ public import Regula.Rules
 The checker's whole run as a program over the closed operations of `Regula.Effect`, which the `lint`
 executable interprets (`Regula.LintMain`), Lake's lint driver for a project that sets
 `lintDriver := "regula/lint"`. It performs nothing itself, and every decision it holds is pure code
-about what a response holds, so that `specification/RegulaSpecification/Proofs/Shell.lean` states what it does
-for every response.
+about what a response holds, so that `specification/RegulaSpecification/Proofs/Shell.lean` states what it
+does for every response.
 
-A run with one profile gives the proof verdict, that of `Regula.Closed.decision`: `pass` (exit 0) when
-the input has the closed form and no rule reports a subject, `fail` (exit 1) when a rule reports one, and
-`incomplete` (exit 2) when the build cannot be loaded or the input does not have the closed form (RG2001).
-It promises nothing about what ran during the build.
+A run with one profile gives the proof verdict, that of `Regula.Closed.decision`, and promises nothing
+about what ran during the build. A run with one profile and the variable `REGULA_FULL` set
+(`fullVariable`) is the full gate (`Regula.Language.gate`) on the project at the directory the variable
+names. Only that run can print a full verdict, because only there the check came first. Starting the
+checker from its own package is a precondition of that verdict, which it does not test.
 
-A run with one profile and the variable `REGULA_FULL` set (`fullVariable`) is the full gate (`Regula.Language.gate`) on the
-project at the directory the variable names: the language check, which writes the configuration to a tree of the checker's own and, once it has admitted the
-project, what it judged of each file, then, for
-an admitted project, the build and its replay in that tree and the same rules on it. Only that run can print a full
-verdict, because only there the check came first. Starting the checker from its own package is a precondition of that verdict, which it does not test. A project with a dependency or with Mathlib in its imports gets no build from
-it: it says that only a proof verdict is possible and exits with 3.
-
-The arguments select no directory, because a project's Lake configuration sets them (`lintDriverArgs`), and `lakefile.toml`
-has no key that sets a variable. So `lake lint` with no option of Lake's, from a project's directory, gives a proof verdict about the workspace there or a refusal,
-unless whoever ran it set the variable, whose value then says what they asked about. Lake starts a program in its own working directory and gives it nothing that
-says which workspace it selected and that a project cannot set, so `lake -d` and `lake -f` are outside the contract: the run audits the workspace in the current
-directory, and a pass names that directory.
-
-Each line but the last starts with two spaces (`Regula.Reader.say`). The exit code is a function of the verdict alone, and
-so is the last line (`Regula.Closed.Verdict.proofLineOn`, `Regula.Language.Report.labelOn`), but for the path that a pass
-names at its end.
+The arguments select no directory, because a project's Lake configuration sets them (`lintDriverArgs`),
+and `lakefile.toml` has no key that sets a variable. So `lake lint` with no option of Lake's, from a
+project's directory, gives a proof verdict about the workspace there or a refusal, unless whoever ran it
+set the variable, whose value then says what they asked about. Lake starts a program in its own working
+directory and gives it nothing that says which workspace it selected and that a project cannot set, so
+`lake -d` and `lake -f` are outside the contract: the run audits the workspace in the current directory,
+and a pass names that directory.
 -/
 
 public section
@@ -97,7 +89,7 @@ def profileOfRun (version commit : String) (args : List String) : Except String 
         verdict, from a checkout of Regula, run `{fullVariable}=DIR lake exe lint PROFILE`"
 
 /-- Each of the modules `names`, in that order, with where Lean finds its `.olean` on the search
-path `path`. The result carries that it is these modules and what each place decides. -/
+path `path`. -/
 def readModules (path : List FilePath) (toolchainDir rootDir : FilePath) : (names : List Name) →
     Attempt L E { ms : List Regula.Load.LoadedModule // ms.map (·.name) = names ∧
       ∀ m ∈ ms, m = Regula.Load.LoadedModule.ofPlace toolchainDir rootDir m.name m.olean }

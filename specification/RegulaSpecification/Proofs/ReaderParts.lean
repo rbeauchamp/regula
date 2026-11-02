@@ -9,9 +9,6 @@ import RegulaSpecification.Proofs.Preparation
 
 /-!
 # What the parts of the reader give
-
-For every response, about the definitions in `Regula.Reader`: the key paths of a TOML table, the modules a file's
-parser sees, the commands of a file, and the modules of the default targets.
 -/
 
 namespace RegulaSpecification.Effects
@@ -52,9 +49,6 @@ theorem Clean.append {a b : List (Event L E)} (ha : Clean a) (hb : Clean b) : Cl
   · exact ha e he
   · exact hb e he
 
-/-! ## Key paths -/
-
-/-- `tablesIn` holds exactly the tables of the array. -/
 theorem mem_tablesIn {xs : Array Lake.Toml.Value} {sub : Lake.Toml.Table} :
     sub ∈ tablesIn xs ↔ ∃ r, Lake.Toml.Value.table r sub ∈ xs := by
   simp only [tablesIn, List.mem_filterMap, Array.mem_toList_iff]
@@ -66,7 +60,6 @@ theorem mem_tablesIn {xs : Array Lake.Toml.Value} {sub : Lake.Toml.Table} :
   · rintro ⟨r, h⟩
     exact ⟨_, h, rfl⟩
 
-/-- Each key the reader lists is a key path, unless the table is deeper than it follows. -/
 theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
     (h : k ∈ keysOf fuel pre t) : KeyPath pre t k ∨ Deeper fuel t := by
   induction fuel generalizing pre t k with
@@ -122,7 +115,6 @@ theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
 def IsDeepKey (k : Name) : Prop :=
   ∃ pre, k = .str pre "too deep"
 
-/-- A table deeper than the reader follows gives the key that says so. -/
 theorem keysOf_deep {fuel : Nat} {pre : Name} {t : Lake.Toml.Table} (h : Deeper fuel t) :
     ∃ k ∈ keysOf fuel pre t, IsDeepKey k := by
   induction h generalizing pre with
@@ -145,7 +137,6 @@ theorem keysOf_deep {fuel : Nat} {pre : Name} {t : Lake.Toml.Table} (h : Deeper 
     simp only [hne, Bool.false_eq_true, ite_false, List.mem_flatMap]
     exact ⟨sub, hsub, by simpa [he] using hd⟩
 
-/-- A table that a key path goes under holds a key. -/
 theorem KeyPath.nonempty {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPath pre t n) : t.items.isEmpty = false := by
   cases he : t.items.isEmpty with
   | false => rfl
@@ -153,7 +144,6 @@ theorem KeyPath.nonempty {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyP
     have hnil : t.items = #[] := Array.isEmpty_iff.mp he
     cases h <;> simp_all
 
-/-- Each key path is listed, or the reader's list holds the key that says the table is too deep. -/
 theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPath pre t n) :
     ∀ fuel, n ∈ keysOf fuel pre t ∨ ∃ k ∈ keysOf fuel pre t, IsDeepKey k := by
   have zero : ∀ {pre : Name} {t : Lake.Toml.Table}, ∃ k ∈ keysOf 0 pre t, IsDeepKey k :=
@@ -226,7 +216,6 @@ theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPa
           exact ⟨sub, hsub, by simpa [hn.nonempty] using hx'⟩
       exact (ih fuel).imp hin fun ⟨d, hd, hdeep⟩ => ⟨d, hin hd, hdeep⟩
 
-/-- The key that says a table is too deep is in no closed set. -/
 theorem deepKey_not_admitted {k : Name} (h : IsDeepKey k) : ¬ ConfigKeyAdmitted k := by
   obtain ⟨pre, rfl⟩ := h
   have hlast : ∀ q : Name, (Name.str q "too deep").getString! = "too deep" := fun _ => rfl
@@ -235,8 +224,6 @@ theorem deepKey_not_admitted {k : Name} (h : IsDeepKey k) : ¬ ConfigKeyAdmitted
     exact this _ h (hlast pre)
   · have : ∀ o ∈ options, (`leanOptions ++ o).getString! ≠ "too deep" := by decide +kernel
     exact this o ho (he ▸ hlast pre)
-
-/-! ## What a file's parser sees -/
 
 /-- What the imports of the modules outside `seen` can still add to the search. -/
 def remaining : List (Name × Array Import) → List Name → Nat
@@ -267,7 +254,6 @@ theorem remaining_mono (hs : List (Name × Array Import)) (seen : List Name) (m 
     · simp only [h1, Bool.false_eq_true, ite_false]
       split <;> omega
 
-/-- Following a module once takes what it adds out of what remains. -/
 theorem remaining_step (hs : List (Name × Array Import)) (seen : List Name) (m : Name)
     (hm : seen.contains m = false) :
     ((hs.lookup m).getD #[]).size + remaining hs (m :: seen) ≤ remaining hs seen := by
@@ -297,9 +283,6 @@ theorem remaining_step (hs : List (Name × Array Import)) (seen : List Name) (m 
         simp only [h1, h2, Bool.false_eq_true, ite_false]
         omega
 
-/-- What the search gives, when `fuel` suffices: only the toolchain's modules, and a set `S` of the project's
-modules it followed, so that each name of `todo` is in one or the other and what each followed module passes on
-is too. -/
 theorem visible_closed (hs : List (Name × Array Import)) (held : List Name) (fuel : Nat)
     (todo seen : List Name) (hf : todo.length + remaining hs seen ≤ fuel) :
     (∀ x ∈ visibleToolchain (fun n => hs.lookup n) held.contains todo seen fuel, x ∈ held) ∧
@@ -376,7 +359,6 @@ theorem visible_closed (hs : List (Name × Array Import)) (held : List Name) (fu
               exact ⟨i, ⟨Array.mem_toList_iff.mpr hi, he⟩, rfl⟩
             · exact h4 s hs' (by simpa [hsm] using hns)
 
-/-- What the search gives comes from a name of `todo` by `Sees`. -/
 theorem visible_sound (hs : List (Name × Array Import)) (held : List Name) (fuel : Nat)
     (todo seen : List Name) (x : Name)
     (h : x ∈ visibleToolchain (fun n => hs.lookup n) held.contains todo seen fuel) :
@@ -412,8 +394,7 @@ theorem visible_sound (hs : List (Name × Array Import)) (held : List Name) (fue
                 (Array.mem_toList_iff.mp hi) he hs'⟩
           · exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
 
-/-- The search gives exactly what `Sees` states from its first names, with the bound the reader gives it. So the
-import asked for the parser names exactly the modules that `Sees` states, and that `Sees` is Lean's rule is H1. -/
+/-- That `Sees` is Lean's rule is H1. -/
 theorem mem_visible_iff (hs : List (Name × Array Import)) (held direct : List Name) (fuel : Nat)
     (hf : direct.length + (hs.map (·.2.size)).sum ≤ fuel) (x : Name) :
     x ∈ visibleToolchain (fun n => hs.lookup n) held.contains direct [] fuel ↔
@@ -439,9 +420,6 @@ theorem mem_visible_iff (hs : List (Name × Array Import)) (held direct : List N
         exact this
   exact key _ _ hsees (h3 m hm)
 
-/-! ## The commands of a file -/
-
-/-- `parseAll` gives what `Parsed` states of its events. -/
 theorem parseAll_parsed (input : InputContext) (env : E) (state : ModuleParserState) (messages : MessageLog)
     (fuel : Nat) {t : List (Event L E)} {commands : List Syntax} {final : MessageLog}
     (h : Runs (parseAll input env state messages fuel) t (commands, final)) :
@@ -466,9 +444,6 @@ theorem parseAll_parsed (input : InputContext) (env : E) (state : ModuleParserSt
       cases he
       exact .next (by simpa using hterm) (by simpa using ih _ _ h₃)
 
-/-! ## The modules of the default targets -/
-
-/-- `defaultModules` gives what `DefaultModules` states of its events, or an answer of Lake failed, and it only observes. -/
 theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (Event L E)}
     {b : Except String (List (Name × FilePath))} (hT : ∀ e ∈ t, e ∈ T)
     (h : Runs (defaultModules root targets : Attempt L E _).run t b) :

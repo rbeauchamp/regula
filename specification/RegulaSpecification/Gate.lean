@@ -9,10 +9,7 @@ import RegulaSpecification.Safety
 # The verdict of a run, and RG2001
 
 Regula's verdict is a closed type with three values. A build that Lean could not load, or an input
-that the admission refuses, is `incomplete` (RG2001), never read as absent; a claim of no module is
-refused too. A well-formed input passes exactly when RG1001 to RG1006 hold of it. `gate_o5` proves
-the record determinate: any two verdict functions that meet it are equal, so the record leaves
-nothing unsaid about the verdict.
+that the admission refuses, is `incomplete` (RG2001), and is never read as absent.
 -/
 
 namespace RegulaSpecification
@@ -47,7 +44,6 @@ def gateRecord : IntentRecord (Option Input → Verdict) where
         g (some i) ≠ .incomplete ∧ (g (some i) = .pass ↔ AllHold i)⟩]
   vocab := [⟨"well-formed input", Input, Input.WellFormed⟩]
 
-/-- What it means to meet the record of the verdict, with the record's fields unfolded. -/
 theorem gate_meets_iff (g : Option Input → Verdict) :
     gateRecord.Meets g ↔ g none = .incomplete ∧
       (∀ i : Input, ¬ i.WellFormed → g (some i) = .incomplete) ∧
@@ -55,7 +51,6 @@ theorem gate_meets_iff (g : Option Input → Verdict) :
         g (some i) ≠ .incomplete ∧ (g (some i) = .pass ↔ AllHold i) := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, gateRecord]
 
-/-- The verdict is determinate: two verdict functions that meet the record are equal. -/
 theorem gate_o5 : O5 gateRecord .eq := by
   rw [o5_correct]
   intro u v hu hv
@@ -75,7 +70,6 @@ theorem gate_o5 : O5 gateRecord .eq := by
         cases hx : u (some i) <;> cases hy : v (some i) <;> simp_all
     · rw [hu'.2.1 i hi, hv'.2.1 i hi]
 
-/-- O4: the verdict function is total. -/
 theorem gate_o4 : O4 gateRecord := o4_function _ rfl
 
 end RegulaSpecification

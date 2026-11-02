@@ -19,48 +19,40 @@ states what the program does for every response, and `Regula.LintMain` runs it.
 
 The full gate is `REGULA_FULL=DIR lake exe lint PROFILE`, started from a checkout of Regula itself. So the Lake
 that starts it loads Regula's configuration and none of the project's, and the checker's program was built
-without the project. That start is a precondition of the full verdict, and the check does not test it: a start from a project's Lake is outside the contract.
+without the project. That start is a precondition of the full verdict, and the check does not test it: a start
+from a project's Lake is outside the contract.
 
-**Every Lake call and child process of the gate works in a tree the checker made for this run** (`tree`), and
-none works in the project's directory. Before Lake's load the checker asks only that the two configuration files be
-written there. It asks for a module's text only once the decision has admitted the whole reading, and each planned
-file is then read back from the tree by the path it was written at, so each text the record credits is what the file
-system answered after the reading's last act on the tree (`FullRun.answered_at_consumer` in the specification). A
-name, a link or a file of the project can then select no path outside the tree, whatever Lake derives at this or a
-later version. The project's own directory is read and never written, and its `.lake`, its manifest and every other
-file of it are not read at all.
+Every Lake call and child process of the gate works in a tree the checker made for this run (`tree`), and none
+works in the project's directory. Before Lake's load the checker asks only that the two configuration files be
+written there. It asks for a module's text only once the decision has admitted the whole reading, and each
+planned file is then read back from the tree by the path it was written at, so each text the record credits is
+what the file system answered after the reading's last act on the tree. A name, a link or a file of the project
+can then select no path outside the tree, whatever Lake derives at this or a later version. The project's own
+directory is read and never written, and its `.lake`, its manifest and every other file of it are not read at
+all.
 
-It reads, in this order, and stops at the first refusal:
+The reading stops at the first refusal. `lakefile.toml` goes through Lake's own TOML parser, and a key with the
+root `require` leaves only the proof verdict: the checker runs no Lake call on such a project. The root package
+comes from Lake's load of the tree's configuration alone (`Lake.loadWorkspaceRoot`), which resolves no
+dependency and lists no directory, and each `globs` entry must be a single module, because the tree holds no
+source yet. A module name outside `closedModuleName` is unread before any path is built from it. A root is the
+file of its own `Module`, and a root that Lake's import resolution does not give that file is unread. An import
+is the file `Lake.Workspace.findModule?` gives, as Lake's build resolves it (`Lake/Build/Module.lean:37`), or
+else a module that Lean's search finds on the toolchain's own library, the one directory on the search path. A
+file of the project is read only if it is, by its real path, exactly itself, so a link at any depth leaves a file
+unread, and no name found outside the project is printed. Each file's commands go through Lean's `parseCommand`,
+with the context that the specification's H1 states: an environment of the toolchain modules the file sees, no
+options, no namespace and no open declaration.
 
-- That the project and the tree lie apart.
-- `lean-toolchain`, `lakefile.lean` by name, and `lakefile.toml`, which it writes to the tree. `lakefile.toml`
-  goes through Lake's own TOML parser, as a list of key paths. A key with the root `require` stops the reading
-  here, with only the proof verdict left: the checker runs no Lake call on such a project.
-- The root package, through Lake's load of the tree's configuration alone (`Lake.loadWorkspaceRoot`), which
-  resolves no dependency and lists no directory: its source directories, its libraries' and executables' names,
-  its default targets, and each library's `globs`. Each source directory must lie below the tree with closed
-  names (`closedSourceDir`), each `globs` entry must be a single module, because the tree holds no source yet, and
-  each default target must be a library.
-- The modules of the default targets, with the files Lake names for them in the tree.
-- Each module those reach, by its header, through Lean's `parseHeader`. A name outside `closedModuleName` is
-  unread before any path is built from it. A root is the file of its own `Module`, and a root that Lake's
-  import resolution does not give that file is unread. An import is the file `Lake.Workspace.findModule?` gives,
-  as Lake's build resolves it (`Lake/Build/Module.lean:37`), or else a module that Lean's search finds on the toolchain's own library, the one
-  directory on the search path. The same relative path of the project is read if it is, by its real path, exactly itself, so a link
-  at any depth leaves a file unread, and no name found outside the project is printed.
-- Each file's commands, through Lean's `parseCommand`, with the context that the specification's H1 states: an
-  environment of the toolchain modules the file sees, no options, no namespace and no open declaration.
+Only for a reading that the decision admits does each file's text go to the tree (`writeSources`), and each
+planned file is read back (`readBack`). Then the file system is asked through the name Lake prefers to the
+configuration judged (`noOtherConfig`), so a file of the plan that the volume takes for `lakefile.lean` is left
+unread. What would hold two texts at one path, by its components, is left unread (`twoTexts`), so two names with
+one file are admitted only when both reads gave that file one text. Two paths with different components that the
+file system takes for one file, with different texts, show up in the read-back, whatever its reason for doing so.
 
-Only then, and only for a reading that the decision admits, each file's text goes to the tree (`writeSources`), and each
-planned file is read back (`readBack`). Then the file system is asked through the name Lake prefers to the configuration judged (`noOtherConfig`), so a file
-of the plan that the volume takes for `lakefile.lean` is left unread. What would hold two texts at one path, by its components, is left unread
-(`twoTexts`), so two names with one file are admitted only when both reads gave that file one text. Two paths with
-different components that the file system takes for one file, with different texts, show up in the read-back, whatever its
-reason for doing so.
-
-`MathlibReached` is a test of the name's root, on the modules `reached` holds, so a module whose root is
-`Mathlib` is recorded and not read. No `.olean` file of the project or of a dependency is loaded. Only the
-toolchain's own parsers run.
+A module whose root is `Mathlib` is recorded and not read. No `.olean` file of the project or of a dependency is
+loaded, and only the toolchain's own parsers run.
 -/
 
 public section
@@ -151,11 +143,10 @@ def stopped (toolchainFile : Option String) (leanConfig : Bool) (keys : List Nam
 /-- The modules a file's parser sees, read from its header: the imports `importModulesCore` loads data
 for (`Lean/Environment.lean:2108-2190` at v4.35.0). This states Lean's rule, because the project's modules
 have no `.olean` that Lean could follow them through; `Sees` is its statement, and H1 holds what is assumed.
-In a `module` file that is each direct import, and through it each `public` import. `todo` starts as the file's
-direct imports. The project's own modules are followed by their headers, each once (`seen`), so a project whose
-imports form many paths to one module takes no longer for it. The search stops at a module of the toolchain,
-whose own closure Lean follows. `fuel` bounds the names taken from `todo`, and
-`mem_visible_iff` proves what it gives with the bound the reader gives it. -/
+In a `module` file that is each direct import, and through it each `public` import. The project's own
+modules are followed by their headers, each once (`seen`), so a project whose imports form many paths to
+one module takes no longer for it. The search stops at a module of the toolchain, whose own closure Lean
+follows. `fuel` bounds the names taken from `todo`. -/
 def visibleToolchain (headers : Name → Option (Array Import)) (isToolchain : Name → Bool)
     (todo seen : List Name) (fuel : Nat) : List Name :=
   match fuel, todo with

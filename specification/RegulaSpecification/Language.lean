@@ -14,11 +14,8 @@ import Regula.LanguageSet
 
 What the check that reads a project before anything of it is compiled must decide, stated over Lean's
 own `Syntax` and independently of the function that decides it. It imports the closed set, which is
-data, and no function of Regula.
-
-`languageRecord` is the contract of the decision and `fullGateRecord` that of the gate that runs it.
-The owner's confirmed restatement, the status of each consequence and the second reading are in
-`confirmation.md`; `README.md` gives the plain words.
+data, and no function of Regula. The owner's confirmed restatement, the status of each consequence and
+the second reading are in `confirmation.md`; `README.md` gives the plain words.
 
 What this module cannot state is that a file the decision admits runs no code of the project when Lean
 compiles it, because no model of Lean's elaborator exists in Lean. `LeanBehaviour` names that as two
@@ -228,8 +225,8 @@ theorem language_meets_iff (d : Reading → Outcome) :
         Covered r → FilesAdmitted r → d r = .admitted) := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, languageRecord]
 
-/-- The property the check exists for, read off the record: it admits a reading exactly when
-everything read is in the closed set, and nothing is left out. -/
+/-- The property the check is for, read off the record: it admits a reading exactly when everything
+read is in the closed set, and nothing is left out. -/
 def Inside (r : Reading) : Prop :=
   ConfigClosed r ∧ ReadInFull r ∧ ¬ RequiresDependency r ∧ ¬ MathlibReached r ∧ Covered r ∧
     FilesAdmitted r
@@ -255,8 +252,6 @@ theorem admitted_iff {d : Reading → Outcome} (h : languageRecord.Meets d) (r :
   · rintro ⟨c, f, k, m, v, o⟩
     exact h6 r c f k m v o
 
-/-- Any two decisions that meet the record agree on every reading, so the record leaves nothing about
-the outcome unsaid. -/
 theorem language_o5 : O5 languageRecord .eq := by
   rw [o5_correct]
   intro u v hu hv
@@ -278,8 +273,6 @@ theorem language_o5 : O5 languageRecord .eq := by
   · rw [u1 r c, v1 r c]
 
 theorem language_o4 : O4 languageRecord := o4_function _ rfl
-
-/-! ## The readings that show the record is not empty on either side -/
 
 /-- The smallest header of a `module` file. -/
 def moduleHeader : Syntax :=
@@ -336,17 +329,14 @@ theorem goodFile_admitted : FileAdmitted goodFile := by
   rw [this]
   exact admitted_endOfInput
 
-/-- `Good` is a closed module name. -/
 theorem good_closed_name : ClosedModuleName `Good := .one (by decide +kernel)
 
-/-- A quoted name that an absolute path would come from is outside the closed domain. -/
 theorem absolute_name_not_closed : ¬ ClosedModuleName (.str .anonymous "/abs/vendor/Evil") := by
   intro h
   cases h with
   | one hc => exact absurd hc (by decide +kernel)
   | more hp _ => cases hp
 
-/-- A quoted name that a parent directory would come from is outside the closed domain. -/
 theorem parent_name_not_closed : ¬ ClosedModuleName (.str .anonymous "..") := by
   intro h
   cases h with
@@ -418,8 +408,7 @@ theorem leanConfig_not_closed : ¬ ConfigClosed leanConfigReading := fun h => by
 theorem noClaim_not_covered : ¬ Covered noClaimReading := fun h => by
   simpa [noClaimReading] using h.1
 
-/-- A decision that meets the record, stated by cases on the predicates. It shows that one subject
-serves every reading. -/
+/-- A decision that meets the record, stated by cases on the predicates. -/
 noncomputable def modelDecision (r : Reading) : Outcome :=
   open Classical in
   if ¬ ConfigClosed r then .refused
@@ -477,7 +466,6 @@ theorem badFile_refused : ¬ FilesAdmitted badFileReading := by
   have ha := h { goodFile with commands := [.missing, endOfInput] } (by simp [badFileReading])
   exact ha.2.2.2.2 .missing (by simp) .missing (.self _)
 
-/-- O2 at confirmation: the record has no domain hypothesis, and each predicate has an instance. -/
 theorem language_o2 : O2 languageRecord := by
   rw [o2_correct]
   refine ⟨⟨modelDecision, by simp [languageRecord]⟩, ?_⟩
@@ -493,8 +481,6 @@ theorem language_o2 : O2 languageRecord := by
   · exact ⟨goodFile, goodFile_admitted⟩
   · exact ⟨`Good, good_closed_name⟩
 
-/-- O3: each clause can fail. The subject that fails it is a constant, on the reading the clause is
-about. -/
 theorem language_o3 : O3 languageRecord := by
   rw [o3_correct]
   intro p hp
@@ -520,11 +506,6 @@ theorem language_o3 : O3 languageRecord := by
   · exact ⟨fun _ => .refused, fun h => absurd
       (h goodReading good_closed good_full good_no_dependency goodReading_inside.2.2.2.1
         goodReading_inside.2.2.2.2.1 goodReading_inside.2.2.2.2.2) (by decide)⟩
-
-/-! ## The degenerate decisions
-
-The subject is a function to `Outcome`, which has four values. Each constant fails the record, so a
-check that admits everything, refuses everything or does nothing does not satisfy it. -/
 
 theorem constant_fails (o : Outcome) : ¬ languageRecord.Meets (fun _ => o) := by
   intro h
@@ -567,7 +548,6 @@ theorem refused_attributes :
       `command_elab, `term_elab, `tactic, `macro, `simproc, `cbv_simproc],
     a ∉ simpleAttributes := by decide +kernel
 
-/-- What a file or the configuration must not set. -/
 theorem refused_options :
     ∀ o ∈ [`debug.skipKernelTC, `match.ignoreUnusedAlts, `internal.parseQuotWithCurrentStage,
       `compiler.extract_closed, `doc.verso],
@@ -587,27 +567,21 @@ theorem refused_target_srcDir :
     `lean_lib.srcDir ∉ configKeys ∧ `lean_exe.srcDir ∉ configKeys ∧
       ∀ o ∈ options, `lean_lib.srcDir ≠ `leanOptions ++ o ∧ `lean_exe.srcDir ≠ `leanOptions ++ o := by decide +kernel
 
-/-- No key of the closed set has the root `require`, so a dependency is never read as an admitted key. -/
 theorem configKeys_no_require : ∀ k ∈ configKeys, k.getRoot ≠ `require := by decide +kernel
 
-/-- What `openPaths` names (a source directory, a `globs` entry or a default target) is refused, whatever else the reading
-holds. -/
 theorem open_path_refused {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
     (hr : r.openPaths ≠ []) : d r = .refused := by
   obtain ⟨h1, -⟩ := (language_meets_iff d).mp h
   exact h1 r fun hc => hr hc.2.2.1
 
-/-- A key with the root `require` never gives a full verdict, whatever else the reading holds. -/
 theorem require_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
     (hr : RequiresDependency r) : d r ≠ .admitted :=
   fun ha => ((admitted_iff h r).mp ha).2.2.1 hr
 
-/-- A module name outside the closed domain never gives a full verdict. -/
 theorem unclosed_name_not_admitted {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
     (m : Name) (hm : m ∈ r.reached) (hn : ¬ ClosedModuleName m) : d r ≠ .admitted :=
   fun ha => hn (((admitted_iff h r).mp ha).2.2.2.2.1.2.2.1 m hm)
 
-/-- A `lakefile.lean` is refused. -/
 theorem lean_config_refused {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading)
     (hr : r.leanConfig = true) : d r = .refused := by
   obtain ⟨h1, -⟩ := (language_meets_iff d).mp h
@@ -615,15 +589,11 @@ theorem lean_config_refused {d : Reading → Outcome} (h : languageRecord.Meets 
     have := hc.2.1
     simp [hr] at this
 
-/-! ## The gate that runs the check -/
-
 /-- What the gate does and reports, given what the check decided, whether the build and replay ended
 with 0, and the rules' verdict on the finished build. -/
 abbrev GateRun : Type := Outcome → Bool → Regula.Closed.Verdict → Report × List Step
 
-/-- The contract of the gate. Only an admitted project is built: a refusal, a failure to read and a
-project with only the proof verdict each stop it before anything is compiled. The rules run only on a
-build that ended with 0, and the report says which verdict it is. -/
+/-- The contract of the gate. -/
 def fullGateRecord : IntentRecord GateRun where
   shape := .function Outcome (fun _ => Bool → Regula.Closed.Verdict → Report × List Step)
   dom := []
@@ -657,15 +627,12 @@ theorem fullGate_o5 : O5 fullGateRecord .eq := by
   funext o b w
   cases o <;> cases b <;> simp_all
 
-/-- O4: the gate is a function. -/
 theorem fullGate_o4 : O4 fullGateRecord := o4_function _ rfl
 
-/-- O2 at confirmation: the gate's record has no domain hypothesis and no predicate. -/
 theorem fullGate_o2 : O2 fullGateRecord := by
   rw [o2_correct]
   exact ⟨⟨fun _ _ _ => (.incomplete, []), by simp [fullGateRecord]⟩, by simp [fullGateRecord]⟩
 
-/-- O3: each clause can fail, for a run that takes no step. -/
 theorem fullGate_o3 : O3 fullGateRecord := by
   rw [o3_correct]
   intro p hp
@@ -678,15 +645,11 @@ theorem fullGate_o3 : O3 fullGateRecord := by
   · simpa using h .pass
   · simpa using h .pass
 
-/-- A build is compiled only after the check, and only for an admitted outcome: `build` is in the steps
-only then, and it follows `read`. -/
 theorem build_only_after_check {g : GateRun} (h : fullGateRecord.Meets g) (o b v) :
     Step.build ∈ (g o b v).2 → o = .admitted ∧ (g o b v).2.head? = some .read := by
   obtain ⟨u1, u2, u3, u4, u5⟩ := (fullGate_meets_iff g).mp h
   cases o <;> cases b <;> simp_all
 
-/-- Mathlib in a build's imports never gets a full verdict: `Regula.Language.Report.full` needs an
-admitted outcome, which `admitted_iff` refuses. -/
 theorem full_needs_no_mathlib {d : Reading → Outcome} {g : GateRun} (hd : languageRecord.Meets d)
     (hg : fullGateRecord.Meets g) (r : Reading) (b v w)
     (hf : (g (d r) b v).1 = .full w) : ¬ MathlibReached r := by
@@ -694,8 +657,6 @@ theorem full_needs_no_mathlib {d : Reading → Outcome} {g : GateRun} (hd : lang
   have ha : d r = .admitted := by
     cases ho : d r <;> rw [ho] at hf <;> cases b <;> simp_all
   exact ((admitted_iff hd r).mp ha).2.2.2.1
-
-/-! ## What stays a hypothesis about Lean -/
 
 /-- What Lean does at one version, which no proof in Lean can reach, because `Lean.Parser.parseCommand`
 is `partial` and Lean's elaborator has no model here. These are hypotheses, never axioms: the theorem
@@ -715,9 +676,8 @@ structure LeanBehaviour where
   /-- H2. -/
   h2 : ∀ scopedParsers (ts : List Syntax), (∀ t ∈ ts, TreeAdmitted scopedParsers t) → NoProjectCode ts
 
-/-- What an admitted reading means, under H1 and H2 and no more: for each file, the trees Lean
-elaborates are ones that run no project code. The proved part is `admitted_iff`; this theorem only
-composes it with the hypotheses. -/
+/-- What an admitted reading means, under H1 and H2 and no more. The proved part is `admitted_iff`, and
+this theorem only composes it with the hypotheses. -/
 theorem admitted_runs_no_project_code (L : LeanBehaviour) {d : Reading → Outcome}
     (hd : languageRecord.Meets d) (r : Reading) (ha : d r = .admitted) :
     ∀ f ∈ r.files, ∃ ts, L.Elaborates f ts ∧ L.NoProjectCode ts := by

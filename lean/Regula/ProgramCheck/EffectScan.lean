@@ -11,12 +11,10 @@ public import Regula.Reach
 /-! # Where a constant of the repository can reach an effect
 
 The decision of the check in `Regula.ProgramCheck.Effects`, as pure functions, so that
-`specification/RegulaSpecification/Proofs/EffectScan.lean` proves what it decides: `scan` gives exactly the constants of the
-repository's modules that mention an effect, directly or through another constant of the repository
-(`mem_scan_iff`), and `judge` passes exactly when the interpreter is among them and each of them is `allowed`, in the closed set of
-modules (`judge_ok_iff`). `graphOf` reads the environment through Lean's own `header` and `find?`; that those report what the
-`.olean` files hold is Lean's, as the specification's trusted base lists. `Expr.getUsedConstants` is trusted to list what an
-expression mentions.
+`specification/RegulaSpecification/Proofs/EffectScan.lean` proves what it decides. `graphOf` reads the
+environment through Lean's own `header` and `find?`; that those report what the `.olean` files hold is
+Lean's, as the specification's trusted base lists, and `Expr.getUsedConstants` is trusted to list what
+an expression mentions.
 -/
 
 public section
@@ -62,8 +60,8 @@ def Graph.callers (g : Graph) : Std.HashMap Name (List Name) :=
 def Graph.seeds (g : Graph) : List Name :=
   (g.own.map (·.1)).filter fun n => (g.mentions n).any g.hit
 
-/-- The constants of the repository that mention an effect, directly or through another constant of the repository: a search
-back from `seeds` through `callers`. -/
+/-- The constants of the repository that mention an effect, directly or through another constant of the
+repository. -/
 def scan (g : Graph) : List (Name × Name) :=
   let callers := g.callers
   let weight := (callers.keys.map fun n => (callers.getD n []).length).sum

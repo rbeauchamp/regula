@@ -15,17 +15,11 @@ The one input every rule of the checker reads: the constants Lean loads from the
 modules that the build claims, and the profile that the project states. It carries no source text,
 message, compiled code, option or build log, so a rule cannot decide anything that is not here.
 
-A value of `Input` has the closed form by its type: no name is that of two constants
-(`Draft.unique`), each mentioned constant is held (`Input.closed`), and at least one module is
-claimed (`Input.claims`). So a rule has no case for an input that lacks that form. The loader
-constructs the first of these (`Regula.Load.Facts.input`), and `Draft.admit` is the one place that
-reads the other two, and either refuses the reading or gives the proofs.
-
-The types follow `specification/RegulaSpecification/Input.lean`, and `Draft.admit` decides that
-module's admission (`Input.WellFormed`). `specification/RegulaSpecification/Proofs/` proves each
-rule function of `Regula.Rules` against the specification's violation predicate, this admission
-against its statement, and each field against the environment that `Regula.Load` reads it from.
-That Lean's and Lake's interfaces report the build is what the specification's trusted base lists.
+A value of `Input` has the closed form by its type, so a rule has no case for an input that lacks
+it. The loader makes names unique by construction, and `Draft.admit` is the one place that checks
+the rest, refusing the reading or giving the proofs. The types follow
+`specification/RegulaSpecification/Input.lean`. That Lean's and Lake's interfaces report the build
+is what the specification's trusted base lists.
 -/
 
 public section
@@ -112,11 +106,9 @@ def spelling : Profile → String
 /-- Each profile once. -/
 def all : List Profile := [.kernelOnly, .choiceFree, .standardLogical]
 
-/-- `all` lists each profile. -/
 theorem mem_all (p : Profile) : p ∈ all := by
   cases p <;> simp [all]
 
-/-- Distinct profiles have distinct spellings. -/
 theorem spelling_injective : Function.Injective spelling := by
   intro a b h
   cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
@@ -125,7 +117,6 @@ theorem spelling_injective : Function.Injective spelling := by
 def ofSpelling? (text : String) : Option Profile :=
   all.find? (·.spelling == text)
 
-/-- `ofSpelling?` gives exactly the profile of a spelling. -/
 theorem ofSpelling?_eq_some {text : String} {p : Profile} :
     ofSpelling? text = some p ↔ p.spelling = text := by
   constructor
@@ -159,7 +150,6 @@ structure Input extends Draft where
 /-- The names of `l`, for lookups. -/
 def setOf (l : List Name) : Std.HashSet Name := l.foldl (·.insert ·) {}
 
-/-- What folding the names of `l` into a set holds. -/
 theorem mem_insertFold (l : List Name) (init : Std.HashSet Name) (x : Name) :
     (l.foldl (·.insert ·) init).contains x = true ↔ x ∈ l ∨ init.contains x = true := by
   induction l generalizing init with
@@ -177,7 +167,6 @@ theorem mem_insertFold (l : List Name) (init : Std.HashSet Name) (x : Name) :
       · exact .inl h
       · exact .inr (.inr h)
 
-/-- `setOf` holds exactly the names of its list. -/
 theorem mem_setOf (l : List Name) (x : Name) : (setOf l).contains x = true ↔ x ∈ l := by
   rw [setOf, mem_insertFold]
   simp
@@ -192,7 +181,6 @@ def openMention? : Option (Name × Name) :=
   let names := setOf (d.decls.map (·.name))
   d.decls.findSome? fun x => (x.uses.find? (!names.contains ·)).map (x.name, ·)
 
-/-- There is no such constant exactly when each mentioned constant is held. -/
 theorem openMention?_eq_none :
     d.openMention? = none ↔ ∀ x ∈ d.decls, ∀ u ∈ x.uses, ∃ e ∈ d.decls, e.name = u := by
   have hnames : ∀ u,

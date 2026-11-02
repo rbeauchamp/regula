@@ -10,11 +10,8 @@ import RegulaSpecification.Proofs.Standing
 /-!
 # What the reader gives
 
-`readProject_spec` is the theorem the reader exists for, for every response: a reading the check admits rests on
-`Evidence` of each state of the tree that holds what the plan of the reading says (`Holds`), and the state that the
-reader's own acts leave is one (`holds_of_leavesAs`), so every file `Compiled` names is read and the text judged is the text
-that stands (that `Compiled` is what Lake compiles is the hypothesis `LakeBehaviour`); any other outcome rests on a `Reason`, so a project with no such reason is admitted; an admission received no failed answer; and its acts meet the grammar `ReadingPreparation`, which places every act in the
-tree (`ReadingPreparation.readActs`). Each stage states this once.
+`readProject_spec` is the theorem about the reader, for every response. That `Compiled` is what Lake compiles is the
+hypothesis `LakeBehaviour`.
 -/
 
 namespace RegulaSpecification.Effects
@@ -28,8 +25,6 @@ open Regula.Reader
 open RegulaSpecification.Language
 
 variable {L E : Type}
-
-/-! ## The decision on what the stages give -/
 
 theorem decision_not_closed {r : Reading} (h : r.configClosed = false) : decision r = .refused := by
   simp [decision, h]
@@ -60,8 +55,6 @@ theorem decision_admitted {r : Reading} (hc : r.configClosed = true) (hf : r.rea
     (hd : r.requiresDependency = false) (hm : r.mathlibReached = false) (hv : r.covered = true)
     (h : r.filesAdmitted = true) : decision r = .admitted := by
   simp [decision, hc, hf, hd, hm, hv, h]
-
-/-! ## From a source and its file to what the record states -/
 
 theorem readText_of {T : List (Event L E)} {root : Root L} {project tree path : FilePath} {s : Source} {f : FileRead}
     {sources : List (Name × Source)} {toolchain : List Name} {m : Name}
@@ -98,7 +91,6 @@ theorem sum_headersOf (sources : List (Name × Source)) :
     ((headersOf sources).map (·.2.size)).sum = (sources.map (·.2.imports.size)).sum := by
   simp [headersOf, Function.comp_def]
 
-/-- What the file's parser sees, in the record's words. -/
 theorem mem_mods_iff (sources : List (Name × Source)) (toolchain : List Name) (s : Source) (n : Name) :
     n ∈ (visibleToolchain (fun n => (sources.lookup n).map (·.imports)) toolchain.contains
         (s.imports.toList.map (·.module)) []
@@ -116,8 +108,6 @@ theorem mem_mods_iff (sources : List (Name × Source)) (toolchain : List Name) (
     exact ⟨i, Array.mem_toList_iff.mp hi, hs⟩
   · rintro ⟨i, hi, hs⟩
     exact ⟨i.module, List.mem_map.mpr ⟨i, Array.mem_toList_iff.mpr hi, rfl⟩, hs⟩
-
-/-! ## The last stage: the walk and the commands -/
 
 /-- What an admission has the tree hold: the configuration, the pinned `lean-toolchain`, and each source's text at its file,
 in the order the run writes them. -/
@@ -180,7 +170,6 @@ structure Prior (T : List (Event L E)) (dir treeDir project tree : FilePath) (te
   /-- The tree's `lean-toolchain` too. -/
   copyToolchain : ¬ OutsideTree tree (tree / "lean-toolchain")
 
-/-- Each key path is in an admitted reading: the deep key is in no closed set. -/
 theorem keyPaths_in {r : Reading} {table : Lake.Toml.Table} (hi : Inside r)
     (hk : r.configKeys = keysOf 8 .anonymous table) (n : Name) (hn : KeyPath .anonymous table n) :
     n ∈ r.configKeys := by
@@ -194,7 +183,6 @@ theorem keyPaths_in {r : Reading} {table : Lake.Toml.Table} (hi : Inside r)
     · exact hnd ⟨d, hdr, hroot⟩
     · exact deepKey_not_admitted hdeep (hc.2.2.2 d hdr hroot)
 
-/-- A reading depends on a path by its components alone, the name of its parser input included. -/
 theorem ReadText.respell {t : List (Event L E)} {root : Root L} {project tree : FilePath} {f : FileRead} {path path' : FilePath}
     {imports : Array Lean.Import} {mods : List Name} {text : String} (hp : parts path = parts path')
     (h : ReadText t root project tree f path imports mods text) : ReadText t root project tree f path' imports mods text := by
@@ -215,7 +203,6 @@ structure ConfigFacts (tree : FilePath) (root : Root L) (modules : List (Name ×
   placed : ∀ m file path, (m, file) ∈ modules → (path = file ∨ root.resolve m = some path) →
     inTree tree path = true ∧ parentInTree tree path = true
 
-/-- Two entries of one name have one list of components, because resolution gives a name one file. -/
 theorem ConfigFacts.two {tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     (h : ConfigFacts tree root modules) (m : Name) (file other : FilePath) (hm : (m, file) ∈ modules)
     (ho : (m, other) ∈ modules) : parts other = parts file := by
@@ -225,7 +212,6 @@ theorem ConfigFacts.two {tree : FilePath} {root : Root L} {modules : List (Name 
   cases hg'
   exact hp'.symm.trans hp
 
-/-- What `configUnread` empty says: each default root is its name's one file, also by Lake's import resolution. -/
 theorem configUnread_nil {tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     (h : configUnread tree root modules = []) : ConfigFacts tree root modules := by
   simp only [configUnread, List.append_eq_nil_iff, List.map_eq_nil_iff, List.filter_eq_nil_iff] at h
@@ -249,7 +235,6 @@ theorem configUnread_nil {tree : FilePath} {root : Root L} {modules : List (Name
     have := h3 _ hmem
     simpa [Bool.or_eq_false_iff] using this
 
-/-- A module of the default targets has its own file, when no name has two. -/
 theorem fileOf_of_mem {root : Root L} {modules : List (Name × FilePath)} {m : Name} {path : FilePath}
     (ht : ∀ m file other, (m, file) ∈ modules → (m, other) ∈ modules → parts other = parts file)
     (hm : (m, path) ∈ modules) : ∃ q, fileOf root modules m = some q ∧ parts q = parts path := by
@@ -275,7 +260,6 @@ theorem fileOf_of_mem {root : Root L} {modules : List (Name × FilePath)} {m : N
   obtain ⟨file, hl⟩ := hl
   exact ⟨file, by simp [fileOf, hl], (ht m file path (mem_of_lookup hl) hm).symm⟩
 
-/-- The evidence of an admitted reading, from what the walk and the parse established. -/
 theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} {start r : Reading} {sysroot : String} {log : List String}
     {w : Walk} {files : List FileRead} {text : String}
@@ -422,7 +406,6 @@ theorem lastStage_evidence {T : List (Event L E)} {dir treeDir project tree : Fi
       rw [hrfiles]
       exact .inr (.inr ⟨f, hf, path, imports, mods, g1, g2.trans h1, h2 ▸ g3⟩)
 
-/-- What the last stage's reading rests on, once every file has its commands. -/
 theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} {start : Reading} {sysroot : String} {log : List String}
     {w : Walk} {files : List FileRead} {text : String}
@@ -612,7 +595,6 @@ theorem lastStage_goal {T : List (Event L E)} {dir treeDir project tree : FilePa
 abbrev configWrites (tree : FilePath) (text : String) : List (Event L E) :=
   [⟨.writeFile (tree / "lakefile.toml") text, .ok ()⟩, ⟨.writeFile (tree / "lean-toolchain") leanToolchain, .ok ()⟩]
 
-/-- `existsByName` asks one thing, and only an answer of no such name says that it is absent. -/
 theorem existsByName_spec {path : FilePath} {t : List (Event L E)} {b : Except String Bool}
     (h : Runs (existsByName path : Attempt L E Bool).run t b) :
     ∃ r, t = [⟨.symlinkMetadata path, r⟩] ∧
@@ -638,7 +620,6 @@ theorem existsByName_spec {path : FilePath} {t : List (Event L E)} {b : Except S
       exact ⟨rfl, fun he => (by cases he), fun he => (by cases he),
         fun _ => ⟨_, rfl, fun _ _ _ he => (by cases he)⟩⟩
 
-/-- `noOtherConfig` asks one thing: on success nothing answers to the name, and on a failure something does or the question failed. -/
 theorem noOtherConfig_spec {tree : FilePath} {t : List (Event L E)} {b : Except String Unit}
     (h : Runs (noOtherConfig tree : Attempt L E Unit).run t b) :
     ∃ r, t = [⟨.symlinkMetadata (tree / "lakefile.lean"), r⟩] ∧
@@ -673,7 +654,6 @@ structure AdmittedActs (tree : FilePath) (t : List (Event L E)) (writes plan : L
   back : ∃ a b, t = a ++ b ∧ Quiet b ∧ (∀ x ∈ plan, (⟨.readFile x.1, .ok x.2⟩ : Event L E) ∈ b) ∧
     ∃ e, (⟨.symlinkMetadata (tree / "lakefile.lean"), .error e⟩ : Event L E) ∈ b ∧ ∃ name code details, e = .noFileOrDirectory name code details
 
-/-- Earlier events that act as a list of writes come before those of the reading. -/
 theorem AdmittedActs.prepend {tree : FilePath} {pre t : List (Event L E)} {k writes plan : List (FilePath × String)}
     (hl : LeavesAs pre k) (hw : WritesIn pre k) (h : AdmittedActs tree t writes plan) : AdmittedActs tree (pre ++ t) (k ++ writes) plan := by
   obtain ⟨a, b, rfl, hq, hr, habs⟩ := h.back
@@ -683,16 +663,13 @@ theorem AdmittedActs.cast {tree : FilePath} {t : List (Event L E)} {w w' plan : 
     AdmittedActs tree t w' plan :=
   he ▸ h
 
-/-- What a reading that wrote only its plan and read each of it back gives the record. -/
 theorem AdmittedActs.readBack {tree : FilePath} {t : List (Event L E)} {plan : List (FilePath × String)} (h : AdmittedActs tree t plan plan) : ReadBack t tree := by
   obtain ⟨a, b, he, hq, hr, habs⟩ := h.back
   exact ⟨a, b, he, hq, (fun path text r hw _ => hr (path, text) (h.writesIn path text r hw)), habs⟩
 
-/-- Two events, each in its list of two in order. -/
 theorem pair_sublist {x y : Event L E} {a b : List (Event L E)} (hx : x ∈ a) (hy : y ∈ b) : [x, y].Sublist (a ++ b) :=
   (List.singleton_sublist.mpr hx).append (List.singleton_sublist.mpr hy)
 
-/-- What `twoTexts` empty says: no two entries of the plan hold two texts at one path. -/
 theorem twoTexts_nil {planned : List (Name × FilePath × String)} (h : twoTexts planned = []) :
     ∀ x ∈ planned, ∀ y ∈ planned, parts x.2.1 = parts y.2.1 → x.2.2 = y.2.2 := by
   intro x hx y hy hp
@@ -701,7 +678,6 @@ theorem twoTexts_nil {planned : List (Name × FilePath × String)} (h : twoTexts
   simp only [Bool.not_eq_true, List.any_eq_false, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, not_and, ne_eq, Decidable.not_not] at h1
   exact h1 y hy hp
 
-/-- What `twoTexts` not empty says: two entries of the plan hold two texts at one path. -/
 theorem twoTexts_cons {planned : List (Name × FilePath × String)} (h : twoTexts planned ≠ []) :
     ∃ x ∈ planned, ∃ y ∈ planned, parts x.2.1 = parts y.2.1 ∧ x.2.2 ≠ y.2.2 := by
   obtain ⟨z, hz⟩ := List.exists_mem_of_ne_nil _ h
@@ -709,13 +685,11 @@ theorem twoTexts_cons {planned : List (Name × FilePath × String)} (h : twoText
   obtain ⟨x, ⟨hx, y, hy, hp, hne⟩, -⟩ := hz
   exact ⟨x, hx, y, hy, hp, hne⟩
 
-/-- The plan without the names of its entries. -/
 theorem plannedOf_map (tree : FilePath) (text : String) (srcs : List (Name × Source)) :
     (plannedOf [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] srcs).map (·.2) =
       planOf tree text srcs := by
   simp [plannedOf, planOf, Function.comp_def]
 
-/-- A trace that acts as the plan, with no two of its entries in disagreement, leaves exactly the plan. -/
 theorem holds_of_leavesAs {t : List (Event L E)} {tree : FilePath} {text : String} {srcs : List (Name × Source)}
     (h : LeavesAs t (planOf tree text srcs))
     (hc : twoTexts (plannedOf [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] srcs) = []) :
@@ -734,7 +708,6 @@ theorem holds_of_leavesAs {t : List (Event L E)} {tree : FilePath} {text : Strin
     · cases he
     · exact hm
 
-/-- A copy that completed received no failed answer. -/
 theorem CopyStep.clean {tree path : FilePath} {text : String} {t : List (Event L E)} {c : Bool}
     (h : CopyStep tree path text t c) (hc : c = true) : Clean t := by
   obtain ⟨⟨before, rfl, hb⟩, -⟩ := h.complete hc
@@ -747,8 +720,6 @@ theorem CopyStep.clean {tree path : FilePath} {text : String} {t : List (Event L
     rintro ⟨x, hx⟩
     cases hx
 
-/-- `readBack` for every response: on success each entry's read gave its text, a failure names an entry and an answer that differs,
-and all it asks is quiet. -/
 theorem readBack_spec {l : List (FilePath × String)} {t : List (Event L E)} {b : Except String Unit}
     (h : Runs (readBack l : Attempt L E Unit).run t b) :
     (b = .ok () → (∀ x ∈ l, (⟨.readFile x.1, .ok x.2⟩ : Event L E) ∈ t) ∧ Clean t) ∧
@@ -788,8 +759,6 @@ theorem readBack_spec {l : List (FilePath × String)} {t : List (Event L E)} {b 
         intro he
         exact hne (by simpa using Except.ok.inj he)
 
-/-- `writeSources` for every response: on success it acts as the writes of the sources; a failure names a source and why; and its acts
-are the grammar's, each step using what the prefix read. -/
 theorem writeSources_spec {project tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     {srcs : List (Name × Source)} {prior t : List (Event L E)} {b : Except String Unit}
     (hs : ∀ x ∈ srcs, Named prior project tree root modules x.1 ∧ FileOfModule root modules x.1 x.2.path ∧
@@ -838,7 +807,6 @@ theorem writeSources_spec {project tree : FilePath} {root : Root L} {modules : L
         · exact .inl h'
         · exact .inr ⟨e, List.mem_append_right _ he', hf', hop⟩
 
-/-- A plan's entry is what `Planned` states. -/
 theorem planned_of_mem {T : List (Event L E)} {project tree : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     {text : String} {srcs : List (Name × Source)}
     (htoml : (⟨.readFile (project / "lakefile.toml"), .ok text⟩ : Event L E) ∈ T)
@@ -854,7 +822,6 @@ theorem planned_of_mem {T : List (Event L E)} {project tree : FilePath} {root : 
     obtain ⟨h1, h2, h3⟩ := hsrc y hy
     exact .source h1 h2 h3
 
-/-- A source's fact, as the plan's entry needs it. -/
 theorem source_facts {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} {roots todo : List Name} {w : Walk}
     (I : WalkInv T dir treeDir project tree root modules roots todo w) :
@@ -868,9 +835,6 @@ theorem source_facts {T : List (Event L E)} {dir treeDir project tree : FilePath
   rw [ht]
   exact hsub.subset (List.mem_cons_of_mem _ (List.mem_cons_self ..))
 
-/-- The last stage of the reader. On an admission its acts leave what the writes of the sources leave, whose plan with `lakefile.toml`
-and `lean-toolchain` has no two texts at one path, and no answer it received failed. Its acts are the grammar's `ReadingLoaded`: each lookup and
-parser import names the toolchain's library, and each copy is of a needed name's file, by a text the events before it read. -/
 theorem readFiles_spec {T prior t : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
     {modules : List (Name × FilePath)} {start : Reading} {sysroot text : String} {log : List String}
     {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T)
@@ -1082,8 +1046,6 @@ theorem readFiles_spec {T prior t : List (Event L E)} {dir treeDir project tree 
         cases he
         exact ⟨hgoal, fun ha => (hnadm ha).elim⟩
 
-/-! ## Lake's load, and the paths it names -/
-
 theorem openPaths_reason {T : List (Event L E)} {dir treeDir tree : FilePath} {root : Root L}
     (hload : TreeLoaded T dir treeDir tree root) (h : openPathsOf tree root ≠ []) : Reason T dir treeDir .refused := by
   obtain ⟨x, hx⟩ := List.exists_mem_of_ne_nil _ h
@@ -1112,7 +1074,6 @@ theorem openPaths_of_notLibrary {tree : FilePath} {root : Root L} {target : Name
   have := h.2 target ht
   simp [hn] at this
 
-/-- A source directory that `closedSourceDir` refuses keeps a project from admission. -/
 theorem openPaths_of_openDir {tree d : FilePath} {root : Root L} (hd : d ∈ root.sourceDirs)
     (hn : closedSourceDir tree d = false) : openPathsOf tree root ≠ [] := by
   intro h
@@ -1122,7 +1083,6 @@ theorem openPaths_of_openDir {tree d : FilePath} {root : Root L} (hd : d ∈ roo
   rw [h.1.1] at hmem
   cases hmem
 
-/-- A character outside the closed set, in a component of a source directory below the tree, makes `closedSourceDir` refuse that directory. -/
 theorem closedSourceDir_of_char {tree d : FilePath} {rel : List String} {c : String} {ch : Char}
     (hr : TreeRelative (parts tree) (parts d) rel) (hc : c ∈ rel) (hch : ch ∈ c.toList) (hbad : ¬ ClosedChar ch) :
     closedSourceDir tree d = false := by
@@ -1179,7 +1139,6 @@ theorem configUnread_reason {T : List (Event L E)} {dir treeDir project tree : F
           exact .inr ⟨d, hd, fun rel hrel => by rw [(inTree_iff tree d).mpr ⟨rel, hrel⟩] at hn; cases hn⟩
     exact .moduleNotInTree hscene (.root (List.mem_map.mpr ⟨(m, file), hmf, rfl⟩)) hfile.1 hout
 
-/-- What a stage that has the root package gives. -/
 theorem readRoot_spec {T prior t : List (Event L E)} {dir treeDir project tree : FilePath} {start : Reading}
     {sysroot text : String} {b : Except String (Reading × List (Name × Source))} (hT : t.Sublist T)
     (hsys : SysrootIs T sysroot)
@@ -1309,8 +1268,6 @@ theorem readRoot_spec {T prior t : List (Event L E)} {dir treeDir project tree :
               clean_one (by rintro (⟨x, hx⟩ | ⟨x, hx⟩) <;> cases hx)
             simpa [List.append_assoc] using hload.append (hclean₅.append l3)
 
-/-! ## The configuration -/
-
 /-- What the stages before the configuration established, by the events `T`. -/
 structure Early (T : List (Event L E)) (dir treeDir project tree : FilePath) (tf : Option String) : Prop where
   /-- The project's real path. -/
@@ -1329,7 +1286,6 @@ structure Early (T : List (Event L E)) (dir treeDir project tree : FilePath) (tf
   /-- Why anything else is refused. -/
   toolchain_reason : tf ≠ some leanToolchain → Reason T dir treeDir .refused
 
-/-- A reading that stopped at a stage that has its own reason. -/
 theorem stopped_goal {T : List (Event L E)} {dir treeDir : FilePath} {tf : Option String} {why : String}
     {H : (List String → Option String) → Prop}
     (hr : tf ≠ some leanToolchain → Reason T dir treeDir .refused) (hi : Reason T dir treeDir .incomplete) :
@@ -1357,7 +1313,6 @@ theorem stopped_goal {T : List (Event L E)} {dir treeDir : FilePath} {tf : Optio
     subst ho
     exact hr ht
 
-/-- A reading that stopped with a reason is not admitted. -/
 theorem stopped_why_not_admitted {tf : Option String} {why : String} :
     decision (stopped tf false [] (some why)) ≠ .admitted := by
   intro ha
@@ -1369,8 +1324,6 @@ theorem stopped_why_not_admitted {tf : Option String} {why : String} :
   · rw [decision_not_closed (by simpa using ht)] at ha
     cases ha
 
-/-- The parse of `lakefile.toml` and, when it is closed, the writes of its text and of the pinned `lean-toolchain`, then what
-follows. -/
 theorem readKeys_spec {T prior t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
     {sysroot text : String} {real : FilePath} {b : Except String (Reading × List (Name × Source))}
     (hI : t <:+: T) (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf)
@@ -1537,8 +1490,6 @@ theorem readKeys_spec {T prior t : List (Event L E)} {dir treeDir project tree :
           simp only [List.cons_append, List.nil_append] at hH hB hCl ⊢
           exact ⟨hH, hB, hCl, hto⟩
 
-/-- `lakefile.lean` by its name, `lakefile.toml`, and what follows. The events before it are `prior`: they only observe, and they told the run
-the real paths, which lie apart, and the toolchain, so what follows meets the grammar of a whole reading. -/
 theorem readConfig_spec {T prior t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
     {sysroot : String} {b : Except String (Reading × List (Name × Source))} (hI : t <:+: T)
     (hsys : SysrootIs T sysroot) (hE : Early T dir treeDir project tree tf) (hq : Quiet prior)
@@ -1628,9 +1579,6 @@ theorem readConfig_spec {T prior t : List (Event L E)} {dir treeDir project tree
         have := written_after_no_acts (b := t₄) hno p
         simpa [List.append_assoc] using this
 
-/-! ## The whole reader -/
-
-/-- How `readExact` fails, by its events. -/
 theorem readExact_error {project path : FilePath} {t : List (Event L E)} {why : String}
     (h : Runs (readExact project path : Attempt L E String).run t (.error why)) :
     (∃ e, t = [⟨.realPath path, .error e⟩]) ∨
@@ -1656,8 +1604,6 @@ theorem readExact_error {project path : FilePath} {t : List (Event L E)} {why : 
       obtain ⟨rfl, -⟩ := runs_attempt_throw_iff.mp h₂
       exact .inr (.inl ⟨real, rfl, (exactBelow_eq_false_iff _ _ _).mp (by simpa using hb)⟩)
 
-/-- `toolchainOf` gives the pinned Lean only when the file says it through the exact-path test, and anything else has a reason
-to refuse. -/
 theorem toolchainOf_spec {T t : List (Event L E)} {dir treeDir project : FilePath} {tf : Option String}
     (hT : t.Sublist T) (hproject : (⟨.realPath dir, .ok project⟩ : Event L E) ∈ T)
     (h : Runs (toolchainOf project : Prog L E (Option String)) t tf) :
@@ -1689,7 +1635,6 @@ theorem toolchainOf_spec {T t : List (Event L E)} {dir treeDir project : FilePat
     · exact .toolchainNotExact hproject (hT₁.subset (by simp)) hb
     · exact .toolchainFailed (e := e) hproject (hT₁.subset (by simp))
 
-/-- `apart` is `Apart`. -/
 theorem apart_iff (a b : FilePath) : apart a b = true ↔ Apart a b := by
   have hp (x y : List String) : x.isPrefixOf y = false ↔ ¬ x <+: y := by
     constructor
@@ -1702,8 +1647,6 @@ theorem apart_iff (a b : FilePath) : apart a b = true ↔ Apart a b := by
       | true => exact absurd (List.isPrefixOf_iff_prefix.mp hx) h
   simp [apart, Apart, hp]
 
-/-- The theorem of the reader, for every response: what its result rests on, that a whole admitted reading received no failed answer, and
-the grammar of its acts, after a prefix that only observes and that holds the toolchain's answer. -/
 theorem readProject_spec {T prior t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
     {b : Except String (Reading × List (Name × Source))} (hI : t <:+: T) (hsys : SysrootIs T sysroot)
     (hq : Quiet prior) (hps : SysrootIs prior sysroot)
@@ -1735,7 +1678,6 @@ theorem readProject_spec {T prior t : List (Event L E)} {dir treeDir : FilePath}
       obtain ⟨t₉, t₁₀, r₁₀, rfl, h₁₂, h₁₃⟩ := runs_attempt_bind_iff.mp h₅
       obtain ⟨tf, h₁₄, rfl⟩ := runs_lift_iff.mp h₁₂
       dsimp only at h₁₃
-      -- The events so far, and those to come, are all of `T`.
       generalize hZ : ([⟨.realPath dir, .ok project⟩] ++ ([⟨.realPath treeDir, .ok tree⟩] ++ (t₉ ++ t₁₀)) : List (Event L E)) = Z at hT ⊢
       have hsub₉ : t₉.Sublist T := by
         refine List.Sublist.trans ?_ hT
@@ -1781,8 +1723,6 @@ theorem readProject_spec {T prior t : List (Event L E)} {dir treeDir : FilePath}
           have hc₂ : Clean ([⟨.realPath dir, .ok project⟩, ⟨.realPath treeDir, .ok tree⟩] : List (Event L E)) := by clean_events
           simpa [List.append_assoc] using hc₂.append ((u1 hto).2.append hcl)
 
-/-- A failed read is never admitted, of the definition that runs: on an admission, no answer that the reader asked failed. So a run in which an
-answer failed gives no admission. -/
 theorem readProject_no_failed {sysroot : String} {dir treeDir : FilePath} {r : Reading}
     {srcs : List (Name × Source)} {t : List (Event L E)}
     (h : Runs (readProject sysroot dir treeDir : Attempt L E _).run t (.ok (r, srcs)))
@@ -1798,7 +1738,6 @@ def ReadDone (T t : List (Event L E)) (dir treeDir : FilePath) (r : Reading) : P
     Evidence T dir treeDir held r) ∧ (∃ real, (⟨.realPath treeDir, .ok real⟩ : Event L E) ∈ t ∧ ReadBack t real) ∧ Clean t) ∧
     ∀ o, decision r = o → o ≠ .admitted → Reason T dir treeDir o
 
-/-- The reader, whatever lines it returns. -/
 theorem read_spec {T prior t : List (Event L E)} {dir treeDir : FilePath} {sysroot : String}
     {b : Except String (Reading × List String)} (hI : t <:+: T) (hsys : SysrootIs T sysroot)
     (hq : Quiet prior) (hps : SysrootIs prior sysroot)

@@ -12,16 +12,13 @@ import RegulaSpecification.Proofs.Floor
 # A pass is owed
 
 What the record of a run (`RegulaSpecification.Effects.programRecord`) requires of every program that meets it, by the
-record alone. It reads no program, so it holds of each subject and not only of the one that runs.
+record alone. It reads no program, so it holds of each subject that meets the record, the one that runs included.
 
-`PlainOwed` and `FullOwed` state what it takes for a build to pass, over what the run received: no case of the closed set
-of reasons holds, `FullOwed` also that no build or replay was rejected, and the environment that Lean's import gave has `BuildAnswer.Floor`.
-`plain_owed` and `full_owed` state that a run on such responses gives the pass verdict and exit 0.
-`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass,
-and no statement here says that: a refusal is true of what the run was answered, and a project with no refusal, on which the rules hold, passes. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming
-reasons absent: their exact phase relations constrain every copy, load, command, lookup and import,
-including failed attempts. The premises concern responses and content, never a branch of a program.
-No consistency of responses is needed for either implication to a pass.
+`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass, and no statement here says
+that: a refusal is true of what the run was answered, and a project with no refusal, on which the rules hold, passes.
+Preparation comes from `PlainRun` and `FullRun`, whose phase relations constrain every copy, load, command, lookup and
+import, failed attempts included, and no reason is assumed absent. The premises concern responses and content, never a
+branch of a program, and neither implication to a pass needs consistent responses.
 -/
 
 namespace RegulaSpecification.Effects
@@ -36,14 +33,11 @@ open RegulaSpecification.Loader
 
 variable {L E : Type}
 
-/-- The prepared response is an event of the trace. -/
 theorem PreparedLoad.event {t : List (Event L E)} {dir treeDir sysroot tree response}
     (h : PreparedLoad t dir treeDir sysroot tree response) :
     (⟨.loadRoot sysroot tree, response⟩ : Event L E) ∈ t := by
   obtain ⟨_, _, _, _, _, _, _, _, _, _, hi, _⟩ := h
   exact hi.subset (by simp)
-
-/-! ## The events of a phase of a run -/
 
 /-- What a run of the full gate did after it made its tree and before its first Lake command or import for the rules. -/
 def readPhase (t : List (Event L E)) : List (Event L E) :=
@@ -65,7 +59,6 @@ theorem readPhase_sublist {tRead rest : List (Event L E)} {x : Event L E}
   obtain ⟨h1, h2⟩ := h e he
   simp [h1, h2]
 
-/-- The reading is a contiguous part of its phase; extending the phase inserts no effects inside it. -/
 theorem readPhase_infix {tRead rest : List (Event L E)} {x : Event L E}
     (h : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false) :
     tRead <:+: readPhase (x :: tRead ++ rest) := by
@@ -93,8 +86,6 @@ theorem rulesPhase_sublist {pre tRules post : List (Event L E)} (h1 : ∀ e ∈ 
     rw [List.append_assoc]
     exact (List.sublist_append_left _ _).trans (List.sublist_append_right _ _)
   simp
-
-/-! ## A larger trace -/
 
 section Mono
 
@@ -267,8 +258,6 @@ theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) 
 
 end Mono
 
-/-! ## What a run with no refusal is owed -/
-
 /-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, and each
 environment that the run read of the workspace in the current directory has `BuildAnswer.Floor`. -/
 structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop where
@@ -302,7 +291,6 @@ abbrev plainPass (subject : FilePath) : String :=
 /-- The last line of a pass of the full verdict. -/
 abbrev fullPass (dir : FilePath) : String := (Report.full .pass).labelOn dir.toString
 
-/-- A run of the proof verdict that receives what `PlainOwed` states passes: exit 0 and the last line of the pass. -/
 theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32} (h : PlainRun t p c)
     (owed : PlainOwed t p) : c = 0 ∧ ∃ subject, EndsWith t (plainPass subject) := by
   obtain ⟨result, subject, hl, hc, he, -⟩ := h
@@ -312,7 +300,6 @@ theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt3
     exact ⟨hc, subject, he⟩
   · exact absurd hw owed.noReason
 
-/-- A run of the full gate that receives what `FullOwed` states passes: exit 0 and the last line of the pass. -/
 theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c)
     (owed : FullOwed t dir p) : c = 0 ∧ EndsWith t (fullPass dir) := by
   rcases h with ⟨e, rest, ht, -⟩ | ⟨tree, tRead, tGate, r, last, ht, hq, hlast, o, report, hdec, -, hn, ha, hc, hend, -⟩
@@ -358,10 +345,6 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
     subst hrep
     exact ⟨hc, hend⟩
 
-/-! ## Every subject of the record -/
-
-/-- For every program that meets the record, every run of the proof verdict on the pinned Lean, on responses that owe a pass,
-passes. So a program that refuses a run in which no reason holds and each loaded reading has its floor does not meet the record. -/
 theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text : String} {p : Regula.Closed.Profile}
     (hp : text = p.spelling) {rest : List (Event L E)} {c : UInt32}
     (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ :: rest) c)
@@ -376,7 +359,6 @@ theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {
   cases he'
   exact plain_owed hf owed
 
-/-- The same of every run of the full gate. -/
 theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String}
     {p : Regula.Closed.Profile} (hp : text = p.spelling) {rest : List (Event L E)}
     {c : UInt32}
@@ -391,18 +373,14 @@ theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {t
   cases he'
   exact full_owed hf owed
 
-/-! ## A program that manufactures a reason -/
-
 /-- A program that asks which Lean this is and which run is asked for, reads the environment variable `name`, and says that the
-proof verdict is incomplete. The audit of 2026-10-31 proved that it met the earlier form of the record. -/
+proof verdict is incomplete. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
       .ask (.getEnv name) fun _ =>
         .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
 
-/-- A reason that reads an unrelated variable: no case of the closed set holds of it, so that program fails the record, for
-every name but the two that the load needs. -/
 theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : name ≠ "LEAN_PATH") :
     ¬ RunMeets (manufacturer name : List String → Prog L E UInt32) := by
   intro hw
@@ -444,8 +422,6 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
     | otherSearchPath _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
 
-/-- The evidence of a reading stands in a larger trace, of the same state of the tree. What it keeps about the trace is what
-the run read and parsed, and what a run's own act can change after that is its state `held`, which this does not move. -/
 theorem Evidence.mono {T T' : List (Event L E)} (hs : T.Sublist T') {dir treeDir : FilePath}
     {stands : List String → Option String} {r : Reading}
     (h : Evidence T dir treeDir stands r) : Evidence T' dir treeDir stands r := by

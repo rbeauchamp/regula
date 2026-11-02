@@ -16,15 +16,6 @@ import Lean.Compiler.Old
 Each rule as a pure, total function from the closed input (`Regula.Closed.Input`) to the constants
 that violate it, in the order of `specification/RegulaSpecification/Foundation.lean` (RG1001 to
 RG1005) and `Safety.lean` (RG1006). Each reads only fields of the input, through its tables.
-`specification/RegulaSpecification/Proofs/` proves of each that it reports a subject exactly when
-the violation predicate of the specification holds of it.
-
-A rule reads the input through a value of `Tables i` (`Regula.Tables`), which carries what each of
-its tables holds of the input `i`.
-
-`Input.report` gives the outcome of an input, which passes exactly when no rule reports a subject.
-`decision` gives the outcome of what the load gave, so a reading that the admission refuses
-(`Draft.admit`) is `incomplete`.
 -/
 
 public section

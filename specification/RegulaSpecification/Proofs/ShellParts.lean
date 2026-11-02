@@ -8,8 +8,6 @@ import RegulaSpecification.Proofs.ShellLoad
 
 /-!
 # The parts of a run: what it prints, and the loads of a finished build
-
-For every response, about the definitions in `Regula.Shell`.
 -/
 
 namespace RegulaSpecification.Effects
@@ -31,8 +29,6 @@ def Details (t : List (Event L E)) : Prop :=
 theorem printed_append (a b : List (Event L E)) : printed (a ++ b) = printed a ++ printed b := by
   simp [printed]
 
-/-- Splitting the actual requested character stream gives exactly `printed`, followed by the empty tail
-after the final LF. This includes embedded separators, empty messages and consecutive print calls. -/
 theorem serialized_split (t : List (Event L E)) :
     (serialized t).splitOn '\n' = (printed t).map String.toList ++ [[]] := by
   unfold serialized printed
@@ -45,14 +41,12 @@ theorem serialized_split (t : List (Event L E)) :
     simpa [List.map_flatMap, Function.comp_def, List.map_map, List.append_assoc] using
       congrArg ((text.toList.splitOn '\n') ++ ·) ih
 
-/-- No LF or CR survives diagnostic serialization, for every input string. -/
 theorem detailText_no_break (s : String) :
     '\n' ∉ (detailText s).toList ∧ '\r' ∉ (detailText s).toList := by
   simp only [detailText, String.toList_ofList, List.mem_flatMap]
   constructor <;> rintro ⟨c, _, hc⟩ <;>
     split at hc <;> (try split at hc) <;> simp_all <;> subst c <;> contradiction
 
-/-- A diagnostic's requested physical lines consist of its one prefixed line. -/
 theorem detailText_lines (s : String) :
     (("  " ++ detailText s).toList.splitOn '\n').map String.ofList = ["  " ++ detailText s] := by
   rw [List.splitOn_eq_singleton (by simpa using (detailText_no_break s).1)]
@@ -103,7 +97,6 @@ theorem sayAll_spec {ls : List String} {t : List (Event L E)} {u : Unit}
     obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
     exact details_append (say_spec h₁) (ih h₂)
 
-/-- The end of a run: its last line, and nothing after it. -/
 theorem finish_spec {text : String} {code c : UInt32} {t : List (Event L E)}
     (h : Runs (finish text code : Prog L E UInt32) t c) :
     c = code ∧ ∃ r, t = [⟨.println text, r⟩] := by
@@ -113,24 +106,20 @@ theorem finish_spec {text : String} {code c : UInt32} {t : List (Event L E)}
   obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₂
   exact ⟨rfl, r, rfl⟩
 
-/-- A list with a last line after `pre` ends with that line, when `pre` holds only details and `line` holds no LF. -/
 theorem endsWith_of {pre : List (Event L E)} {line : String} {r : Resp (Op.println line : Op L E)}
     (hn : '\n' ∉ line.toList) (h : ∀ l ∈ printed pre, IsDetail l) :
     EndsWith (pre ++ [⟨.println line, r⟩]) line :=
   ⟨pre, r, rfl, hn, h⟩
 
-/-- Every proof-verdict label is one physical line. -/
 theorem proofLine_no_break (v : Regula.Closed.Verdict) : '\n' ∉ v.proofLine.toList := by
   cases v <;> decide
 
 set_option maxRecDepth 4096 in
-/-- Every full-gate label is one physical line. -/
 theorem reportLabel_no_break (r : Report) : '\n' ∉ r.label.toList := by
   cases r with
   | full v => cases v <;> decide
   | refused | incomplete | proofOnly => decide
 
-/-- A pass names its subject at the end of the line, and a subject with no LF leaves it one physical line. -/
 theorem proofLineOn_no_break (s : String) (v : Regula.Closed.Verdict) :
     '\n' ∉ (v.proofLineOn s).toList := by
   cases v with
@@ -141,7 +130,6 @@ theorem proofLineOn_no_break (s : String) (v : Regula.Closed.Verdict) :
     exact ⟨⟨hp, by decide⟩, hs⟩
   | fail | incomplete => exact proofLine_no_break _
 
-/-- The same of the full gate's last line. -/
 theorem reportLabelOn_no_break (s : String) (r : Report) : '\n' ∉ (r.labelOn s).toList := by
   rcases r with (_ | _ | _) | _ | _ | _
   · have hs := (detailText_no_break s).1
@@ -150,8 +138,6 @@ theorem reportLabelOn_no_break (s : String) (r : Report) : '\n' ∉ (r.labelOn s
     exact ⟨⟨hp, by decide⟩, hs⟩
   all_goals exact reportLabel_no_break _
 
-/-- The serialized output ends in the one verdict line; every preceding physical line is a detail.
-The final empty chunk is the position after `println`'s terminating LF, not another output line. -/
 theorem endsWith_serialized {t : List (Event L E)} {line : String} (h : EndsWith t line) :
     ∃ pre : List String, (serialized t).splitOn '\n' = pre.map String.toList ++ [line.toList, []] ∧
       ∀ l ∈ pre, IsDetail l := by
@@ -174,7 +160,6 @@ theorem finishProof_spec {report : Regula.Closed.Report} {c : UInt32} {t : List 
     subst this
     rfl
 
-/-- The end of a run of the proof verdict on a subject. -/
 theorem finishPlain_spec {subject : FilePath} {report : Regula.Closed.Report} {c : UInt32} {t : List (Event L E)}
     (h : Runs (finishPlain subject report : Prog L E UInt32) t c) :
     c = report.verdict.exitCode ∧ EndsWith t (report.verdict.proofLineOn subject.toString) ∧
@@ -190,12 +175,9 @@ theorem finishPlain_spec {subject : FilePath} {report : Regula.Closed.Report} {c
     subst this
     rfl
 
-/-- An event that only says something is no failure. -/
 theorem not_failed_of_saying {e : Event L E} (h : e.isOnlySaying = true) : ¬ e.failed := by
   obtain ⟨o, r⟩ := e
   cases o <;> first | exact id | cases h
-
-/-! ## The loads of a finished build -/
 
 theorem requireEnv_spec {name why : String} {t : List (Event L E)} {b : Except String String}
     (h : Runs (requireEnv name why : Attempt L E String).run t b) :
@@ -212,7 +194,6 @@ theorem requireEnv_spec {name why : String} {t : List (Event L E)} {b : Except S
     obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₂
     exact ⟨rfl, fun v he => (by cases he), fun _ => rfl⟩
 
-/-- `loaded` gives a root only from Lake's load of it, and otherwise says that the load failed. -/
 theorem loaded_spec {what : String} {r : Except String (Option (Root L) × List String)} :
     (∀ root, loaded what r = .ok root → ∃ log, r = .ok (some root, log)) ∧
       ∀ why, loaded what r = .error why →
@@ -228,8 +209,6 @@ theorem loaded_spec {what : String} {r : Except String (Option (Root L) × List 
       cases he
       exact ⟨log, rfl⟩
 
-/-- `loadPlain`: the load of the workspace in the current directory. A load that gives an input received no failed answer, and its lookups and imports
-name the search path of what Lake's load gave. -/
 theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile}
     {b : Except String (FilePath × Regula.Closed.Input)} (hT : t.Sublist T) (hq : Quiet prior)
     (h : Runs (loadPlain p : Attempt L E _).run t b) :
@@ -340,7 +319,6 @@ theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile
               (fun _ _ he => by cases he),
               by simpa using hprep (u := [⟨.getEnv "LEAN_PATH", some received⟩]) (InputPreparation.prepend (t := []) hqe (fun e he => by cases he))⟩
 
-/-- `loadTree`: the load of the build in the checker's tree. -/
 theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}
     {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Input} (hT : t.Sublist T)
     (h : Runs (loadTree sysroot tree p : Attempt L E _).run t b) :

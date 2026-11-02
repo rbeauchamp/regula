@@ -9,10 +9,6 @@ import RegulaSpecification.Proofs.ReaderParts
 
 /-!
 # What the reader's walk over the imports gives
-
-For every response: the walk writes nothing; each source it holds was read by the exact-path test and parsed from that
-same text; each toolchain module was found by Lean's search;
-what it could not read has a `Reason`; and when nothing was left unread, each import of each source was reached or is the toolchain's.
 -/
 
 namespace RegulaSpecification.Effects
@@ -27,9 +23,6 @@ open RegulaSpecification.Language
 
 variable {L E : Type}
 
-/-! ## One file -/
-
-/-- `readExact` reads a file only through the exact-path test. -/
 theorem readExact_spec {project path : FilePath} {t : List (Event L E)} {b : Except String String}
     (h : Runs (readExact project path : Attempt L E String).run t b) :
     (∀ text, b = .ok text → ∃ real, t = [⟨.realPath path, .ok real⟩, ⟨.readFile path, .ok text⟩] ∧
@@ -62,12 +55,10 @@ theorem readExact_spec {project path : FilePath} {t : List (Event L E)} {b : Exc
       obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₂
       exact ⟨fun _ he => (by cases he), fun _ => .inr ⟨real, rfl, by simpa using hb⟩, by quiet_events⟩
 
-/-- `inTree` is `TreeRelative`. -/
 theorem inTree_iff (tree path : FilePath) :
     inTree tree path = true ↔ ∃ rel, TreeRelative (parts tree) (parts path) rel := by
   simp only [inTree, Option.isSome_iff_exists, treeRelative_iff]
 
-/-- `closedSourceDir` says that a directory lies below the tree, with each component below it in the closed domain. -/
 theorem closedSourceDir_iff (tree dir : FilePath) :
     closedSourceDir tree dir = true ↔ ∃ rel, TreeRelative (parts tree) (parts dir) rel ∧ ∀ c ∈ rel, ClosedComponent c := by
   simp only [closedSourceDir]
@@ -81,7 +72,6 @@ theorem closedSourceDir_iff (tree dir : FilePath) :
     rw [(treeRelative_iff _ _ _).mpr hr]
     exact List.all_eq_true.mpr fun c hm => (closedComponent_iff c).mpr (hc c hm)
 
-/-- The attempted copy's exact acts, whatever each answers. So `CopyStep.complete` and `CopyStep.incomplete` state what its answer says. -/
 theorem writeInTree_spec {tree path : FilePath} {text : String} {t : List (Event L E)}
     {b : Except String Unit} (h : Runs (writeInTree tree path text : Attempt L E Unit).run t b) :
     CopyStep tree path text t b.isOk := by
@@ -156,7 +146,6 @@ def SourceBad (t : List (Event L E)) (project tree path : FilePath) : Prop :=
       (⟨.realPath (under project rel), .ok real⟩ : Event L E) ∈ t ∧
       Regula.Load.exactBelow project (under project rel) real = false
 
-/-- `parentInTree` and `TreeRelative` say that a path is not outside the tree. -/
 theorem not_outside_of {tree path : FilePath} {rel : List String} (hrel : TreeRelative (parts tree) (parts path) rel)
     (hp : parentInTree tree path = true) : ¬ OutsideTree tree path := by
   rintro (hx | ⟨d, hd, hx⟩)
@@ -165,7 +154,6 @@ theorem not_outside_of {tree path : FilePath} {rel : List String} (hrel : TreeRe
     obtain ⟨rel', hrel'⟩ := (inTree_iff tree d).mp hp
     exact hx rel' hrel'
 
-/-- `readSource` holds a source only as `SourceRead` states, with no failed answer, and it only observes. -/
 theorem readSource_spec {project tree path : FilePath} {t : List (Event L E)} {b : Except String Source}
     (h : Runs (readSource project tree path : Attempt L E Source).run t b) :
     (∀ s, b = .ok s → SourceRead t project tree path s ∧ Clean t) ∧
@@ -222,9 +210,6 @@ theorem readSource_spec {project tree path : FilePath} {t : List (Event L E)} {b
         refine ⟨d, rfl, fun rel' hr => ?_⟩
         simp [parentInTree, hd, (inTree_iff tree d).mpr ⟨rel', hr⟩] at hpar
 
-/-! ## The toolchain's modules -/
-
-/-- `toolchainOLean` passes exactly on what Lean's search found, and asks nothing else. -/
 theorem toolchainOLean_spec {path : List FilePath} {m : Name} {t : List (Event L E)} {b : Except String Unit}
     (h : Runs (toolchainOLean path m : Attempt L E Unit).run t b) :
     (b = .ok () → ∃ olean, t = [⟨.findOLean path m, .ok olean⟩]) ∧
@@ -241,8 +226,6 @@ theorem toolchainOLean_spec {path : List FilePath} {m : Name} {t : List (Event L
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂
     exact ⟨fun _ => ⟨olean, rfl⟩, fun ⟨e, he⟩ => (by cases he)⟩
 
-/-! ## The walk -/
-
 /-- Each event only observes, or is a lookup or a parser's import on the toolchain's library of `root`. -/
 def Observes (root : Root L) (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, QuietOp e.op ∨ ParserSearchOp root e.op
@@ -257,7 +240,6 @@ theorem Observes.append {root : Root L} {a b : List (Event L E)} (ha : Observes 
 theorem Quiet.observes {t : List (Event L E)} (h : Quiet t) (root : Root L) : Observes root t :=
   fun e he => .inl (h e he)
 
-/-- Such events act on nothing. -/
 theorem Observes.noActs {root : Root L} {t : List (Event L E)} (h : Observes root t) : ∀ e ∈ t, e.acted? = none := by
   intro e he
   have hq := h e he
@@ -321,7 +303,6 @@ section Invariant
 variable {T : List (Event L E)} {dir treeDir project tree : FilePath} {root : Root L}
   {modules : List (Name × FilePath)} {roots : List Name}
 
-/-- What a source read says of the file of its module. -/
 theorem headerOf_read {m : Name} {s : Source} {path : FilePath} (hf : fileOf root modules m = some path)
     (hs : SourceRead T project tree path s) : HeaderOf T project tree root modules m s.imports := by
   obtain ⟨rel, real, text, hrel, -, -, -, -, hin, hsub⟩ := hs
@@ -330,7 +311,6 @@ theorem headerOf_read {m : Name} {s : Source} {path : FilePath} (hf : fileOf roo
   · rw [← hin]
     exact hsub.subset (by simp)
 
-/-- A visit of `m` keeps what `visited` says: `m` is now reached or the toolchain's, and the rest stays to visit or is visited. -/
 theorem visited_step {m n : Name} {rest todo : List Name} {r r' c c' : List Name}
     (hm : m ∈ r' ∨ m ∈ c') (hr : ∀ x ∈ r, x ∈ r') (hc : ∀ x ∈ c, x ∈ c') (ht : ∀ x ∈ rest, x ∈ todo)
     (h : n ∈ m :: rest ∨ n ∈ r ∨ n ∈ c) : n ∈ todo ∨ n ∈ r' ∨ n ∈ c' := by
@@ -368,8 +348,6 @@ theorem WalkInv.leave {m : Name} {rest : List Name} {w : Walk} (why : String)
   unread := fun _ => hr
   visited := fun hu => by simp [Walk.leaveUnread] at hu
 
-/-- A name that is left unread for the reasons of a stop in the walk: the whole state is then done, whatever was
-left to visit. -/
 theorem WalkInv.stop {m : Name} {rest : List Name} {w : Walk} (why : String)
     (h : WalkInv T dir treeDir project tree root modules roots (m :: rest) w)
     (hr : Scene T dir treeDir project tree root modules → Reason T dir treeDir .incomplete) :
@@ -467,7 +445,6 @@ theorem WalkInv.toolchain {m : Name} {rest : List Name} {w : Walk}
     visited := fun hu n hn => visited_step (.inr (List.mem_cons_self ..)) (fun _ h => h)
       (fun _ h => List.mem_cons_of_mem _ h) (fun _ h => h) (h.visited hu n hn) }
 
-/-- From what a source's reading could not do, a `Reason`. -/
 theorem reason_of_sourceBad {m : Name} {path : FilePath}
     {t : List (Event L E)} (hn : Named T project tree root modules m) (hf : fileOf root modules m = some path)
     (ht : t.Sublist T) (h : SourceBad t project tree path) (scene : Scene T dir treeDir project tree root modules) :
@@ -486,10 +463,6 @@ theorem reason_of_sourceBad {m : Name} {path : FilePath}
 abbrev sourceImports (sources : List (Name × Source)) : Nat :=
   (sources.map (·.2.imports.size)).sum
 
-/-- The walk, for every response. It only observes, it never holds a name of `T`'s that the invariant does not state, and when nothing is
-left unread, no answer it received failed and the roots and the imports of the files it read are at most the bound: the equation
-on `fuel` says how many names it can still take. So a run of it at `T` is also a run at the prefix that ends with it, which gives each copy
-what the grammar asks of the events before it. -/
 theorem walk_spec (fuel : Nat) (todo : List Name)
     (w : Walk) (t : List (Event L E)) (w' : Walk)
     (h : Runs (walk project tree root modules fuel todo w) t w')

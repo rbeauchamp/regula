@@ -10,27 +10,17 @@ import RegulaSpecification.Proofs.Verdict
 /-!
 # The loader, against the environment
 
-`Regula.Load.Facts.input` is the pure function that fills the closed input from a loaded
-environment, and `Regula.Closed.Input.report` the verdict that the checker gives on that input.
-`pass_iff` relates the two to the environment: for every environment and `Facts` on which the loader gives an input, a pass is
-exactly `EnvForm` and `EnvFloor`, two statements that mention no field of the input. Each constant is read
-from
-`Environment.constants.map₁` by name. What a name mentions, and whether it names an axiom, is read
-from the fields of that `ConstantInfo` and of each constant of the name that any loaded module's own
-data states (`EnvMentions`, `EnvAxiom`, `mem_usesIn`), and `mem_stated` anchors those in
-`header.moduleData`. So an axiom or a chain of mentions that Lean's import drops still counts. On a
-pass, each axiom reached that way from a constant of a claimed module is one that the profile admits
-(`EnvFloor`). `pass_held` states a pass of each constant that `Facts.claimedConstants` lists, as that module's own
-`.olean` states it, also when Lean's import replaced it.
+`pass_iff` states the checker's verdict on what `Regula.Load.Facts.input` fills from a loaded environment by
+two statements about the environment that mention no field of the input. What a name mentions, and whether it
+names an axiom, is read from its `ConstantInfo` and from each constant of the name that any loaded module's own
+data states, so an axiom or a chain of mentions that Lean's import drops still counts. So a loader that dropped
+a constant, a field or a mention would fail these proofs in the gate's build of this package.
 
-So a loader that dropped a constant, a field or a mention would fail these proofs in the gate's
-build of this package. What they leave assumed is Lean's and Lake's behaviour: that `map₁` holds the
-constants that `Lean.importModules` keeps and `header.moduleData` what each `.olean` states, what
-each query of the environment returns, that `Expr.getUsedConstants` lists each constant of an
-expression, that `findOLean` finds each `.olean`, and that Lake names the modules of the default targets and the two library
-directories. The specification's trusted base
-lists them. `Proofs/Shell.lean` states the run that gives this function what Lean and Lake returned. `Proofs/Occurrences.lean` states two of what Lean's
-interfaces report as hypotheses of a theorem.
+What they leave assumed is Lean's and Lake's behaviour: that `Environment.constants.map₁` holds the constants
+that `Lean.importModules` keeps and `header.moduleData` what each `.olean` states, what each query of the
+environment returns, that `Expr.getUsedConstants` lists each constant of an expression, that `findOLean` finds
+each `.olean`, and that Lake names the modules of the default targets and the two library directories. The
+specification's trusted base lists them.
 -/
 
 namespace RegulaSpecification
@@ -42,8 +32,6 @@ namespace Loader
 
 variable {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile}
   {i : Regula.Closed.Input}
-
-/-! ## What a constant mentions -/
 
 /-- What a constant mentions, read from the fields of its `ConstantInfo`: the type and value of a
 definition, theorem or opaque constant, the type of an axiom, constructor or recursor, the type and
@@ -65,7 +53,6 @@ def ValueMentions : ConstantInfo → Name → Prop
   | .opaqueInfo v, u => u ∈ v.value.getUsedConstants
   | .axiomInfo _, _ | .quotInfo _, _ | .inductInfo _, _ | .ctorInfo _, _ | .recInfo _, _ => False
 
-/-- The fold that removes repeated names keeps each name. -/
 theorem mem_dedupFold (l : List Name) (acc : Array Name) (u : Name) :
     u ∈ l.foldl (fun acc n => if acc.contains n then acc else acc.push n) acc ↔
       u ∈ l ∨ u ∈ acc := by
@@ -95,20 +82,17 @@ theorem mem_dedupFold (l : List Name) (acc : Array Name) (u : Name) :
         · exact .inl h
         · exact .inr (.inl h)
 
-/-- `dedup` keeps exactly the names it is given. -/
 theorem mem_dedup (all : Array Name) (u : Name) : u ∈ Regula.Load.dedup all ↔ u ∈ all := by
   unfold Regula.Load.dedup
   rw [← Array.foldl_toList, mem_dedupFold]
   simp
 
-/-- `usesOf` lists exactly what a constant mentions. -/
 theorem mem_usesOf (info : ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.usesOf info).toList ↔ Mentions info u := by
   unfold Regula.Load.usesOf
   rw [Array.mem_toList_iff, mem_dedup]
   cases info <;> simp [Mentions]
 
-/-- The fold of `usesIn` collects what each constant of the list mentions. -/
 theorem mem_usesFold (l : List ConstantInfo) (acc : Array Name) (u : Name) :
     u ∈ l.foldl (fun acc v => acc ++ Regula.Load.usesOf v) acc ↔
       u ∈ acc ∨ ∃ v ∈ l, Mentions v u := by
@@ -119,8 +103,6 @@ theorem mem_usesFold (l : List ConstantInfo) (acc : Array Name) (u : Name) :
       simpa using mem_usesOf a u
     simp only [List.foldl_cons, ih, Array.mem_append, ha, List.mem_cons, exists_eq_or_imp, or_assoc]
 
-/-- `usesIn` lists exactly what a constant that the environment keeps mentions, with what each
-constant of `stated` mentions. -/
 theorem mem_usesIn (info : ConstantInfo) (stated : List ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.usesIn info stated).toList ↔ Mentions info u ∨ ∃ v ∈ stated, Mentions v u := by
   have ha : u ∈ Regula.Load.usesOf info ↔ Mentions info u := by
@@ -128,14 +110,10 @@ theorem mem_usesIn (info : ConstantInfo) (stated : List ConstantInfo) (u : Name)
   unfold Regula.Load.usesIn
   rw [Array.mem_toList_iff, mem_dedup, mem_usesFold, ha]
 
-/-- `valueUsesOf` lists exactly what the value of a constant mentions. -/
 theorem mem_valueUsesOf (info : ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.valueUsesOf info).toList ↔ ValueMentions info u := by
   cases info <;> simp [Regula.Load.valueUsesOf, ValueMentions]
 
-/-! ## What the loaded modules state -/
-
-/-- The inner fold of `Facts.stated` adds each constant of the list to the list of its name. -/
 theorem mem_statedPairs (l : List (Name × ConstantInfo))
     (acc : Std.HashMap Name (List ConstantInfo)) (n : Name) (v : ConstantInfo) :
     v ∈ (l.foldl (fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 [])) acc).getD n [] ↔
@@ -161,7 +139,6 @@ theorem mem_statedPairs (l : List (Name × ConstantInfo))
       have hn : ¬ n = c := fun h => hc h.symm
       simp [hb, hn]
 
-/-- The outer fold of `Facts.stated` adds the constants of each module's data. -/
 theorem mem_statedData (l : List Lean.ModuleData)
     (acc : Std.HashMap Name (List ConstantInfo)) (n : Name) (v : ConstantInfo) :
     v ∈ (l.foldl (fun acc data => (data.constNames.zip data.constants).foldl
@@ -183,15 +160,12 @@ theorem mem_statedData (l : List Lean.ModuleData)
       · exact .inl h
       · exact .inr (.inr h)
 
-/-- `Facts.stated` lists of a name exactly what the own data of a loaded module states of it. -/
 theorem mem_stated {n : Name} {v : ConstantInfo} :
     v ∈ f.stated.getD n [] ↔ ∃ data ∈ f.env.header.moduleData,
       (n, v) ∈ data.constNames.zip data.constants := by
   have h := mem_statedData f.env.header.moduleData.toList {} n v
   simp only [Array.foldl_toList, Array.mem_toList_iff] at h
   simpa [Regula.Load.Facts.stated] using h
-
-/-! ## The statements over the environment -/
 
 /-- A constant is an axiom, by the constructor of its `ConstantInfo`. -/
 def AxiomInfo (k : ConstantInfo) : Prop := ∃ w, k = .axiomInfo w
@@ -247,14 +221,7 @@ def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? f.env b = none ∧ Lean.isExtern f.env b = false
 
-/-- What RG1001 to RG1006 state of each constant of a claimed module, in the terms of the
-environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, or
-has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value
-mentions no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded
-module's own
-data states, is one that the profile admits (RG1005), which also excludes `sorryAx` (RG1002), a
-native proof's axiom (RG1004) and every other axiom (RG1003): `rg1005_of_hole`,
-`rg1005_of_compiler`, `rg1005_of_unknown`. -/
+/-- What RG1001 to RG1006 state of each constant of a claimed module, in the terms of the environment. -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
@@ -263,28 +230,21 @@ def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a
 
-/-! ## What the facts hold -/
-
-/-- A module of an index is in the modules of the facts. -/
 theorem mem_modules_of_getElem {k : Nat} {m : Regula.Load.LoadedModule}
     (h : f.modules[k]? = some m) : m ∈ f.modules :=
   Array.mem_of_getElem? h
 
-/-- A constant's module is in the modules of the facts. -/
 theorem mem_modules_of_info {n : Name} {m : Regula.Load.LoadedModule} (h : f.info? n = some m) :
     m ∈ f.modules := by
   simp only [Regula.Load.Facts.info?, Option.bind_eq_some_iff] at h
   obtain ⟨_, -, hm⟩ := h
   exact mem_modules_of_getElem hm
 
-/-- The name at each index of the facts is what the header gives at that index. -/
 theorem moduleNames_getElem (f : Regula.Load.Facts) (k : Nat) :
     (f.modules[k]?).map (·.name) = f.env.header.moduleNames[k]? := by
   have h := congrArg (·[k]?) f.names
   simpa using h
 
-/-- The module of a constant is the one that the header gives for it. So this reading of a module
-is `Environment.getModuleIdxFor?` and `header.moduleNames`, and nothing that the shell passes in. -/
 theorem moduleOf?_eq (f : Regula.Load.Facts) (n : Name) :
     f.moduleOf? n =
       (f.env.getModuleIdxFor? n).bind fun idx => f.env.header.moduleNames[idx.toNat]? := by
@@ -293,7 +253,6 @@ theorem moduleOf?_eq (f : Regula.Load.Facts) (n : Name) :
   | none => rfl
   | some idx => exact moduleNames_getElem f idx.toNat
 
-/-- Each claimed module is a module of the facts, whose flag says so. -/
 theorem mem_claimed_iff (f : Regula.Load.Facts) (m : Name) :
     m ∈ f.claimed ↔ ∃ lm ∈ f.modules, lm.name = m ∧ lm.claimed = true := by
   simp only [Regula.Load.Facts.claimed, List.mem_map, List.mem_filter, Array.mem_toList_iff]
@@ -303,16 +262,12 @@ theorem mem_claimed_iff (f : Regula.Load.Facts) (m : Name) :
   · rintro ⟨lm, hm, rfl, hc⟩
     exact ⟨lm, ⟨hm, hc⟩, rfl⟩
 
-/-- Each claimed module is one that the environment loaded: the facts carry that their modules are
-those of its header. -/
 theorem claimed_loaded (f : Regula.Load.Facts) {m : Name} (h : m ∈ f.claimed) :
     m ∈ f.env.header.moduleNames.toList := by
   obtain ⟨lm, hm, rfl, -⟩ := (mem_claimed_iff f m).mp h
   rw [← f.names]
   exact List.mem_map_of_mem (Array.mem_toList_iff.mpr hm)
 
-/-- The places of the modules decide what is claimed: the modules whose `.olean` is `below` the root
-package's library directory. -/
 theorem mem_claimed_place (f : Regula.Load.Facts) (m : Name) :
     m ∈ f.claimed ↔
       ∃ lm ∈ f.modules, lm.name = m ∧ Regula.Load.below f.rootDir lm.olean = true := by
@@ -322,8 +277,6 @@ theorem mem_claimed_place (f : Regula.Load.Facts) (m : Name) :
   rw [hp]
   rfl
 
-/-- The places of the modules decide `EnvToolchain`: the constants whose module's `.olean` is
-`below` the toolchain's library directory. -/
 theorem toolchain_place (f : Regula.Load.Facts) (n : Name) :
     EnvToolchain f n ↔
       ∃ (idx : Lean.ModuleIdx) (lm : Regula.Load.LoadedModule),
@@ -342,9 +295,6 @@ theorem toolchain_place (f : Regula.Load.Facts) (n : Name) :
   · rintro ⟨idx, lm, hi, hm, ht⟩
     exact ⟨lm, ⟨idx, hi, hm⟩, (hflag lm (mem_modules_of_getElem hm)).symm ▸ ht⟩
 
-/-! ## The safety of a constant -/
-
-/-- Lean sets at most one of its two flags on a constant. -/
 theorem not_unsafe_of_partial (info : ConstantInfo) (h : info.isPartial = true) :
     info.isUnsafe = false := by
   cases info with
@@ -354,22 +304,17 @@ theorem not_unsafe_of_partial (info : ConstantInfo) (h : info.isPartial = true) 
     cases v.safety <;> decide
   | _ => simp [ConstantInfo.isPartial] at h
 
-/-- `safetyOf` is `.partial` exactly of a partial constant, which is then not unsafe. -/
 theorem safetyOf_partial (info : ConstantInfo) :
     Regula.Load.safetyOf info = .partial ↔ info.isPartial = true ∧ info.isUnsafe = false := by
   simp only [Regula.Load.safetyOf]
   cases info.isUnsafe <;> cases info.isPartial <;> simp
 
-/-- `safetyOf` is `.safe` exactly of a constant with neither flag. -/
 theorem safetyOf_safe (info : ConstantInfo) :
     Regula.Load.safetyOf info = .safe ↔ info.isUnsafe = false ∧ info.isPartial = false := by
   simp only [Regula.Load.safetyOf]
   cases info.isUnsafe <;> cases info.isPartial <;> simp
 
-/-! ## What the input holds -/
-
-/-- What the loader gives, in the terms of the environment. No name repeats and the closed form
-holds by the type of `i`. -/
+/-- What the loader gives, in the terms of the environment. -/
 structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile)
     (i : Regula.Closed.Input) : Prop where
   /-- The profile is the one that the shell read. -/
@@ -385,7 +330,6 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   whole : ∀ n info, f.env.constants.map₁[n]? = some info →
     ∃ m, f.info? n = some m ∧ f.declIn n m info (f.stated.getD n []) ∈ i.decls
 
-/-- What `Facts.decl` gives: the constant with its module. -/
 theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
     (h : f.decl n info s = .ok d) : ∃ m, f.info? n = some m ∧ d = f.declIn n m info s := by
   simp only [Regula.Load.Facts.decl] at h
@@ -395,7 +339,6 @@ theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Re
     exact ⟨m, hm, h.symm⟩
   · cases h
 
-/-- What `Facts.shown` decides. -/
 theorem shown_true {x : Name × Name × ConstantInfo} (h : f.shown x = true) :
     ∃ k m, f.env.constants.map₁[x.2.1]? = some k ∧
       Regula.Load.readOf k = Regula.Load.readOf x.2.2 ∧ f.info? x.2.1 = some m ∧
@@ -408,7 +351,6 @@ theorem shown_true {x : Name × Name × ConstantInfo} (h : f.shown x = true) :
   · cases h
   · cases h
 
-/-- What `Facts.unread?` decides. -/
 theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i = none)
     (hx : x ∈ f.claimedConstants) :
     f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true := by
@@ -426,7 +368,6 @@ theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i = none)
     simp only [Option.map_eq_none_iff, List.find?_eq_none] at h
     simpa using h x hmem
 
-/-- What the parts of the loader that give an input establish: `Loaded` of what the admission gave. -/
 theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.Input}
     (hfind : roots.find? (fun x => !f.claimed.contains x) = none)
     (hm : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (f.stated.getD x.1 [])) = .ok decls)
@@ -459,7 +400,6 @@ theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.In
     rw [hdecls]
     exact hdv ▸ hd'
 
-/-- The function that fills the input gives what `Loaded` states. -/
 theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
   simp only [Regula.Load.Facts.input] at h
   split at h
@@ -477,7 +417,6 @@ theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
   subst h
   exact loaded_of_parts hfind hm hadmit
 
-/-- When the loader gives an input, each constant of a claimed module's `.olean` is shown to the rules, or is what they admit. -/
 theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantInfo}
     (hx : x ∈ f.claimedConstants) :
     f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true := by
@@ -495,14 +434,10 @@ theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantIn
   subst h
   exact unread_none hkeeps hx
 
-/-! ## From the input's statements to the environment's -/
-
-/-- The claimed modules of the specification's input are those of the facts. -/
 theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
     (toSpec i).ClaimedModule m ↔ m ∈ f.claimed := by
   simp [Input.ClaimedModule, toSpec, toSpecDraft, hl.modules]
 
-/-- A constant of the specification's input is a constant of the environment. -/
 theorem of_mem {x : Decl} (hl : Loaded f roots p i) (hx : x ∈ (toSpec i).decls) :
     ∃ info m, f.env.constants.map₁[x.name]? = some info ∧ f.info? x.name = some m ∧
       x = decl (f.declIn x.name m info (f.stated.getD x.name [])) := by
@@ -510,7 +445,6 @@ theorem of_mem {x : Decl} (hl : Loaded f roots p i) (hx : x ∈ (toSpec i).decls
   obtain ⟨info, m, hn, hm, hv⟩ := hl.sound d hd
   exact ⟨info, m, hn, hm, congrArg decl hv⟩
 
-/-- A constant of the environment is a constant of the specification's input. -/
 theorem to_mem (hl : Loaded f roots p i) {n : Name} {info : ConstantInfo}
     (hn : f.env.constants.map₁[n]? = some info) {m : Regula.Load.LoadedModule}
     (hm : f.info? n = some m) :
@@ -520,18 +454,15 @@ theorem to_mem (hl : Loaded f roots p i) {n : Name} {info : ConstantInfo}
   cases hm'
   exact mem_decls.mpr ⟨_, hmem, rfl⟩
 
-/-- When the loader gives an input, a constant of the environment has a module. -/
 theorem module_of (hl : Loaded f roots p i) {n : Name} {info : ConstantInfo}
     (hn : f.env.constants.map₁[n]? = some info) : ∃ m, f.info? n = some m := by
   obtain ⟨m, hm, -⟩ := hl.whole n info hn
   exact ⟨m, hm⟩
 
-/-- `moduleOf?` is the name of what `info?` gives. -/
 theorem moduleOf?_eq_some {n m : Name} :
     f.moduleOf? n = some m ↔ ∃ lm, f.info? n = some lm ∧ lm.name = m := by
   simp [Regula.Load.Facts.moduleOf?, Option.map_eq_some_iff]
 
-/-- A name resolves in the specification's input exactly when the environment holds it. -/
 theorem resolves_env (hl : Loaded f roots p i) (u : Name) :
     (toSpec i).Resolves u ↔ ∃ info, f.env.constants.map₁[u]? = some info := by
   constructor
@@ -542,7 +473,6 @@ theorem resolves_env (hl : Loaded f roots p i) (u : Name) :
     obtain ⟨m, hm⟩ := module_of hl hn
     exact ⟨_, to_mem hl hn hm, rfl⟩
 
-/-- The walk of the input is the walk of the environment. -/
 theorem reaches_env (hl : Loaded f roots p i) (c e : Name) :
     (toSpec i).Reaches c e ↔ EnvReaches f c e := by
   constructor
@@ -562,11 +492,9 @@ theorem reaches_env (hl : Loaded f roots p i) (c e : Name) :
       obtain ⟨m, hmod⟩ := module_of hl hn
       exact .step _ (to_mem hl hn hmod) rfl ((mem_usesIn info _ _).mpr hu) ih
 
-/-- The kind that `kindOf` gives is `axiom` exactly of an axiom. -/
 theorem kindOf_axiom (k : ConstantInfo) : Regula.Load.kindOf k = .axiom ↔ AxiomInfo k := by
   cases k <;> simp [Regula.Load.kindOf, AxiomInfo]
 
-/-- `kindIn` gives `axiom` exactly when the kept constant or a constant of the list is an axiom. -/
 theorem kindIn_axiom (k : ConstantInfo) (s : List ConstantInfo) :
     Regula.Load.kindIn k s = .axiom ↔ AxiomInfo k ∨ ∃ v ∈ s, AxiomInfo v := by
   simp only [Regula.Load.kindIn]
@@ -578,7 +506,6 @@ theorem kindIn_axiom (k : ConstantInfo) (s : List ConstantInfo) :
     simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs
     simp [kindOf_axiom, hs]
 
-/-- The kind of the input's constant is `axiom` exactly when `kindIn` says so. -/
 theorem kind_axiom {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).kind = .axiom ↔ AxiomInfo info ∨ ∃ v ∈ s, AxiomInfo v := by
@@ -586,7 +513,6 @@ theorem kind_axiom {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInf
   simp only [decl, Regula.Load.Facts.declIn]
   cases Regula.Load.kindIn info s <;> simp [constKind]
 
-/-- The kind of the input's constant is `definition` exactly of a definition with no axiom of its name in `s`. -/
 theorem kind_definition {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).kind = .definition ↔
@@ -613,7 +539,6 @@ theorem kind_definition {n : Name} {m : Regula.Load.LoadedModule} {info : Consta
     · rintro ⟨⟨v, rfl⟩, -⟩
       rfl
 
-/-- Whether the input states an axiom of a held name is `EnvAxiom`. -/
 theorem kind_envAxiom {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     (hn : f.env.constants.map₁[n]? = some info) :
     (decl (f.declIn n m info (f.stated.getD n []))).kind = .axiom ↔ EnvAxiom f n := by
@@ -625,7 +550,6 @@ theorem kind_envAxiom {n : Name} {m : Regula.Load.LoadedModule} {info : Constant
     cases hk
     exact h
 
-/-- Whether a name names an axiom of the specification's input is `EnvAxiom`. -/
 theorem isAxiom_env (hl : Loaded f roots p i) (a : Name) :
     (toSpec i).IsAxiom a ↔ EnvAxiom f a := by
   constructor
@@ -638,7 +562,6 @@ theorem isAxiom_env (hl : Loaded f roots p i) (a : Name) :
     obtain ⟨m, hm⟩ := module_of hl hn
     exact ⟨_, to_mem hl hn hm, rfl, (kind_envAxiom hn).mpr h⟩
 
-/-- What `Input.Known` states of the environment. -/
 theorem known_env (hl : Loaded f roots p i) (a : Name) :
     (toSpec i).Known a ↔ a ∈ logicalAxioms ∧ (∃ info, f.env.constants.map₁[a]? = some info) ∧
       EnvToolchain f a := by
@@ -651,7 +574,6 @@ theorem known_env (hl : Loaded f roots p i) (a : Name) :
   · rintro ⟨⟨info, hn⟩, m, hm, ht⟩
     exact ⟨_, to_mem hl hn hm, rfl, ht⟩
 
-/-- What a profile admits of a constant of the environment. -/
 theorem admits_env (hl : Loaded f roots p i) {a : Name} {info : ConstantInfo}
     (ha : f.env.constants.map₁[a]? = some info) :
     (toSpec i).Admits (toSpec i).profile a ↔ EnvAdmits f p a := by
@@ -680,8 +602,6 @@ theorem admits_env (hl : Loaded f roots p i) {a : Name} {info : ConstantInfo}
     · rintro ⟨hs, ht⟩
       exact ⟨hs, hheld, ht⟩
 
-/-- The safety of the input's constant is `partial` exactly of a partial constant that is not
-unsafe. -/
 theorem safety_partial {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).safety = .partial ↔
@@ -690,7 +610,6 @@ theorem safety_partial {n : Name} {m : Regula.Load.LoadedModule} {info : Constan
   simp only [decl, Regula.Load.Facts.declIn]
   cases Regula.Load.safetyOf info <;> simp [safety]
 
-/-- The safety of the input's constant is `safe` exactly of a constant with neither flag. -/
 theorem safety_safe {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).safety = .safe ↔
@@ -699,7 +618,6 @@ theorem safety_safe {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
   simp only [decl, Regula.Load.Facts.declIn]
   cases Regula.Load.safetyOf info <;> simp [safety]
 
-/-- The form of a recursion helper in the input is its form in the environment. -/
 theorem helper_env (hl : Loaded f roots p i) (n : Name) (m : Regula.Load.LoadedModule)
     (info : ConstantInfo) :
     (toSpec i).HelperForm (decl (f.declIn n m info (f.stated.getD n []))) ↔
@@ -719,7 +637,6 @@ theorem helper_env (hl : Loaded f roots p i) (n : Name) (m : Regula.Load.LoadedM
     exact ⟨safety_partial.mpr ⟨hp, hs⟩, h2, h3, _, to_mem hl hn' hm', hname,
       kind_definition.mpr ⟨⟨v, rfl⟩, hst⟩, hlm, safety_safe.mpr ⟨hu1, hu2⟩, hi', he⟩
 
-/-- The closed form of the input is `EnvForm` of the environment. -/
 theorem wf_env (hl : Loaded f roots p i) : (toSpec i).WellFormed ↔ EnvForm f := by
   constructor
   · intro h
@@ -736,7 +653,6 @@ theorem wf_env (hl : Loaded f roots p i) : (toSpec i).WellFormed ↔ EnvForm f :
       exact (resolves_env hl u).mpr (h.closed _ u ⟨info, hn, (mem_usesIn info _ u).mp hu⟩)
     · simpa [toSpec, toSpecDraft, hl.modules] using h.claims
 
-/-- A constant flagged in the input is one flagged in the environment. -/
 theorem flagged_iff {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     ((decl (f.declIn n m info s)).safety ≠ .safe ∨ HelperNamed (decl (f.declIn n m info s))) ↔
@@ -748,7 +664,6 @@ theorem flagged_iff {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
   rw [hs, or_assoc]
   rfl
 
-/-- Every rule that reads the input holding of it is `EnvFloor` of the environment. -/
 theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor f p := by
   constructor
   · rintro ⟨h1, -, -, -, h5, h6⟩ n info m hn hm hc
@@ -794,27 +709,18 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       · exact hno ((helper_env hl _ m info).mpr (hmn ▸ h6 (flagged_iff.mp hflag)))
       · exact h7 l hl' ((mem_valueUsesOf info l).mp hu)
 
-/-! ## The theorems -/
-
-/-- The closed form holds of each environment that the loader gives an input for: it refuses each
-other one. -/
 theorem input_form (h : f.input roots p = .ok i) : EnvForm f :=
   (wf_env (input_loaded h)).mp (wf_toSpec i)
 
-/-- For every environment, every set of facts about it and every profile: when the loader gives an
-input, the checker passes on it exactly when the environment has `EnvForm` and `EnvFloor`. Neither
-names the input, and the one hypothesis is that the loader gave it. -/
 theorem pass_iff (h : f.input roots p = .ok i) :
     i.report.verdict = .pass ↔ EnvForm f ∧ EnvFloor f p := by
   have hl := input_loaded h
   rw [(report_complete i).2, allHold_env hl]
   exact ⟨fun hf => ⟨input_form h, hf⟩, (·.2)⟩
 
-/-- A load that fails is never a pass. -/
 theorem decision_failed (why : String) :
     (Regula.Closed.decision (.error why)).verdict = .incomplete := rfl
 
-/-- The verdict that the shell reports is a pass only on an input that the load gave. -/
 theorem decision_pass {r : Except String Regula.Closed.Input}
     (h : (Regula.Closed.decision r).verdict = .pass) :
     ∃ i, r = .ok i ∧ i.report.verdict = .pass := by
@@ -822,9 +728,6 @@ theorem decision_pass {r : Except String Regula.Closed.Input}
   | error why => cases h
   | ok i => exact ⟨i, rfl, h⟩
 
-/-- The floor, on the path that the shell runs: when the verdict of the loader's result is a pass,
-each module of `roots` is claimed, each claimed module is loaded, each constant of the
-environment has a module, and the environment has `EnvForm` and `EnvFloor`. -/
 theorem pass_floor (h : (Regula.Closed.decision (f.input roots p)).verdict = .pass) :
     (∀ r ∈ roots, r ∈ f.claimed) ∧ (∀ m ∈ f.claimed, m ∈ f.env.header.moduleNames.toList) ∧
       (∀ n info, f.env.constants.map₁[n]? = some info → ∃ m, f.moduleOf? n = some m) ∧
@@ -835,8 +738,6 @@ theorem pass_floor (h : (Regula.Closed.decision (f.input roots p)).verdict = .pa
   obtain ⟨m, hm⟩ := module_of hl hn
   exact ⟨m.name, moduleOf?_eq_some.mpr ⟨m, hm, rfl⟩⟩
 
-/-- What the claimed modules' own `.olean` files hold: `Facts.claimedConstants` lists each constant
-of each claimed module, as the header of the environment gives that module's data at its index. -/
 theorem mem_claimedConstants {m n : Name} {info : ConstantInfo} :
     (m, n, info) ∈ f.claimedConstants ↔ ∃ (k : Nat) (lm : Regula.Load.LoadedModule) (data :
         Lean.ModuleData), f.modules[k]? = some lm ∧ lm.claimed = true ∧ lm.name = m ∧
@@ -850,11 +751,6 @@ theorem mem_claimedConstants {m n : Name} {info : ConstantInfo} :
   · rintro ⟨k, lm, data, h1, hc, rfl, h2, hx⟩
     exact ⟨(lm, data), ⟨⟨k, h1, h2⟩, hc⟩, (n, info), hx, rfl, rfl, rfl⟩
 
-/-- A pass holds of each constant that `Facts.claimedConstants` lists, as that module's own `.olean` states it, not
-only of the constant that Lean's import keeps under its name (`Facts.shown`, `Facts.unread?`): it is
-no axiom, it is a partial, safe-flagged constant when it has either flag or a recursion helper's
-name, its value mentions no loop construct, and each axiom that it reaches, through what any loaded
-module's own data states, is one that the profile admits. -/
 theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pass) {m n : Name}
     {info : ConstantInfo} (hx : (m, n, info) ∈ f.claimedConstants) :
     (∀ v, info ≠ .axiomInfo v) ∧
@@ -919,8 +815,6 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
     have hm : Mentions k u := (mem_usesOf k u).mp (huses ▸ (mem_usesOf info u).mpr hu)
     exact h4 a (.step ⟨k, hk, .inl hm⟩ hr) hax
 
-/-- A run has a profile only on the release that this revision reads, with exactly one argument, and
-that argument names the profile. -/
 theorem profileOfRun_ok {version commit : String} {args : List String}
     {q : Regula.Closed.Profile} (h : Regula.Shell.profileOfRun version commit args = .ok q) :
     version = "4.35.0" ∧ commit = "eb6cafb7290e8bd5f2937522d8d804f58f02bafc" ∧
@@ -941,7 +835,6 @@ theorem profileOfRun_ok {version commit : String} {args : List String}
       · cases h
     · cases h
 
-/-- The text of a profile names it: the three spellings and no other. -/
 theorem profileOf_eq_some {text : String} {q : Regula.Closed.Profile}
     (h : Regula.Closed.Profile.ofSpelling? text = some q) :
     (text = "kernel-only" ∧ q = .kernelOnly) ∨ (text = "choice-free" ∧ q = .choiceFree) ∨
@@ -950,16 +843,14 @@ theorem profileOf_eq_some {text : String} {q : Regula.Closed.Profile}
   subst hs
   cases q <;> simp [Regula.Closed.Profile.spelling]
 
-/-- `below` is a test on components: the directory's are a proper prefix of the path's. It does not resolve `..`, and it does not
-tell an absolute path from a relative one. -/
+/-- `below` does not resolve `..`, and it does not tell an absolute path from a relative one. -/
 theorem below_iff (dir path : System.FilePath) :
     Regula.Load.below dir path = true ↔
       Regula.Load.parts dir <+: Regula.Load.parts path ∧
         Regula.Load.parts dir ≠ Regula.Load.parts path := by
   simp [Regula.Load.below, List.isPrefixOf_iff_prefix]
 
-/-- `exactBelow` is a test on the components of the three paths: the real path's are the path's, and the directory's are a prefix of them,
-so at or below. It does not tell an absolute path from a relative one. -/
+/-- `exactBelow` does not tell an absolute path from a relative one. -/
 theorem exactBelow_iff (dir path real : System.FilePath) :
     Regula.Load.exactBelow dir path real = true ↔
       Regula.Load.parts real = Regula.Load.parts path ∧
@@ -975,8 +866,6 @@ theorem exactBelow_no_parent (dir path real : System.FilePath)
   rw [((exactBelow_iff dir path real).mp h).1] at hr
   exact hr hp
 
-/-! ## A pass is owed -/
-
 /-- What the loader asks of each constant of a claimed module's own `.olean` that the environment does not show to the rules
 (`Facts.shown`), in the terms of the environment: a safe theorem with no recursion helper's name, whose value mentions no
 loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. Lean's import
@@ -988,9 +877,7 @@ def EnvUnshown (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
     ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
       ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a
 
-/-- What a build must be for the loader and the rules to pass it, in the terms of the `Facts` and the roots:
-each module of `roots` is claimed, each constant has a module, and the environment has `EnvForm`, `EnvFloor` and
-`EnvUnshown`. -/
+/-- What a build must be for the loader and the rules to pass it, in the terms of the `Facts` and the roots. -/
 structure LoadFloor (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   /-- Each module of `roots` is claimed. -/
   roots : ∀ r ∈ roots, r ∈ f.claimed
@@ -1003,7 +890,6 @@ structure LoadFloor (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Clos
   /-- What the environment does not show. -/
   unshown : EnvUnshown f p
 
-/-- `fitsUnshown` is what `EnvUnshown` states of one constant. -/
 theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantInfo) :
     Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true ↔
       Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
@@ -1070,7 +956,6 @@ theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantI
       obtain ⟨h1, h2⟩ := huses u ((mem_usesOf info u).mp (by simpa using hu))
       exact ⟨(hheld u).mpr h1, (hadm u).mpr h2⟩
 
-/-- `Facts.unread?` gives nothing when each constant is shown or fits. -/
 theorem unread_none_of {i : Regula.Closed.Input}
     (h : ∀ x ∈ f.claimedConstants, f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true) :
     f.unread? i = none := by
@@ -1086,7 +971,6 @@ theorem unread_none_of {i : Regula.Closed.Input}
     · simp [hmem.2] at hs
     · simpa using hf
 
-/-- Running a function of `Except` over a list fails only on a member. -/
 theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e : ε) (h : l.mapM g = .error e) :
     ∃ a ∈ l, ∃ e', g a = .error e' := by
   induction l generalizing e with
@@ -1106,7 +990,6 @@ theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e 
         rw [hl] at h
         cases h
 
-/-- The floor gives the input: the loader refuses nothing that `LoadFloor` holds of. -/
 theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok i := by
   simp only [Regula.Load.Facts.input]
   split
@@ -1151,8 +1034,6 @@ theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok 
   rw [hnone]
   exact ⟨_, rfl⟩
 
-/-- The verdict of the loader's result is a pass exactly on `LoadFloor`, which names no field of the input: so for every
-environment the loader and the rules refuse only what that statement excludes. -/
 theorem pass_iff_floor :
     (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ LoadFloor f roots p := by
   constructor

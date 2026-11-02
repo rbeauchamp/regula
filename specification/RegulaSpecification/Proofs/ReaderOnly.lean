@@ -7,9 +7,6 @@ import RegulaSpecification.Proofs.Reader
 
 /-!
 # What the reader never asks
-
-The reader asks only what `ReadOp` admits: on no response does it ask a Lake command, a load of a build for the rules, or a
-print. So the reader requests no build, for every response.
 -/
 
 namespace RegulaSpecification.Effects
@@ -195,7 +192,6 @@ theorem only_existsByName (path : FilePath) : OnlyA (existsByName path : Attempt
   | ok _ => exact only_pure _
   | error e => cases e <;> exact only_pure _
 
-/-- The reader asks only what `ReadOp` admits, on every response. -/
 theorem only_readProject (sysroot : String) (dir treeDir : FilePath) :
     OnlyA (read sysroot dir treeDir : Attempt L E _) := by
   unfold Regula.Reader.read readProject realPath toolchainOf readConfig readKeys readRoot readFiles noOtherConfig

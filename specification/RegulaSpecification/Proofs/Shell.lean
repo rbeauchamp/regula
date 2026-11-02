@@ -7,10 +7,6 @@ import RegulaSpecification.Proofs.ShellParts
 
 /-!
 # What a whole run does
-
-`run_meets` is the theorem the shell exists for: for every argument list and every response of Lean, Lake and the
-operating system, a run of `Regula.Shell.run`, the program the `lint` executable interprets, does what
-`RegulaSpecification.Effects.RunMeets` states.
 -/
 
 namespace RegulaSpecification.Effects
@@ -25,16 +21,12 @@ open RegulaSpecification.Language
 
 variable {L E : Type}
 
-/-! ## The check -/
-
 theorem quiet_of_saying {t : List (Event L E)} (h : ∀ e ∈ t, e.isOnlySaying = true) : Quiet t := by
   intro e he
   have hs := h e he
   obtain ⟨op, response⟩ := e
   cases op <;> first | trivial | cases hs
 
-/-- What `check` decides rests on what the reader read, after a prefix that only observes and that holds the toolchain's answer; its acts are the
-grammar's; an admission received no failed answer; and it builds nothing, loads no build for the rules, removes nothing and prints only details. -/
 theorem check_spec {prior t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
     (hq : Quiet prior) (hps : SysrootIs prior sysroot)
     (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
@@ -101,9 +93,6 @@ theorem check_spec {prior t : List (Event L E)} {sysroot : String} {dir tree : F
       fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hprep hd, fun ho => ?_, hrest hd⟩
     exact (g4 ho).2.2.append (fun e he => not_failed_of_saying (hd.1 e he))
 
-/-! ## The build -/
-
-/-- One Lake command in the tree. -/
 theorem lake_spec {program tree : FilePath} {args : List String} {t : List (Event L E)} {b : Bool}
     (h : Runs (lake program tree args : Prog L E Bool) t b) :
     ∃ pre r post, t = pre ++ ⟨.runLake program tree args, r⟩ :: post ∧ Details pre ∧ Details post ∧
@@ -137,8 +126,6 @@ theorem lake_spec {program tree : FilePath} {args : List String} {t : List (Even
     obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₈
     exact ⟨by simpa using say_spec h₇, by simp⟩
 
-/-- Every execution of the actual build function follows the closed build protocol, including a failed
-spawn or nonzero child exit. Reporting is the only work between the identified commands. -/
 theorem buildAndReplay_protocol {sysroot : String} {tree : FilePath} {t : List (Event L E)} {b : Bool}
     (h : Runs (buildAndReplay sysroot tree : Prog L E Bool) t b) : BuildProtocol sysroot tree t := by
   unfold buildAndReplay at h
@@ -204,12 +191,9 @@ theorem buildEvents_lake {program tree : FilePath} {args : List String} {r}
     (buildEvents_of_details (tree := tree) hpost)
   simpa using this
 
-/-- What a `Details` holds is no failure. -/
 theorem details_not_failed {t : List (Event L E)} (h : Details t) : ∀ e ∈ t, ¬ e.failed :=
   fun e he => not_failed_of_saying (h.1 e he)
 
-/-- `buildAndReplay` passes only on both Lake commands ending with 0, and a command that did not end with 0 rejects the
-build. -/
 theorem buildAndReplay_spec {sysroot : String} {tree : FilePath} {t : List (Event L E)} {b : Bool}
     (h : Runs (buildAndReplay sysroot tree : Prog L E Bool) t b) :
     BuildEvents t tree ∧
@@ -277,8 +261,6 @@ theorem buildAndReplay_spec {sysroot : String} {tree : FilePath} {t : List (Even
       rw [he] at this
       cases this
 
-/-! ## The loads print nothing -/
-
 /-- An operation that the loads may ask: none prints, builds, makes or removes anything. -/
 def LoadOp : Op L E → Prop
   | .runLake .. | .println _ | .flush | .createTempDir | .removeDirAll _ | .leanVersion | .writeFile ..
@@ -327,7 +309,6 @@ theorem only_loadPlain (p : Regula.Closed.Profile) : OnlyAIn LoadOp (loadPlain p
   · exact onlyA_seq (only_inputOf _ _) fun _ => onlyA_pure _
   · exact onlyA_throw _
 
-/-- Events of the loads print no line. -/
 theorem printed_of_load {α : Type} {x : Attempt L E α} (hx : OnlyAIn LoadOp x) {t : List (Event L E)}
     {b : Except String α} (h : Runs x.run t b) : printed t = [] := by
   have hn : t.filterMap Event.line? = [] := by
@@ -349,8 +330,6 @@ theorem sayCoverage_spec {r : Except String Regula.Closed.Input} {t : List (Even
     obtain ⟨rfl, -⟩ := runs_pure_iff.mp h
     exact details_nil
 
-/-- The rules on the finished build: their verdict is the decision's on what the load gave, and the phase meets `RulesPreparation`. It issues no
-write, directory creation, allocation, removal or command request, on success or failure, and a pass received no failed answer. -/
 theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
     {v : Regula.Closed.Verdict} (hT : t.Sublist T)
     (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) :
@@ -381,8 +360,6 @@ theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}
     rcases List.mem_append.mp he with he | he
     · exact l2 i rfl e he
     · exact details_not_failed hd e he
-
-/-! ## The gate in its tree -/
 
 /-- What the gate's events are, and what it reports. -/
 structure GateEvents (tRead tGate : List (Event L E)) (dir tree : FilePath) (p : Regula.Closed.Profile)
@@ -514,9 +491,6 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
             obtain ⟨o', r'⟩ := e
             cases o' <;> first | exact this.elim | cases hp'
 
-/-! ## The whole run -/
-
-/-- Each act of the reading stage, the gate and the removal, in the record's words. -/
 theorem confined_of {tRead tGate last : List (Event L E)} {dir tree : FilePath} {tmp r}
     (hr : ReadActs tRead dir tree) (hg : ∀ e ∈ tGate, ∀ path, e.acted? = some path → path = tree)
     (hl : ∀ e ∈ last, e.isOnlySaying = true) :
@@ -570,7 +544,6 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
     obtain ⟨tRead, tGate, rfl, G⟩ := gateIn_spec h₃
     obtain ⟨t₅, t₆, r₅, rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
     obtain rfl := runs_call_iff.mp h₅
-    -- The removal, a line if it failed, and the last line.
     have hlast : ∃ last r', t₆ = last ++ [⟨.println (report.labelOn dir.toString), r'⟩] ∧ Details last ∧ c = report.exitCode := by
       cases r₅ with
       | ok u =>
@@ -673,13 +646,11 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
   · simpa [List.append_assoc] using hprep.appendQuiet
       ((quiet_of_saying hd.1).append (quiet_of_saying hsay))
 
-/-- Whether this is the Lean that this revision reads, as the shell tests it. -/
 theorem supportsLean_iff (v : String × String) :
     supportsLean v.1 v.2 = true ↔ v = Regula.Closed.pinnedLean := by
   obtain ⟨a, b⟩ := v
   simp [supportsLean]
 
-/-- A refusal: the first event asked which Lean this is, and the rest only said so. -/
 theorem refusal_of {v} {why : String} {rest : List (Event L E)} {c : UInt32}
     (h : Runs (finishProof (.incomplete why) : Prog L E UInt32) rest c) :
     Refusal (⟨.leanVersion, v⟩ :: rest) c := by
@@ -690,7 +661,6 @@ theorem refusal_of {v} {why : String} {rest : List (Event L E)} {c : UInt32}
     · rfl
     · exact hsay e he'
 
-/-- Any argument list other than one word is refused, whatever the Lean. -/
 theorem profileOfRun_other {version commit : String} {a : List String} (h : ∀ text, a ≠ [text]) :
     ∃ why, profileOfRun version commit a = .error why := by
   unfold profileOfRun
@@ -700,7 +670,6 @@ theorem profileOfRun_other {version commit : String} {a : List String} (h : ∀ 
     · exact absurd rfl (h _)
     · exact ⟨_, rfl⟩
 
-/-- A Lean that this revision does not read is refused, whatever the arguments. -/
 theorem profileOfRun_lean {version commit : String} {a : List String}
     (h : (version, commit) ≠ Regula.Closed.pinnedLean) :
     ∃ why, profileOfRun version commit a = .error why := by
@@ -710,7 +679,6 @@ theorem profileOfRun_lean {version commit : String} {a : List String}
     | true => exact absurd ((supportsLean_iff (version, commit)).mp hx) h
   exact ⟨_, by unfold profileOfRun; rw [ite_eq_left (by simp [hs])]⟩
 
-/-- A text that is no profile is refused, whatever the Lean. -/
 theorem profileOfRun_text {version commit text : String}
     (h : Regula.Closed.Profile.ofSpelling? text = none) :
     ∃ why, profileOfRun version commit [text] = .error why := by
@@ -720,7 +688,6 @@ theorem profileOfRun_text {version commit text : String}
   · simp only [h]
     exact ⟨_, rfl⟩
 
-/-- On this Lean, the profile of its spelling. -/
 theorem profileOfRun_ok' {version commit text : String} {p : Regula.Closed.Profile}
     (hv : (version, commit) = Regula.Closed.pinnedLean)
     (h : Regula.Closed.Profile.ofSpelling? text = some p) :
@@ -728,8 +695,6 @@ theorem profileOfRun_ok' {version commit text : String} {p : Regula.Closed.Profi
   have hs : supportsLean version commit = true := (supportsLean_iff (version, commit)).mpr hv
   simp [profileOfRun, hs, h]
 
-/-- The theorem of the shell: for every argument list and every response, a run of the program that the `lint`
-executable interprets does what the record states. -/
 theorem run_meets : RunMeets (Regula.Shell.run : List String → Prog L E UInt32) := by
   intro args t c h
   unfold Regula.Shell.run at h
@@ -772,9 +737,6 @@ theorem run_meets : RunMeets (Regula.Shell.run : List String → Prog L E UInt32
     obtain ⟨why, hw⟩ := profileOfRun_other (version := version) (commit := commit) (a := a :: b :: more) (by simp)
     exact hrefuse hw h₃
 
-/-- **No argument selects what is audited.** For every argument list and every response, a run is a refusal, or it asked
-`fullVariable`: unset, it is the proof verdict; set, it is the full gate on the directory that the answer names. The
-arguments appear in none of it but as the profile. So what a project's `lintDriverArgs` hold selects no directory. -/
 theorem run_subject {args : List String} {t : List (Event L E)} {c : UInt32}
     (h : Runs (Regula.Shell.run args : Prog L E UInt32) t c) :
     Refusal t c ∨ ∃ p v rest,
@@ -801,8 +763,6 @@ theorem run_subject {args : List String} {t : List (Event L E)} {c : UInt32}
   | [], hm => exact .inl hm
   | _ :: _ :: _, hm => exact .inl hm
 
-/-- Any argument list other than one word is a refusal: a directory in `lintDriverArgs`, a relative path, `.` and a list
-shorter or longer than the grammar all are. -/
 theorem run_other {args : List String} (ha : ∀ text, args ≠ [text]) {t : List (Event L E)} {c : UInt32}
     (h : Runs (Regula.Shell.run args : Prog L E UInt32) t c) : Refusal t c := by
   have hm := run_meets (L := L) (E := E) _ _ _ h
@@ -811,8 +771,6 @@ theorem run_other {args : List String} (ha : ∀ text, args ≠ [text]) {t : Lis
   | [], _, hm => exact hm
   | _ :: _ :: _, _, hm => exact hm
 
-/-- **A pass of the proof verdict is about the directory it names.** That is the current directory's real path, the workspace
-was loaded from it, and Lake's search path starts with that workspace's (`PlainRoot`, whose read this states). -/
 theorem plainRun_pass {t : List (Event L E)} {p : Regula.Closed.Profile} (h : PlainRun t p 0) :
     ∃ subject : FilePath, EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
       (⟨.realPath ".", .ok subject⟩ : Event L E) ∈ t ∧

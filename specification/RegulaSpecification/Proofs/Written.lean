@@ -7,10 +7,6 @@ import RegulaSpecification.Effects
 
 /-!
 # What the run's own acts leave in the tree
-
-`written` is a fold over a trace, so what stands at a path after two segments is what the second leaves from where the first
-stopped (`written_append`). `LeavesAs` says that a segment acts on files exactly as a list of writes does, and `writesOf_agree`
-and `writesOf_mem` state what such a list leaves when no two of its entries disagree at a path.
 -/
 
 namespace RegulaSpecification.Effects
@@ -30,7 +26,6 @@ theorem leavesFrom_append (a b : List (Event L E)) (p : List String) (held : Opt
     leavesFrom (a ++ b) p held = leavesFrom b p (leavesFrom a p held) := by
   simp [leavesFrom, List.foldl_append]
 
-/-- What stands after two segments is what the second leaves from where the first stopped. -/
 theorem written_append (a b : List (Event L E)) (p : List String) :
     written (a ++ b) p = leavesFrom b p (written a p) :=
   leavesFrom_append a b p none
@@ -43,8 +38,6 @@ theorem writesOf_append (a b : List (FilePath × String)) (p : List String) (hel
     writesOf (a ++ b) p held = writesOf b p (writesOf a p held) := by
   simp [writesOf, List.foldl_append]
 
-/-- A list of writes whose every entry at `p` has the text `v` leaves `v` at `p`, if something stood there as `v` or an
-entry lies there. -/
 theorem writesOf_agree {l : List (FilePath × String)} {p : List String} {v : String} {held : Option String}
     (hall : ∀ y ∈ l, parts y.1 = p → y.2 = v) (hsome : held = some v ∨ ∃ y ∈ l, parts y.1 = p) :
     writesOf l p held = some v := by
@@ -67,7 +60,6 @@ theorem writesOf_agree {l : List (FilePath × String)} {p : List String} {v : St
         · exact absurd hp ha
         · exact .inr ⟨y, hy, hp⟩
 
-/-- What a list of writes leaves from nothing is the text of one of its entries at that path. -/
 theorem writesOf_mem {l : List (FilePath × String)} {p : List String} {v : String} {held : Option String}
     (h : writesOf l p held = some v) : held = some v ∨ ∃ x ∈ l, parts x.1 = p ∧ x.2 = v := by
   induction l generalizing held with
@@ -108,7 +100,6 @@ theorem keeps_of_no_acts {e : Event L E} (h : e.acted? = none) : e.keepsFiles :=
   obtain ⟨o, r⟩ := e
   cases o <;> first | trivial | cases h
 
-/-- No event of a segment writes or removes. -/
 theorem leavesAs_nil_of_keeps {t : List (Event L E)} (h : ∀ e ∈ t, e.keepsFiles) : LeavesAs t [] := by
   intro p held
   induction t generalizing held with
@@ -119,14 +110,12 @@ theorem leavesAs_nil_of_keeps {t : List (Event L E)} (h : ∀ e ∈ t, e.keepsFi
     rw [Event.leaves_of_keeps (h e (List.mem_cons_self ..))]
     exact hrest held
 
-/-- No event of a segment acts on a file or a directory. -/
 theorem leavesAs_nil_of_no_act {t : List (Event L E)} (h : ∀ e ∈ t, e.acted? = none) : LeavesAs t [] := by
   refine leavesAs_nil_of_keeps fun e he => ?_
   have hne := h e he
   obtain ⟨o, r⟩ := e
   cases o <;> first | trivial | cases hne
 
-/-- A directory made, then one write. -/
 theorem leavesAs_write {before : List (Event L E)} {path : FilePath} {text : String} {r : Except IO.Error Unit}
     (h : ∀ e ∈ before, ∃ d, e = (⟨.createDirAll d, .ok ()⟩ : Event L E)) :
     LeavesAs (before ++ [⟨.writeFile path text, r⟩]) [(path, text)] := by
@@ -153,12 +142,10 @@ theorem WritesIn.append {a b : List (Event L E)} {x y : List (FilePath × String
   · exact List.mem_append_left _ (ha path text r he)
   · exact List.mem_append_right _ (hb path text r he)
 
-/-- No event of a segment acts on a file or a directory, so it asks no write. -/
 theorem writesIn_nil_of_no_act {t : List (Event L E)} (h : ∀ e ∈ t, e.acted? = none) : WritesIn t [] := by
   intro path text r he
   cases h _ he
 
-/-- A directory made, then one write. -/
 theorem writesIn_write {before : List (Event L E)} {path : FilePath} {text : String} {r : Except IO.Error Unit}
     (h : ∀ e ∈ before, ∃ d, e = (⟨.createDirAll d, .ok ()⟩ : Event L E)) :
     WritesIn (before ++ [⟨.writeFile path text, r⟩]) [(path, text)] := by
@@ -170,12 +157,10 @@ theorem writesIn_write {before : List (Event L E)} {path : FilePath} {text : Str
     cases hop
     exact List.mem_singleton.mpr rfl
 
-/-- What a segment leaves from nothing, when it acts as a list of writes. -/
 theorem LeavesAs.written {t : List (Event L E)} {l : List (FilePath × String)} (h : LeavesAs t l) (p : List String) :
     Effects.written t p = writesOf l p none :=
   h p none
 
-/-- A segment with no act before another changes nothing that stands after it. -/
 theorem written_after_no_acts {a b : List (Event L E)} (ha : ∀ e ∈ a, e.acted? = none) (p : List String) :
     Effects.written (a ++ b) p = Effects.written b p := by
   rw [written_append]
@@ -183,7 +168,6 @@ theorem written_after_no_acts {a b : List (Event L E)} (ha : ∀ e ∈ a, e.acte
   rw [written_eq, h]
   rfl
 
-/-- A segment with no act after another changes nothing that stands before it. -/
 theorem written_before_no_acts {a b : List (Event L E)} (hb : ∀ e ∈ b, e.acted? = none) (p : List String) :
     Effects.written (a ++ b) p = Effects.written a p := by
   rw [written_append]
@@ -191,8 +175,6 @@ theorem written_before_no_acts {a b : List (Event L E)} (hb : ∀ e ∈ b, e.act
   rw [h]
   rfl
 
-/-- What stands at a path after a write there is its text, when nothing after it writes or removes: an earlier write's text no
-longer stands. -/
 theorem written_last_write (a b : List (Event L E)) (path : FilePath) (text : String) (r : Except IO.Error Unit)
     (hb : LeavesAs b []) : Effects.written (a ++ ⟨.writeFile path text, r⟩ :: b) (parts path) = some text := by
   rw [written_append]

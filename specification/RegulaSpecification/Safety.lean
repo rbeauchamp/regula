@@ -15,7 +15,7 @@ Lean. A `while` needs no `partial` of the module that uses it: it compiles throu
 a helper's name needs no flag either: the compiler reads `f._unsafe_rec` in place of `f` by its name
 alone (`getDeclInfo?`, `Lean/Compiler/LCNF/ToDecl.lean:25-27`).
 
-The one constant of these the rule admits has **the exempted form**: `f._unsafe_rec`, partial and not
+The one constant of these the rule admits has the exempted form: `f._unsafe_rec`, partial and not
 unsafe, with neither `@[implemented_by]` nor `@[extern]`, beside a safe, total definition `f` of its module.
 It is the form of what Lean's elaborator adds for a safe recursive definition, which is why it is
 exempted, and it is a form and nothing else. The input holds nothing of who produced a constant, so one
@@ -68,7 +68,6 @@ theorem, opaque constant, axiom and safe definition at the safety `safe` (`src/k
 def SafeMentionsSafe (i : Input) : Prop :=
   ∀ d ∈ i.decls, d.safety = .safe → ∀ u ∈ d.uses, ∀ q ∈ i.decls, q.name = u → q.safety = .safe
 
-/-- A name is that of one constant of the input. -/
 theorem Input.eq_of_name_eq {l : List Decl} (h : (l.map (·.name)).Nodup) {a b : Decl} (ha : a ∈ l) (hb : b ∈ l)
     (he : a.name = b.name) : a = b := by
   induction l with
@@ -81,7 +80,6 @@ theorem Input.eq_of_name_eq {l : List Decl} (h : (l.map (·.name)).Nodup) {a b :
     · exact absurd (List.mem_map.mpr ⟨a, ha', he⟩) h1
     · exact ih h2 ha' hb'
 
-/-- Under H6, each constant that a safe constant reaches through what it mentions is safe. -/
 theorem safe_reach_safe {i : Input} (h : SafeMentionsSafe i) {c e : Name} (hr : i.Reaches c e) :
     ∀ d ∈ i.decls, d.name = c → d.safety = .safe → ∀ p ∈ i.decls, p.name = e → p.safety = .safe := by
   induction hr with

@@ -9,11 +9,8 @@ import RegulaSpecification.Language
 /-!
 # The language decision against its record
 
-`Regula.Language.decision` meets `languageRecord`, over every reading and in both directions, and
-`Regula.Language.gate`, at the recording monad of `traced`, meets `fullGateRecord`, for every outcome, build result and
-verdict. Each theorem is about the definition that the checker
-runs. What fills a `Reading` from a real project (`Regula.Reader`) is in `Proofs/Reader.lean`, and the
-specification's trusted base lists what stays assumed.
+Each theorem is about the definition that the checker runs. What fills a `Reading` from a real project
+(`Regula.Reader`) is in `Proofs/Reader.lean`, and the specification's trusted base lists what stays assumed.
 -/
 
 namespace RegulaSpecification.Language
@@ -24,8 +21,6 @@ open LeanIntent
 
 theorem contains_iff {α : Type} [BEq α] [LawfulBEq α] {l : List α} {x : α} :
     l.contains x = true ↔ x ∈ l := List.contains_iff_mem
-
-/-! ## The walk -/
 
 theorem occurs_node {s : Syntax} {i k} {as : Array Syntax} :
     Occurs s (.node i k as) ↔ s = .node i k as ∨ (k ∉ leafKinds ∧ ∃ c ∈ as, Occurs s c) := by
@@ -43,7 +38,6 @@ theorem occurs_leaf {s t : Syntax} (h : Occurs s t) (ht : ∀ i k as, t ≠ .nod
   | self => rfl
   | child _ _ _ => exact absurd rfl (ht _ _ _)
 
-/-- `positions` lists exactly the positions the specification reads. -/
 theorem mem_positions_iff (t : Syntax) (s : Syntax) : s ∈ positions t ↔ Occurs s t := by
   induction t using Syntax.rec
     (motive_2 := fun as => s ∈ positionsOfArray as ↔ ∃ c ∈ as, Occurs s c)
@@ -69,8 +63,6 @@ theorem mem_positions_iff (t : Syntax) (s : Syntax) : s ∈ positions t ↔ Occu
   | nil => simp [positionsOfList]
   | cons x xs hx hxs =>
     simp only [positionsOfList, List.mem_append, hx, hxs, List.mem_cons, exists_eq_or_imp]
-
-/-! ## One position -/
 
 theorem anonymous_not_reserved : ¬ ReservedName .anonymous := fun h => by cases h
 
@@ -207,7 +199,6 @@ theorem noArgument_iff (o : Option Syntax) :
         simp [noArgument]
     · simp [noArgument, hk]
 
-/-- The five clauses of `NodeAdmitted` that read a kind's arguments, against `argumentsAdmitted`. -/
 theorem argumentsAdmitted_iff (sp : List Name) (k : Name) (as : Array Syntax) :
     argumentsAdmitted sp k as = true ↔
       (k = `Lean.Parser.Attr.simple →
@@ -286,15 +277,12 @@ theorem positionAdmitted_iff (sp : List Name) (s : Syntax) :
     simp only [positionAdmitted, PositionAdmitted, NodeAdmitted, Bool.and_eq_true, Bool.or_eq_true,
       contains_iff, argumentsAdmitted_iff]
 
-/-- A tree has no offender exactly when the specification admits it. -/
 theorem offenders_eq_nil_iff (sp : List Name) (t : Syntax) :
     offenders sp t = [] ↔ TreeAdmitted sp t := by
   simp only [offenders, List.filter_eq_nil_iff, mem_positions_iff, TreeAdmitted, Bool.not_eq_true',
     ← positionAdmitted_iff]
   simp
 
-/-- `offenders` reports a position exactly when it is a position of the tree that the specification
-does not admit. -/
 theorem mem_offenders_iff (sp : List Name) (t s : Syntax) :
     s ∈ offenders sp t ↔ Occurs s t ∧ ¬ PositionAdmitted sp s := by
   simp [offenders, mem_positions_iff, ← positionAdmitted_iff]
@@ -325,13 +313,10 @@ theorem readToEnd_iff (cs : List Syntax) : readToEnd cs = true ↔ ReadToEnd cs 
     simp only [isNodeOf, beq_iff_eq, Option.some.injEq, Syntax.node.injEq]
     exact ⟨fun hk => ⟨i, as, ⟨rfl, hk, rfl⟩⟩, fun ⟨_, _, _, hk, _⟩ => hk⟩
 
-/-- `FileRead.admitted` is `FileAdmitted`. -/
 theorem fileAdmitted_iff (f : FileRead) : f.admitted = true ↔ FileAdmitted f := by
   simp only [FileRead.admitted, FileRead.offenders, Bool.and_eq_true, moduleFile_iff, readToEnd_iff,
     List.isEmpty_iff, List.flatMap_eq_nil_iff, List.mem_cons, forall_eq_or_imp, offenders_eq_nil_iff,
     FileAdmitted, and_assoc]
-
-/-! ## The module names -/
 
 theorem closedNameChar_iff (c : Char) : closedNameChar c = true ↔ ClosedChar c := by
   simp [closedNameChar, ClosedChar, or_assoc]
@@ -339,7 +324,6 @@ theorem closedNameChar_iff (c : Char) : closedNameChar c = true ↔ ClosedChar c
 theorem closedComponent_iff (s : String) : closedComponent s = true ↔ ClosedComponent s := by
   simp [closedComponent, ClosedComponent, closedNameChar_iff]
 
-/-- `closedModuleName` decides the specification's closed domain. -/
 theorem closedModuleName_iff (n : Name) : closedModuleName n = true ↔ ClosedModuleName n := by
   induction n with
   | anonymous =>
@@ -369,8 +353,6 @@ theorem closedModuleName_iff (n : Name) : closedModuleName n = true ↔ ClosedMo
       cases h with
       | more hp _ => cases hp
 
-/-! ## The reading -/
-
 theorem configKeyAdmitted_iff (k : Name) : configKeyAdmitted k = true ↔ ConfigKeyAdmitted k := by
   simp [configKeyAdmitted, ConfigKeyAdmitted, List.any_eq_true]
 
@@ -397,7 +379,6 @@ theorem covered_iff (r : Reading) : r.covered = true ↔ Covered r := by
 theorem filesAdmitted_iff (r : Reading) : r.filesAdmitted = true ↔ FilesAdmitted r := by
   simp [Reading.filesAdmitted, FilesAdmitted, fileAdmitted_iff]
 
-/-- The decision the checker runs meets the record. -/
 theorem decision_meets : languageRecord.Meets decision := by
   rw [language_meets_iff]
   have hn {b : Bool} {P : Prop} (h : b = true ↔ P) (hp : ¬ P) : b = false := by
@@ -430,12 +411,9 @@ theorem decision_meets : languageRecord.Meets decision := by
     simp [decision, b1, b2, b3, hn (mathlibReached_iff r) m, (covered_iff r).mpr v,
       (filesAdmitted_iff r).mpr o]
 
-/-- The check admits a reading exactly when `Inside` holds: its configuration and files are in the closed set, nothing is left
-out, and there is no dependency and no Mathlib. This is the theorem the check exists for, over every `Lean.Syntax` that a reading can hold. -/
 theorem decision_admitted_iff (r : Reading) : decision r = .admitted ↔ Inside r :=
   admitted_iff decision_meets r
 
-/-- An empty set of files is never admitted. -/
 theorem no_files_not_admitted (r : Reading) (h : r.files = []) : decision r ≠ .admitted := by
   intro ha
   obtain ⟨-, -, -, -, ⟨hroots, hr, -, hc⟩, -⟩ := (decision_admitted_iff r).mp ha
@@ -446,25 +424,20 @@ theorem no_files_not_admitted (r : Reading) (h : r.files = []) : decision r ≠ 
     obtain ⟨f, hf, -⟩ := hc m hm
     simp [h] at hf
 
-/-- A project with Mathlib in its imports is never admitted. -/
 theorem mathlib_not_admitted (r : Reading) (h : MathlibReached r) : decision r ≠ .admitted :=
   fun ha => ((decision_admitted_iff r).mp ha).2.2.2.1 h
 
-/-- A project with a dependency is never admitted. -/
 theorem dependency_not_admitted (r : Reading) (h : RequiresDependency r) : decision r ≠ .admitted :=
   fun ha => ((decision_admitted_iff r).mp ha).2.2.1 h
 
-/-- What `openPaths` names (a source directory, a `globs` entry or a default target) is never admitted. -/
 theorem open_path_not_admitted (r : Reading) (h : r.openPaths ≠ []) : decision r ≠ .admitted :=
   fun ha => h ((decision_admitted_iff r).mp ha).1.2.2.1
 
-/-- A module name outside the closed domain is never admitted. -/
 theorem unclosed_module_not_admitted (r : Reading) (m : Name) (hm : m ∈ r.reached)
     (hn : closedModuleName m = false) : decision r ≠ .admitted := fun ha => by
   have := ((decision_admitted_iff r).mp ha).2.2.2.2.1.2.2.1 m hm
   simp [(closedModuleName_iff m).mpr this] at hn
 
-/-- A file with an offender is never admitted. -/
 theorem offender_not_admitted (r : Reading) (f : FileRead) (hf : f ∈ r.files) (s t : Syntax)
     (ht : t = f.header ∨ t ∈ f.commands) (ho : s ∈ offenders f.scopedParsers t) :
     decision r ≠ .admitted := by
@@ -476,9 +449,6 @@ theorem offender_not_admitted (r : Reading) (f : FileRead) (hf : f ∈ r.files) 
   · exact hbad (hadm.2.2.2.1 s hocc)
   · exact hbad (hadm.2.2.2.2 t ht s hocc)
 
-/-! ## The checker's tree -/
-
-/-- `treeRelative` gives what `path` holds below `base`, and each component of that starts with no `.`. -/
 theorem treeRelative_iff (base path rel : List String) :
     treeRelative base path = some rel ↔ TreeRelative base path rel := by
   simp only [treeRelative, TreeRelative]
@@ -510,14 +480,12 @@ theorem treeRelative_iff (base path rel : List String) :
     rintro ⟨rfl, -⟩
     exact hp (List.prefix_append _ _)
 
-/-- `..`, `.` and `.lake` are no components of what `treeRelative` gives. A component may still hold a separator or be
-absolute, for an argument that no real path is. -/
+/-- A component of what `treeRelative` gives may still hold a separator or be absolute, for an argument that
+no real path is. -/
 theorem treeRelative_no_parent {base path rel : List String} (h : treeRelative base path = some rel) :
     ".." ∉ rel ∧ "." ∉ rel ∧ ".lake" ∉ rel := by
   obtain ⟨-, hc⟩ := (treeRelative_iff base path rel).mp h
   refine ⟨fun m => (hc _ m).2 ?_, fun m => (hc _ m).2 ?_, fun m => (hc _ m).2 ?_⟩ <;> decide
-
-/-! ## The gate -/
 
 /-- The gate over a monad that records its steps, as the specification reads it. -/
 def traced : GateRun := fun o b v =>
@@ -527,15 +495,12 @@ def traced : GateRun := fun o b v =>
   let (report, steps) := run.run []
   (report, steps.reverse)
 
-/-- `gate`, at the recording monad of `traced`, meets its record, for every outcome, build result and verdict. -/
 theorem gate_meets : fullGateRecord.Meets traced := by
   rw [fullGate_meets_iff]
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> rfl
 
-/-- O2 before running: the gate's record has a model. -/
 theorem fullGate_o2Run : O2Run fullGateRecord := o2Run_of_meets gate_meets
 
-/-- The whole gate exits with 0 only for a full verdict's pass, on a reading the check admitted. -/
 theorem gate_exit_zero_iff (r : Reading) (b : Bool) (v : Regula.Closed.Verdict) :
     (traced (decision r) b v).1.exitCode = 0 ↔
       Inside r ∧ b = true ∧ v = .pass := by

@@ -11,15 +11,9 @@ import RegulaSpecification.CasesGate
 
 The checker runs over `Regula.Closed.Input`, and the specification states each rule over
 `RegulaSpecification.Input`: two types with the same data, so that the specification is written
-independently of the code. A value of the checker's type also holds the proof of the closed form,
-and `wf_toSpec` carries that proof to the specification's statement of that form. `toSpec` carries
-an input of the checker to the specification's, and each `rg100N_exact` is stated about
-the function that the checker runs on an input `i` and the predicate of the specification at
-`toSpec i`.
-
-`ofSpec` goes the other way, so that the admission of the checker is a function of the
-specification's input, and `ofAdmitted` carries a well-formed input, so that a function of the
-checker is a checker of the specification's input (`Checker`) and can meet a rule's intent record.
+independently of the code. `toSpec` carries an input of the checker to the specification's, and `ofSpec`
+and `ofAdmitted` go the other way, so that a function of the checker is a checker of the specification's
+input (`Checker`) and can meet a rule's intent record.
 -/
 
 namespace RegulaSpecification
@@ -129,34 +123,26 @@ def ofAdmitted (s : Admitted Input) : Regula.Closed.Input where
     exact ⟨decl' e, List.mem_map.mpr ⟨e, he, rfl⟩, hn⟩
   claims := s.2.claims
 
-/-- `profile'` loses nothing. -/
 theorem profile_surj (p : Profile) : profile (profile' p) = p := by cases p <;> rfl
 
-/-- `decl'` loses nothing. -/
 theorem decl_decl' (d : Decl) : decl (decl' d) = d := by
   rcases d with ⟨_, _, k, s, _, _, _, _, _⟩
   cases k <;> cases s <;> rfl
 
-/-- `ofSpec` loses nothing that the specification's input holds. -/
 theorem toSpecDraft_ofSpec (s : Input) : toSpecDraft (ofSpec s) = s := by
   rcases s with ⟨p, m, ds, u⟩
   simp only [toSpecDraft, ofSpec, profile_surj, List.map_map, Function.comp_def, decl_decl',
     List.map_id']
 
-/-- `ofAdmitted` loses nothing that the specification's input holds. -/
 theorem toSpec_ofAdmitted (s : Admitted Input) : toSpec (ofAdmitted s) = s.1 :=
   toSpecDraft_ofSpec s.1
 
-/-- The constants of the specification's input are those of the checker's reading. -/
 theorem mem_declsDraft {d : Regula.Closed.Draft} {x : Decl} :
     x ∈ (toSpecDraft d).decls ↔ ∃ e ∈ d.decls, decl e = x := by simp [toSpecDraft]
 
-/-- The constants of the specification's input are those of the checker's input. -/
 theorem mem_decls {i : Regula.Closed.Input} {x : Decl} :
     x ∈ (toSpec i).decls ↔ ∃ d ∈ i.decls, decl d = x := mem_declsDraft
 
-/-- A reading of the checker has the closed form of the specification exactly when each mentioned
-constant is held and a module is claimed. -/
 theorem wf_toSpecDraft_iff (d : Regula.Closed.Draft) :
     (toSpecDraft d).WellFormed ↔
       (∀ x ∈ d.decls, ∀ u ∈ x.uses, ∃ e ∈ d.decls, e.name = u) ∧ d.modules ≠ [] := by
@@ -172,7 +158,6 @@ theorem wf_toSpecDraft_iff (d : Regula.Closed.Draft) :
     obtain ⟨e, he, hn⟩ := hc y hy u hu
     exact ⟨decl e, mem_declsDraft.mpr ⟨e, he, rfl⟩, hn⟩
 
-/-- Each input of the checker has the closed form of the specification: the type carries it. -/
 theorem wf_toSpec (i : Regula.Closed.Input) : (toSpec i).WellFormed :=
   (wf_toSpecDraft_iff i.toDraft).mpr ⟨i.closed, i.claims⟩
 

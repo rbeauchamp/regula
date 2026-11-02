@@ -8,113 +8,58 @@ module
 /-!
 # Executable contracts
 
-Proof requirements for a named executable definition. `ExecutableContract f R`
-requires a proof of `R f`; it does not infer whether `R` expresses the intended
-behavior. This module is a library and gives no verdict: no check of Regula reads it.
-
-## Decision kinds
+Proof requirements for a named executable definition. `ExecutableContract f R` requires a proof of
+`R f` and does not establish whether `R` expresses the intended behavior. This module is a library
+and gives no verdict: no check of Regula reads it.
 
 A function that acts as a checker (a parser, decoder, validator or admission function) is a
-*decision*: some of its results accept the input and the others refuse it. Three requirements,
-used as the `condition` of an `ExecutableContract`, state which direction of such a decision is
-proved against a specification `spec`:
+decision: some of its results accept the input and the others refuse it. `DecidesSoundly`,
+`DecidesCompletely` and `Decides` state which directions of a decision are proved against a
+specification. Each direction is a field, so Lean's kernel checks it, and a one-way guarantee can be
+registered only under the structure that names it. Each kind also carries a witness about `f`
+itself, so the function that refuses every input has no sound kind and the function that accepts
+every input has no complete kind. `DecisionEquivalence` states the two directions with no witness,
+and it is not a kind, because an equivalence holds on an empty domain, where `f` gives no outcome.
 
-* `DecidesSoundly accepts spec f`: `f` accepts only inputs that satisfy `spec`.
-* `DecidesCompletely accepts spec f`: `f` accepts every input that satisfies `spec`.
-* `Decides accepts spec f`: both.
+A function of several arguments is decided on the product of its arguments. One form is
+`Function.uncurry f`, so that the registered implementation stays the constant its callers run.
+The other is the function that applies `f` to the fields of one structure, which also admits an
+argument whose type depends on an earlier one, or a type, instance or proof argument. The kind
+about that function is the kind about `f` when every tuple of arguments is the fields of some
+value, which a type with one constructor and no index gives. No other way of supplying the
+arguments has this form. A function that fixes an argument or gives a field twice, a structure
+with a field that `f` does not take, and a type with an index each decide `f` on part of its
+domain. Nested dependent pairs are not a form for three or more arguments: each projection carries
+the pair's type, so the elaborated statement grows by a large factor with each argument, while a
+structure declared for the arguments has projections of constant size.
 
-Each direction is a field, so Lean's kernel checks it and a one-way guarantee can be registered
-only under the structure that names it. Each kind also carries a witness about `f` itself, so
-the function that refuses every input has no sound kind and the function that accepts every
-input has no complete kind. The direction a one-way kind leaves open is in its statement.
+A result type that depends on the input is decided through `Dependent.isSome` or
+`Dependent.isOk`, which forget the part of the result whose type depends on the input. An
+acceptance predicate or an erasure stated for every payload type can still read the payload type:
+"the payload type has a value" is then the specification of a proof-carrying payload, whatever the
+function returns. A result type whose dependency on the input neither erasure removes, such as an
+inductive family indexed by the input, has no kind: return `Decidable _`, or state an ordinary
+requirement. A subtype `{r : ρ // P x r}` is such a type, because an erasure that returns its value
+would keep a free acceptance predicate on a data value.
 
-A fourth requirement, `DecisionEquivalence accepts spec f`, states the two directions as one law
-and no witness. It is not a kind: an equivalence holds on an empty domain, where `f` neither
-accepts nor refuses an input, so it gives no outcome. A contract states it as an ordinary
-requirement.
-`DecisionEquivalence.toSoundly`
-and `toCompletely` give a kind from a law and the witness that the law does not supply.
+A kind is stated about the function applied to every one of its arguments, and no hypothesis can
+say so: that a result type is not a function type is not a proposition of Lean's logic. With an
+argument left, an acceptance predicate that reads the result at one value `b` of that argument
+gives the kind of the slice at `b` (`Decides.iff_slice`), which says nothing of the function at
+another value. Supply the remaining argument instead, with one more `Function.uncurry` or as a
+field of the structure. A kind about a function with universe parameters is stated at those
+parameters, so that it holds of every instance.
 
-A function of several arguments is decided on the product of its arguments: state the kind about
-`Function.uncurry f`, as in `ExecutableContract f (fun g => Decides accepts spec
-(Function.uncurry g))`. `Function.uncurry` is a bijection between `α → β → ρ` and `α × β → ρ`
-(`Function.curry_uncurry`, `Function.uncurry_curry`), so the kind's quantifiers over the pairs
-are the quantifiers over both arguments (`Prod.forall`, `Prod.exists`), and the registered
-implementation stays the constant its callers run.
-
-## Dependent and polymorphic decisions
-
-The three kinds are the only kinds. Two forms bring under them a function with an argument whose
-type depends on an earlier argument, with a type, instance or proof argument, or with a result
-type that depends on its arguments. They can be used separately:
-
-* **The fields of a structure.** State the kind about the function that applies `f` to every
-  field of one structure, in the order of the fields: `fun input : Input => f input.a input.b
-  input.c`, where `Input` is a structure whose fields are the arguments of `f`. The type of a
-  field can depend on an earlier field, and a field can be a type, an instance or a proof. For
-  two arguments the structure can be a pair (`Prod`, `Sigma`, `PSigma` or `Subtype`), and
-  `Function.uncurry f` is this form at `Prod` (`uncurry_eq_fields`). The kind about that
-  function is the kind about `f` when every tuple of arguments is the fields of some value
-  (`Decides.of_packing` and its one-way forms). A type with one constructor and no index has
-  that property: the constructor takes every tuple of fields to a value of the type, and Lean's
-  kernel reduces each projection of that value to the field. No other way of supplying the
-  arguments has this form. A function that fixes an argument or gives a field twice
-  decides `f` on part of its domain; a structure with a field that `f` does not take, such as a
-  proof about the other fields, can restrict the domain; and a type with an index holds only
-  the tuples whose fields compute that index.
-* **An erasure of the result.** A result type that depends on the input is decided through one
-  of two functions of this module, each of which forgets the part of the result whose type
-  depends on the input: `Dependent.isSome f` for `f : ∀ x, Option (payload x)` and
-  `Dependent.isOk f` for `f : ∀ x, Except (ε x) (payload x)`, both to `Bool`. The kind is one
-  of the three above about the erased function, as in
-  `Decides (· = true) spec (Dependent.isOk f)`, so the type of its acceptance predicate has no
-  payload in it, and the predicate reads the erased result and nothing else. An
-  acceptance predicate or an erasure that is stated for every payload type can read the payload
-  type: "the payload type has a value" is the specification of a proof-carrying payload,
-  whatever the function returns.
-
-A kind is stated about the function applied to every one of its arguments: the result type of
-the function that is decided is not a function type. This restriction is structural, and it is
-conservative. With an argument left, the result is a function, and how much of it the kind
-constrains depends on the acceptance predicate. One that reads the result at one fixed value `b`
-of that argument gives exactly the kind of the slice of the function at `b`
-(`Decides.iff_slice`), which says nothing of the function at another value. One that quantifies
-over that argument can constrain every value. The remedy is the same for both: supply the
-remaining argument, with one more `Function.uncurry` (`packing_uncurry_covers`) or as a field of
-the structure.
-
-A kind about a function with universe parameters is stated at those parameters, so that it
-holds of every instance. A result type whose dependency on the input neither erasure removes, such
-as an inductive family indexed by the input, has no kind: return `Decidable _`, or state an ordinary
-requirement. A result of a subtype type that depends on the input, `{r : ρ // P x r}`, is such a
-type: an erasure that returns the value of the subtype would keep a free acceptance predicate on a
-data value.
-
-Nested dependent pairs are not a form for three or more arguments. Each projection of a pair
-carries the pair's type, so the elaborated statement grows by a large factor with each argument,
-whichever way the pairs nest, and a field of a field is no field of the
-structure. A structure declared for the arguments has projections of constant size.
-
-## Functions that the two sides share
-
-A kind is a theorem about the present definitions. It compares `accepts (f x)` with `spec x`.
-When `spec` and `f` both call a function, a change of that function changes the two sides
-together. Each direction then holds or fails as its proof does, and a proof that goes through
-the shared function on the two sides can stay valid although the meaning changed. So the kind
-does not establish that the shared function is the intended one. The same holds of a function
-that `spec` and `accepts` both call. A proposition can take the place of a shared test in `spec`,
-with a theorem that connects the proposition to the function, or with a function that decides the
-proposition with `decide`.
-
-None of the kinds says that `spec` is the intended specification, that `accepts` is the intended
-reading of a result, that every caller acts on the verdict, or which value an accepting result
-carries. A constant function has no two-way kind
-(`Decides.not_of_constant`); a sound kind about one proves the specification of every input
-(`DecidesSoundly.spec_of_constant`), and a complete kind about one refutes it of every input
-(`DecidesCompletely.not_spec_of_constant`). But when the result of `f` determines its input, as
-the result of the identity function does, an acceptance predicate can restate the
-specification: `Decides spec spec id` holds of every specification that some input satisfies
-and some input does not.
+A kind compares `accepts (f x)` with `spec x` for the present definitions. When `spec` and `f`, or
+`spec` and `accepts`, both call a function, a change of that function changes the two sides
+together, and a proof through it can stay valid although the meaning changed. So the kind does not
+establish that the shared function is the intended one. A proposition can take the place of a
+shared test in `spec`, with a theorem that connects it to the function, or with a function that
+decides it with `decide`. No kind says that `spec` is the intended specification, that `accepts`
+is the intended reading of a result, that every caller acts on the verdict, or which value an
+accepting result carries. When the result of `f` determines its input, as the identity's does, an
+acceptance predicate can restate the specification: `Decides spec spec id` holds of every
+specification that some input satisfies and some input does not.
 -/
 
 public section
@@ -123,78 +68,58 @@ namespace Regula
 
 universe u v w
 
-/-- Required evidence about the exact implementation, not a similarly named model.
-Use a named constant as `implementation`; put its complete domain inside `condition`. -/
+/-- Required evidence about the exact implementation. Use a named constant as `implementation`, and
+put its complete domain inside `condition`. -/
 structure ExecutableContract {α : Type u} (implementation : α)
     (condition : α → Prop) : Prop where
   /-- A proof of `condition` about exactly `implementation`. -/
   evidence : condition implementation
 
-/-- Consume the required proof and return exactly the registered implementation.
-The proof is erased by compilation; this does not certify the native runtime.
-
-Its body is exposed because `run_eq`, an exported theorem proved by `rfl`, is the statement that
-importers rely on: reduction gives them the registered implementation itself. -/
+/-- Return the registered implementation, given the required proof. Compilation erases the proof,
+and this does not certify the native runtime. The body is exposed because importers rely on
+`run_eq`, which is proved by `rfl`. -/
 @[expose, inline] def ExecutableContract.run {α : Type u} {implementation : α}
     {condition : α → Prop} (_ : ExecutableContract implementation condition) : α :=
   implementation
 
-/-- Kernel reduction connects the proof-requiring entrypoint to its implementation. -/
 theorem ExecutableContract.run_eq {α : Type u} {implementation : α}
     {condition : α → Prop} (contract : ExecutableContract implementation condition) :
     contract.run = implementation := rfl
 
-/-- A sound decision: `f` accepts only inputs that satisfy `spec`, and accepts at least one
-input. `accepts` says which results are acceptances: `(· = true)` for a Boolean check,
-`(·.isSome)` for a parser, `(· = none)` for a function that returns a failure.
-
-**Not claimed:** completeness. `f` may refuse inputs that satisfy `spec`. Neither is it claimed
-that `spec` is the intended specification, nor which value an accepting result carries. -/
+/-- A sound decision: `f` accepts only inputs that satisfy `spec`, and accepts at least one input.
+`accepts` says which results are acceptances, such as `(· = true)` for a Boolean check or
+`(·.isSome)` for a parser. It does not claim completeness (`f` may refuse inputs that satisfy
+`spec`), that `spec` is the intended specification, or which value an accepting result carries. -/
 structure DecidesSoundly {α : Sort u} {ρ : Sort v} (accepts : ρ → Prop) (spec : α → Prop)
     (f : α → ρ) : Prop where
   /-- Soundness: every input `f` accepts satisfies the specification. -/
   sound : ∀ x, accepts (f x) → spec x
-  /-- `f` accepts some input. Without this the function that refuses every input would be
-  sound for every specification. The witness is about `f`: a satisfiable `spec` alone does not
-  exclude that function. -/
+  /-- `f` accepts some input. Without it the function that refuses every input would be sound for
+  every specification, and a satisfiable `spec` alone does not exclude that function. -/
   accepted : ∃ x, accepts (f x)
 
-/-- A complete decision: `f` accepts every input that satisfies `spec`, and refuses at least
-one input. `accepts` says which results are acceptances, as for `DecidesSoundly`.
-
-**Not claimed:** soundness. `f` may accept inputs that do not satisfy `spec`. Neither is it
-claimed that `spec` is the intended specification, nor which value an accepting result
-carries. -/
+/-- A complete decision: `f` accepts every input that satisfies `spec`, and refuses at least one
+input. It does not claim soundness (`f` may accept inputs that do not satisfy `spec`), that `spec`
+is the intended specification, or which value an accepting result carries. -/
 structure DecidesCompletely {α : Sort u} {ρ : Sort v} (accepts : ρ → Prop) (spec : α → Prop)
     (f : α → ρ) : Prop where
   /-- Completeness: `f` accepts every input that satisfies the specification. -/
   complete : ∀ x, spec x → accepts (f x)
-  /-- `f` refuses some input. Without this the function that accepts every input would be
-  complete for every specification. -/
+  /-- `f` refuses some input. Without it the function that accepts every input would be complete for
+  every specification. -/
   refused : ∃ x, ¬ accepts (f x)
 
-/-- A sound and complete decision: `f` accepts exactly the inputs that satisfy `spec`
-(`Decides.iff`), and both outcomes occur, so `spec` is neither true of every input nor false of
-every input (`DecidesSoundly.satisfiable`, `DecidesCompletely.refutable`).
-
-**Not claimed:** that `spec` is the intended specification, that it is stated independently of
-`f` in substance, or which value an accepting result carries. -/
+/-- A sound and complete decision: `f` accepts exactly the inputs that satisfy `spec`, and both
+outcomes occur. It does not claim that `spec` is the intended specification, that it is stated
+independently of `f` in substance, or which value an accepting result carries. -/
 structure Decides {α : Sort u} {ρ : Sort v} (accepts : ρ → Prop) (spec : α → Prop)
     (f : α → ρ) : Prop
     extends DecidesSoundly accepts spec f, DecidesCompletely accepts spec f
 
-/-- A decision law: `f` accepts exactly the inputs that satisfy `spec`. It states the two
-directions of `Decides` and neither witness, so it is not a decision kind. On an empty domain it
-holds while `f` neither accepts nor refuses an input (`DecisionEquivalence.of_empty`), and a
-constant function has one for the specification that its one outcome gives
-(`DecisionEquivalence.of_constant`), although it has no two-way kind (`Decides.not_of_constant`).
-A contract states it as the `condition` of an `ExecutableContract`, an ordinary requirement.
-`DecisionEquivalence.toSoundly` and `toCompletely` give a kind from a law and the witness that the
-law does not supply, and `Decides.of_iff` both.
-
-**Not claimed:** that `f` accepts some input, that it refuses some input, or that `spec` holds or
-fails of some input. Neither is it claimed that `spec` is the intended specification, nor which
-value an accepting result carries. -/
+/-- A decision law: `f` accepts exactly the inputs that satisfy `spec`. It has neither witness, so it
+is not a decision kind: it holds on an empty domain, where `f` neither accepts nor refuses an input.
+It does not claim that `f` accepts or refuses some input, that `spec` holds or fails of some input,
+that `spec` is the intended specification, or which value an accepting result carries. -/
 structure DecisionEquivalence {α : Sort u} {ρ : Sort v} (accepts : ρ → Prop) (spec : α → Prop)
     (f : α → ρ) : Prop where
   /-- `f` accepts an input exactly when the input satisfies the specification. -/
@@ -203,54 +128,37 @@ structure DecisionEquivalence {α : Sort u} {ρ : Sort v} (accepts : ρ → Prop
 section
 variable {α : Sort u} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop} {f : α → ρ}
 
-/-- The two directions of a `Decides` as one equivalence. -/
 theorem Decides.iff (decides : Decides accepts spec f) (x : α) : accepts (f x) ↔ spec x :=
   ⟨decides.sound x, decides.complete x⟩
 
-/-- A two-way theorem about `f` and one witness of each outcome give the two-way kind. -/
 theorem Decides.of_iff (iff : ∀ x, accepts (f x) ↔ spec x) (accepted : ∃ x, accepts (f x))
     (refused : ∃ x, ¬ accepts (f x)) : Decides accepts spec f :=
   { sound := fun x => (iff x).mp, accepted, complete := fun x => (iff x).mpr, refused }
 
-/-- A two-way kind gives the law of its two directions as one equivalence, and forgets its two
-witnesses. -/
 theorem Decides.toEquivalence (decides : Decides accepts spec f) :
     DecisionEquivalence accepts spec f :=
   ⟨decides.iff⟩
 
-/-- The direction of a law that soundness states: every input `f` accepts satisfies the
-specification. -/
 theorem DecisionEquivalence.sound (law : DecisionEquivalence accepts spec f) (x : α) :
     accepts (f x) → spec x :=
   (law.iff x).mp
 
-/-- The direction of a law that completeness states: `f` accepts every input that satisfies the
-specification. -/
 theorem DecisionEquivalence.complete (law : DecisionEquivalence accepts spec f) (x : α) :
     spec x → accepts (f x) :=
   (law.iff x).mpr
 
-/-- A law and an input that `f` accepts give the sound kind. The input is an argument: the law
-does not supply it. -/
 theorem DecisionEquivalence.toSoundly (law : DecisionEquivalence accepts spec f)
     (accepted : ∃ x, accepts (f x)) : DecidesSoundly accepts spec f :=
   { sound := law.sound, accepted }
 
-/-- A law and an input that `f` refuses give the complete kind. The input is an argument: the law
-does not supply it. -/
 theorem DecisionEquivalence.toCompletely (law : DecisionEquivalence accepts spec f)
     (refused : ∃ x, ¬ accepts (f x)) : DecidesCompletely accepts spec f :=
   { complete := law.complete, refused }
 
-/-- On an empty domain every law holds, and `f` neither accepts nor refuses an input: a law gives
-no outcome. -/
 theorem DecisionEquivalence.of_empty (empty : α → False) :
     DecisionEquivalence accepts spec f ∧ ¬ (∃ x, accepts (f x)) ∧ ¬ ∃ x, ¬ accepts (f x) :=
   ⟨⟨fun x => (empty x).elim⟩, fun ⟨x, _⟩ => empty x, fun ⟨x, _⟩ => empty x⟩
 
-/-- A parser of a written form is a two-way decision of "is a written form": `parse` reads
-every `write x` back as `x` and accepts nothing else, with one value and one input it refuses as
-the witnesses. This is the shape of a closed vocabulary's spelling and parser. -/
 theorem Decides.of_roundtrip {β : Type u} {σ : Sort v} {write : β → σ} {parse : σ → Option β}
     (roundtrip : ∀ x, parse (write x) = some x)
     (canonical : ∀ s x, parse s = some x → write x = s)
@@ -264,34 +172,25 @@ theorem Decides.of_roundtrip {β : Type u} {σ : Sort v} {write : β → σ} {pa
     complete := fun s ⟨x, written⟩ => by rw [written, roundtrip]; rfl
     refused := ⟨unwritten, by rw [refuses]; exact Bool.false_ne_true⟩ }
 
-/-- The specification of a sound decision is satisfiable: the accepted input satisfies it. -/
 theorem DecidesSoundly.satisfiable (decides : DecidesSoundly accepts spec f) : ∃ x, spec x :=
   decides.accepted.elim fun x h => ⟨x, decides.sound x h⟩
 
-/-- The specification of a complete decision is refutable: the refused input does not satisfy
-it. -/
 theorem DecidesCompletely.refutable (decides : DecidesCompletely accepts spec f) :
     ∃ x, ¬ spec x :=
   decides.refused.elim fun x h => ⟨x, fun holds => h (decides.complete x holds)⟩
 
-/-- A function that refuses every input has no sound kind, whatever the specification: it has
-no `accepted` witness. -/
 theorem DecidesSoundly.not_of_refuses_all (refuses : ∀ x, ¬ accepts (f x)) :
     ¬ DecidesSoundly accepts spec f :=
   fun decides => decides.accepted.elim refuses
 
-/-- A function that refuses every input is not complete for a satisfiable specification. -/
 theorem DecidesCompletely.not_of_refuses_all (refuses : ∀ x, ¬ accepts (f x))
     (satisfiable : ∃ x, spec x) : ¬ DecidesCompletely accepts spec f :=
   fun decides => satisfiable.elim fun x holds => refuses x (decides.complete x holds)
 
-/-- A function that accepts every input has no complete kind, whatever the specification: it
-has no `refused` witness. -/
 theorem DecidesCompletely.not_of_accepts_all (acceptsAll : ∀ x, accepts (f x)) :
     ¬ DecidesCompletely accepts spec f :=
   fun decides => decides.refused.elim fun x h => h (acceptsAll x)
 
-/-- A function that accepts every input is not sound for a refutable specification. -/
 theorem DecidesSoundly.not_of_accepts_all (acceptsAll : ∀ x, accepts (f x))
     (refutable : ∃ x, ¬ spec x) : ¬ DecidesSoundly accepts spec f :=
   fun decides => refutable.elim fun x fails => fails (decides.sound x (acceptsAll x))
@@ -301,28 +200,18 @@ end
 section
 variable {α : Sort u} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop}
 
-/-- A constant function has no two-way kind, whatever the acceptance predicate and the
-specification: it accepts every input or refuses every input, and a two-way kind needs an input
-of each outcome. -/
 theorem Decides.not_of_constant (result : ρ) : ¬ Decides accepts spec (fun _ : α => result) :=
   fun decides => decides.accepted.elim fun _ accepted =>
     decides.refused.elim fun _ refused => refused accepted
 
-/-- A constant function has a law for the specification that its one outcome gives: it accepts an
-input exactly when its result is accepted. With `Decides.not_of_constant`, this shows on an
-inhabited domain too that a law gives no outcome of each kind. -/
 theorem DecisionEquivalence.of_constant (result : ρ) :
     DecisionEquivalence accepts (fun _ : α => accepts result) (fun _ : α => result) :=
   ⟨fun _ => Iff.rfl⟩
 
-/-- A constant function with a sound kind accepts every input, so the specification holds of
-every input. -/
 theorem DecidesSoundly.spec_of_constant {result : ρ}
     (decides : DecidesSoundly accepts spec (fun _ : α => result)) (x : α) : spec x :=
   decides.accepted.elim fun _ accepted => decides.sound x accepted
 
-/-- A constant function with a complete kind refuses every input, so the specification holds of
-no input. -/
 theorem DecidesCompletely.not_spec_of_constant {result : ρ}
     (decides : DecidesCompletely accepts spec (fun _ : α => result)) (x : α) : ¬ spec x :=
   fun holds => decides.refused.elim fun _ refused => refused (decides.complete x holds)
@@ -333,9 +222,6 @@ section
 variable {σ : Sort w} {α : Sort u} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop}
   {f : α → ρ} {fields : σ → α}
 
-/-- A sound kind about `f` on a packing of its arguments is the sound kind about `f`, when every
-argument is `fields s` for some packed value `s`. Without that hypothesis the packed kind says
-nothing of an argument that no packed value has. -/
 theorem DecidesSoundly.of_packing (covers : ∀ x, ∃ s, fields s = x)
     (decides : DecidesSoundly accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
     DecidesSoundly accepts spec f :=
@@ -343,8 +229,6 @@ theorem DecidesSoundly.of_packing (covers : ∀ x, ∃ s, fields s = x)
       same ▸ decides.sound s (same ▸ accepted)
     accepted := decides.accepted.elim fun s accepted => ⟨fields s, accepted⟩ }
 
-/-- A complete kind about `f` on a packing of its arguments is the complete kind about `f`, when
-every argument is `fields s` for some packed value `s`. -/
 theorem DecidesCompletely.of_packing (covers : ∀ x, ∃ s, fields s = x)
     (decides : DecidesCompletely accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
     DecidesCompletely accepts spec f :=
@@ -352,16 +236,6 @@ theorem DecidesCompletely.of_packing (covers : ∀ x, ∃ s, fields s = x)
       same ▸ decides.complete s (same ▸ holds)
     refused := decides.refused.elim fun s refused => ⟨fields s, refused⟩ }
 
-/-- A two-way kind about `f` on a packing of its arguments is the two-way kind about `f`, when
-every argument is `fields s` for some packed value `s`. This is the property a kind stated about
-the fields of a structure relies on: for a type with one constructor and no index, the
-constructor makes every tuple of fields the fields of a value.
-
-The domain `α` is the type of the complete argument tuples of the function that is decided, and
-`f` is that function applied to all of them. No hypothesis can say so: that a result type is not
-a function type is not a proposition of Lean's logic. A kind about a function with an argument
-left, when its acceptance predicate reads the result at one fixed value of that argument, is the
-kind of one slice of the function (`Decides.iff_slice`). -/
 theorem Decides.of_packing (covers : ∀ x, ∃ s, fields s = x)
     (decides : Decides accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
     Decides accepts spec f :=
@@ -370,16 +244,9 @@ theorem Decides.of_packing (covers : ∀ x, ∃ s, fields s = x)
 
 end
 
-/-- `Function.uncurry f` is `f` applied to the two fields of a pair, in order: a kind stated
-through `Function.uncurry` is the kind stated about the fields of a structure, at the structure
-`Prod`. -/
 theorem uncurry_eq_fields {α : Type u} {β : Type v} {φ : Sort w} (f : α → β → φ) :
     Function.uncurry f = fun p => f p.1 p.2 := rfl
 
-/-- A packing under `Function.uncurry` reaches every pair of a packed part and a remaining
-argument, when it reaches every packed part. So with `Decides.of_packing`, a kind about
-`Function.uncurry (fun s => g (fields s))` is the kind of `Function.uncurry g`: an application of
-`Function.uncurry` around a packing supplies the next argument of the function. -/
 theorem packing_uncurry_covers {σ : Type u} {α : Type v} {β : Type w} {fields : σ → α}
     (covers : ∀ x, ∃ s, fields s = x) : ∀ p : α × β, ∃ q : σ × β, (fields q.1, q.2) = p :=
   fun p => (covers p.1).elim fun s packed => ⟨(s, p.2), by rw [packed]⟩
@@ -388,31 +255,18 @@ section
 variable {α : Sort u} {β : Sort w} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop}
   {g : α → β → ρ}
 
-/-- A sound kind about a function with an argument left, whose acceptance predicate reads the
-function-valued result at one value `b` of that argument, is the sound kind of the slice of the
-function at `b`, and of nothing else. -/
 theorem DecidesSoundly.iff_slice (b : β) :
     DecidesSoundly (fun h : β → ρ => accepts (h b)) spec g ↔
       DecidesSoundly accepts spec (fun x => g x b) :=
   ⟨fun decides => ⟨decides.sound, decides.accepted⟩,
     fun decides => ⟨decides.sound, decides.accepted⟩⟩
 
-/-- A complete kind about a function with an argument left, whose acceptance predicate reads the
-function-valued result at one value `b` of that argument, is the complete kind of the slice of
-the function at `b`, and of nothing else. -/
 theorem DecidesCompletely.iff_slice (b : β) :
     DecidesCompletely (fun h : β → ρ => accepts (h b)) spec g ↔
       DecidesCompletely accepts spec (fun x => g x b) :=
   ⟨fun decides => ⟨decides.complete, decides.refused⟩,
     fun decides => ⟨decides.complete, decides.refused⟩⟩
 
-/-- A two-way kind about a function with an argument left, whose acceptance predicate reads the
-function-valued result at one value `b` of that argument, is the two-way kind of the slice of
-the function at `b`. It holds of every function with that slice, so it says nothing of `g` at
-another value of the argument. The hypothesis is on the acceptance predicate: one that
-quantifies over the argument, such as `fun h => ∀ b, accepts (h b)`, is not of this form and can
-constrain `g` at every value. The remedy for a kind whose result type is a function type is to state
-the kind about the function applied to every argument. -/
 theorem Decides.iff_slice (b : β) :
     Decides (fun h : β → ρ => accepts (h b)) spec g ↔ Decides accepts spec (fun x => g x b) :=
   ⟨fun decides =>
@@ -426,20 +280,15 @@ end
 
 namespace Dependent
 
-/-- Whether an optional result holds a payload, with the payload forgotten:
-`isSome f x = (f x).isSome`. The payload type can depend on the input; the type of the erased
-function does not, so a decision kind about `isSome f` has an acceptance predicate of `Bool`. -/
+/-- Whether an optional result holds a payload, with the payload forgotten. -/
 def isSome {α : Sort u} {payload : α → Type v} (f : ∀ x, Option (payload x)) (x : α) : Bool :=
   (f x).isSome
 
-/-- Whether a result is a success, with the payload and the error forgotten:
-`isOk f x = (f x).isOk`. The payload type and the error type can depend on the input; the type
-of the erased function does not. -/
+/-- Whether a result is a success, with the payload and the error forgotten. -/
 def isOk {α : Sort u} {ε : α → Type v} {payload : α → Type w}
     (f : ∀ x, Except (ε x) (payload x)) (x : α) : Bool :=
   (f x).isOk
 
-/-- The erased result of `isSome` is `true` exactly when the result holds a payload. -/
 theorem isSome_eq_true_iff {α : Sort u} {payload : α → Type v} (f : ∀ x, Option (payload x))
     (x : α) : isSome f x = true ↔ ∃ value, f x = some value := by
   unfold isSome
@@ -447,7 +296,6 @@ theorem isSome_eq_true_iff {α : Sort u} {payload : α → Type v} (f : ∀ x, O
   | none => exact ⟨fun holds => absurd holds Bool.false_ne_true, fun ⟨_, same⟩ => nomatch same⟩
   | some value => exact ⟨fun _ => ⟨value, rfl⟩, fun _ => rfl⟩
 
-/-- The erased result of `isOk` is `true` exactly when the result is a success with a payload. -/
 theorem isOk_eq_true_iff {α : Sort u} {ε : α → Type v} {payload : α → Type w}
     (f : ∀ x, Except (ε x) (payload x)) (x : α) : isOk f x = true ↔ ∃ value, f x = .ok value := by
   unfold isOk

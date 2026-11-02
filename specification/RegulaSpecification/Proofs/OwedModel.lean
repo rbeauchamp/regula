@@ -10,13 +10,11 @@ import RegulaSpecification.Proofs.Owed
 # A model of what a pass rests on
 
 The premises of `plain_owed` and `full_owed` are statements about what Lean, Lake and the operating system answered. This module
-shows that they are met by a run of the program the executable interprets, and that what they state of the operations does not
-settle the conclusion by itself: for paths that meet `WitnessPaths` and an
-environment with the floor (`EnvModel`), there is a run, whose proof takes the answers of the witness (`Proofs/Witness.lean`), that receives what `FullOwed` and `PlainOwed` state and exits with 0 (`full_model`,
-`plain_model`); there is a run in which no answer failed that does not exit with 0, whose proof takes a project with a
-`lakefile.lean` (`refused_model`). The hypotheses of the two models are what remains: `WitnessPaths` because `System.FilePath` depends on an
-`opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel` because `Lean.Environment`'s constructor is private. The witness runs meet the strengthened preparation relations through `run_meets`;
-neither the models nor those relations assert consistency of a filesystem behind the responses.
+shows that a run of the program the executable interprets meets them, and that what they state of the operations does not
+settle the conclusion by itself. The hypotheses of the two models are what remains: `WitnessPaths`, because `System.FilePath`
+depends on an `opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel`, because
+`Lean.Environment`'s constructor is private. Neither the models nor the preparation relations assert consistency of a
+filesystem behind the responses.
 -/
 
 namespace RegulaSpecification.Effects
@@ -52,7 +50,6 @@ theorem floor_of_read {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Cl
   exact hm.floor a he ht hr (by rw [hn, he]) fun x hx =>
     Except.ok.inj (resp_eq (hT.subset (hol x hx)) : (Except.ok _ : Except IO.Error FilePath) = .ok _)
 
-/-- Those answers owe a pass of the full gate. -/
 theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Closed.Profile} (hm : EnvModel w env p)
     (q : Prog Unit Unit α) : FullOwed (traceWith (answers w env) q) w.project p := by
   have hrulesT : (rulesPhase (traceWith (answers w env) q)).Sublist (traceWith (answers w env) q) := by
@@ -104,7 +101,6 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
   · obtain rfl := hrootOf hg
     exact floor_of_read hm hrulesT hb
 
-/-- The full gate on `dir` as a whole run, on the answers `f` after the two that select it. -/
 theorem runs_full {L E : Type} (f : (o : Op L E) → Resp o) (dir : String) :
     Runs (Regula.Shell.run ["standard-logical"] : Prog L E UInt32)
       (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some dir⟩ ::
@@ -112,16 +108,12 @@ theorem runs_full {L E : Type} (f : (o : Op L E) → Resp o) (dir : String) :
       (valueWith f (runFull .standardLogical (FilePath.mk dir))) :=
   .ask _ _ _ (.ask _ _ _ (runs_with f _))
 
-/-- The proof verdict as a whole run, on the answers `f` after the two that select it. -/
 theorem runs_plain {L E : Type} (f : (o : Op L E) → Resp o) :
     Runs (Regula.Shell.run ["standard-logical"] : Prog L E UInt32)
       (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, none⟩ :: traceWith f (runPlain .standardLogical))
       (valueWith f (runPlain .standardLogical)) :=
   .ask _ _ _ (.ask _ _ _ (runs_with f _))
 
-/-- For paths that meet `WitnessPaths` and an environment with the floor, there is a run of the full gate, whose proof takes the answers of the witness, that
-receives what `FullOwed` states, and exits with 0: a model of the premises of `full_owed`, in which they are met by a run of the
-program that the executable interprets. -/
 theorem full_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w env .standardLogical) :
     ∃ rest, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
       (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some w.project.toString⟩ :: rest) 0 ∧
@@ -141,7 +133,6 @@ def answersRefused (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Metada
   | .symlinkMetadata _ => .ok m
   | o => answers w env o
 
-/-- Every answer of `answersRefused` is a success. -/
 theorem answersRefused_healthy (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Metadata) (o : Op Unit Unit) :
     ¬ Event.failed (⟨o, answersRefused w env m o⟩ : Event Unit Unit) := by
   cases o <;> first
@@ -152,7 +143,6 @@ theorem answersRefused_healthy (w : WitnessPaths) (env : Lean.Environment) (m : 
     | exact fun hn => by cases hn
     | exact fun hn => hn rfl
 
-/-- There is a run of the full gate that receives no failed answer, and does not exit with 0. -/
 theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Metadata) :
     ∃ rest c, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
       (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, some w.project.toString⟩ :: rest) c ∧
@@ -188,7 +178,6 @@ theorem refused_model (w : WitnessPaths) (env : Lean.Environment) (m : IO.FS.Met
           simp [hx]
         cases resp_eq (hin habs)
 
-/-- Those answers owe a pass of the proof verdict. -/
 theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Closed.Profile} (hm : EnvModel w env p)
     (q : Prog Unit Unit α) : PlainOwed (traceWith (answers w env) q) p := by
   have hroot : ∀ {root}, PlainRoot (traceWith (answers w env) q) root → root = witnessRoot w := by
@@ -225,7 +214,6 @@ theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regul
   · obtain rfl := hroot hg
     exact floor_of_read hm (List.Sublist.refl _) hb
 
-/-- The same for a run of the proof verdict. -/
 theorem plain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w env .standardLogical) :
     ∃ rest, Runs (Regula.Shell.run ["standard-logical"] : Prog Unit Unit UInt32)
       (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv fullVariable, none⟩ :: rest) 0 ∧
@@ -238,8 +226,6 @@ theorem plain_model (w : WitnessPaths) (env : Lean.Environment) (hm : EnvModel w
   exact ⟨_, hr, howed⟩
 
 
-/-! ## A program that refuses on what does not justify it -/
-
 /-- A program that asks `LEAN_SYSROOT`, ignores the answer, and says that the proof verdict is incomplete. -/
 def misjudge {L E : Type} (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
@@ -247,7 +233,6 @@ def misjudge {L E : Type} (_ : List String) : Prog L E UInt32 :=
       .ask (.getEnv "LEAN_SYSROOT") fun _ =>
         .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
 
-/-- It fails the record: it says incomplete with only `LEAN_SYSROOT` asked, and that answered. -/
 theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Prog L E UInt32) := by
   intro hw
   have hr : Runs (misjudge ["standard-logical"] : Prog L E UInt32)
@@ -289,7 +274,6 @@ theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Pr
     | otherSearchPath _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
 
-/-- A trace of one event, a failed real path of a path other than the project and the tree, holds no reason. -/
 theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO.Error} {o : Outcome}
     (h1 : u ≠ dir) (h2 : u ≠ treeDir) :
     ¬ Reason ([⟨.realPath u, .error e⟩] : List (Event L E)) dir treeDir o := by

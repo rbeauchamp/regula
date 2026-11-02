@@ -17,19 +17,15 @@ public import Regula.Decision
 
 /-! # Where the effects of the repository's code lie
 
-The closed form of "so thin that it only calls Lean" is stated in the specification's section "So thin that it only calls Lean". This
-module shows it where the specification's package cannot, because a constant that calls Lake's load depends on axioms
-that no profile admits, and `lake check` of that package would refuse them:
-
-- Each row of `Regula.Load.lakeCalls` is a straight line of calls of Lake, with no test (the theorems below, each by `rfl`,
-  so the statement is the body).
-- `Regula.ProgramCheck.Effects` reads each constant of the repository's Lean libraries through Lean's own environment,
-  at the level where bodies are held, those that the executable and the library that gives no verdict reach: a constant whose type, or whose value as a definition, mentions an effect, directly or through another
-  constant of the repository, is `allowed`, and the build fails on any other. So a decision that comes to mention
-  one in `Regula.Reader`, `Regula.Shell` or `Regula.Load` fails the gate. The check fails too when it finds no
-  interpreter, so an empty scan is no pass. What it decides is the pure `scan` and `judge` of
-  `Regula.ProgramCheck.EffectScan`, proved in `specification/RegulaSpecification/Proofs/EffectScan.lean` (`check_ok_iff`); the
-  command below only imports the environment and reports what they give.
+This module checks the specification's section "So thin that it only calls Lean" where the
+specification's package cannot, because a constant that calls Lake's load depends on axioms that no
+profile admits, and `lake check` of that package would refuse them. The theorems below state, each by
+`rfl`, that each row of `Regula.Load.lakeCalls` is a straight line of calls of Lake. The check reads,
+through Lean's own environment and at the level where bodies are held, each constant of the
+repository's Lean libraries that the executable and the library that gives no verdict reach, and fails
+the build on a constant outside the allowed modules whose type, or whose value as a definition,
+mentions an effect, directly or through another constant of the repository. So a decision that comes
+to mention one in `Regula.Reader`, `Regula.Shell` or `Regula.Load` fails the gate.
 -/
 
 public section
@@ -88,7 +84,6 @@ theorem lakeEnvironment_eq (sysroot : String) : Regula.Load.lakeEnvironment sysr
     return { env with initLeanPath := [], initLeanSrcPath := [] }) := by
   rfl
 
--- The check.
 run_cmd do
   initSearchPath (← findSysroot)
   let mods := #[`Regula.LintMain, `Regula.Contract, `Regula.Decision]

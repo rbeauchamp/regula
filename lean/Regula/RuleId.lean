@@ -36,7 +36,7 @@ inductive RuleId where
   helper, without the exempted form of one, or a constant whose value mentions a loop
   construct of Lean. -/
   | escapeHatch
-  /-- RG1010, a name that no released version used: a Lean file or the Lake configuration of the project holds something outside the closed
+  /-- RG1010: a Lean file or the Lake configuration of the project holds something outside the closed
   set that the language check admits (`Regula.Language`). -/
   | language
   /-- RG2001: the build cannot be loaded, the full gate cannot read the project, or the input does not
@@ -62,14 +62,11 @@ def all : List RuleId :=
   [.projectAxiom, .proofHole, .unknownAxiom, .nativeProof, .profileExceeded, .escapeHatch,
     .language, .environment]
 
-/-- `all` lists each rule. -/
 theorem mem_all (id : RuleId) : id ∈ all := by
   cases id <;> simp [all]
 
-/-- `all` lists no rule twice. -/
 theorem all_nodup : all.Nodup := by decide
 
-/-- Distinct rules have distinct names. -/
 theorem spelling_injective : Function.Injective spelling := by
   intro a b h
   cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
