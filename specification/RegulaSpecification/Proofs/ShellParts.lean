@@ -228,7 +228,7 @@ theorem loaded_spec {what : String} {r : Except String (Option (Root L) × List 
       cases he
       exact ⟨log, rfl⟩
 
-/-- `loadPlain`: the load of the workspace that Lake dispatched. A load that gives an input received no failed answer, and its lookups and imports
+/-- `loadPlain`: the load of the workspace in the current directory. A load that gives an input received no failed answer, and its lookups and imports
 name the search path of what Lake's load gave. -/
 theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile}
     {b : Except String (FilePath × Regula.Closed.Input)} (hT : t.Sublist T) (hq : Quiet prior)
@@ -307,7 +307,7 @@ theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile
             obtain ⟨tI, tP, rI, rfl, hI, hP⟩ := runs_attempt_bind_iff.mp h₁₄
             obtain ⟨o1, o2⟩ := inputOf_spec ((List.sublist_append_left _ _).trans hT₁₂) hI
             have hroot : PlainRoot T root := ⟨sysroot, dir, log, received, hmem₁, hmemLoad,
-              hT₂.subset (by simp), hmemEnv, (dispatchedFrom_eq_true_iff _ _).mp (by simpa using hdis)⟩
+              hT₂.subset (by simp), hmemEnv, (startsSearchPath_eq_true_iff _ _).mp (by simpa using hdis)⟩
             have hend : tP = [] ∧ b.map (·.2) = rI ∧ ∀ d i, b = .ok (d, i) → d = dir ∧ rI = .ok i := by
               cases rI with
               | error why => obtain ⟨rfl, rfl⟩ := hP; exact ⟨rfl, rfl, fun _ _ he => by cases he⟩
@@ -336,7 +336,7 @@ theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile
               · rw [hw] at hi; cases hi
           · rename_i hd
             obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₁₄
-            exact ⟨.inr ⟨.elsewhere hmem₁ (hT₂.subset (by simp)) hmemLoad hmemEnv ((dispatchedFrom_eq_false_iff _ _).mp (by simpa using hd)), _, rfl⟩,
+            exact ⟨.inr ⟨.otherSearchPath hmem₁ (hT₂.subset (by simp)) hmemLoad hmemEnv ((startsSearchPath_eq_false_iff _ _).mp (by simpa using hd)), _, rfl⟩,
               (fun _ _ he => by cases he),
               by simpa using hprep (u := [⟨.getEnv "LEAN_PATH", some received⟩]) (InputPreparation.prepend (t := []) hqe (fun e he => by cases he))⟩
 

@@ -485,20 +485,21 @@ def BuildRead (t : List (Event L E)) (root : Root L) (f : Regula.Load.Facts) (ro
     f.toolchainDir = root.leanLib ∧ f.rootDir = root.rootLib ∧
     ∀ m ∈ f.modules, (⟨.findOLean root.leanPath m.name, .ok m.olean⟩ : Event L E) ∈ t
 
-/-- The search path `received` that Lake gave this program starts with `root`'s, which Lake's load of the current directory gave. Lake gives a program the libraries of
-the workspace it dispatched, then its own, then what it inherited (`Workspace.augmentedLeanPath`, `Lake/Config/Workspace.lean:391-392`). -/
-def LakeDispatched (received : String) (root : Root L) : Prop :=
+/-- The search path `received` that this program got starts with `root`'s, which Lake's load of the current directory gave. Lake gives a program the libraries of
+its workspace, then its own, then what it inherited (`Workspace.augmentedLeanPath`, `Lake/Config/Workspace.lean:391-392`). This names no workspace: a project sets those
+directories (`leanLibDir`, `buildDir`), so another project's `lake -d` can make it true. -/
+def SearchPathStarts (received : String) (root : Root L) : Prop :=
   ∃ inherited, (System.SearchPath.parse received).map toString = root.leanPath.map toString ++ inherited
 
-/-- Lake's load of the workspace that Lake dispatched from the current directory, on the run's toolchain: the root that the
-run read, on the search path that Lake gave it, which names that workspace. -/
+/-- Lake's load of the workspace in the current directory, on the run's toolchain: the root that the
+run read, whose search path starts the one that the run got (`SearchPathStarts`). -/
 def PlainRoot (t : List (Event L E)) (root : Root L) : Prop :=
   ∃ (sysroot : String) (dir : FilePath) (log : List String) (received : String),
     SysrootIs t sysroot ∧
     (⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩ : Event L E) ∈ t ∧
     (⟨.realPath ".", .ok dir⟩ : Event L E) ∈ t ∧
     (⟨.getEnv "LEAN_PATH", some received⟩ : Event L E) ∈ t ∧
-    LakeDispatched received root
+    SearchPathStarts received root
 
 /-- Lake's load of the root package in the checker's tree, on the run's toolchain `sysroot`. -/
 def TreeRoot (sysroot : String) (tree : FilePath) (t : List (Event L E)) (root : Root L) : Prop :=
@@ -520,7 +521,7 @@ inductive BuildFailed (t : List (Event L E)) (root : Root L) : Prop where
       (⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩ : Event L E) ∈ t →
       m ∈ env.header.moduleNames → (⟨.findOLean root.leanPath m, .error e⟩ : Event L E) ∈ t → BuildFailed t root
 
-/-- What may keep a run of the proof verdict from reading the finished build of the workspace that Lake dispatched: each
+/-- What may keep a run of the proof verdict from reading the finished build of the workspace in the current directory: each
 case is what a response said about an operation that this load needs. -/
 inductive PlainReason (t : List (Event L E)) : Prop where
   /-- `LEAN_SYSROOT` is not set, so the toolchain of the build is not known. -/
@@ -531,14 +532,14 @@ inductive PlainReason (t : List (Event L E)) : Prop where
   | load {sysroot dir r} : SysrootIs t sysroot → (⟨.realPath ".", .ok dir⟩ : Event L E) ∈ t →
       (⟨.loadWorkspace sysroot dir, r⟩ : Event L E) ∈ t → Event.failed (⟨.loadWorkspace sysroot dir, r⟩ : Event L E) →
       PlainReason t
-  /-- `LEAN_PATH` is not set, so the workspace that Lake dispatched is not known. -/
+  /-- `LEAN_PATH` is not set, so the run did not get Lake's search path. -/
   | noSearchPath : (⟨.getEnv "LEAN_PATH", none⟩ : Event L E) ∈ t → PlainReason t
   /-- Lake's search path does not start with that of the workspace in the current directory. -/
-  | elsewhere {sysroot dir root log received} : SysrootIs t sysroot →
+  | otherSearchPath {sysroot dir root log received} : SysrootIs t sysroot →
       (⟨.realPath ".", .ok dir⟩ : Event L E) ∈ t →
       (⟨.loadWorkspace sysroot dir, .ok (some root, log)⟩ : Event L E) ∈ t →
       (⟨.getEnv "LEAN_PATH", some received⟩ : Event L E) ∈ t →
-      ¬ LakeDispatched received root → PlainReason t
+      ¬ SearchPathStarts received root → PlainReason t
   /-- The load of the finished build of that workspace failed. -/
   | build {root} : PlainRoot t root → BuildFailed t root → PlainReason t
 

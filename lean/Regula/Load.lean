@@ -337,11 +337,12 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
             has a recursion helper's name"
         | none => .ok i
 
-/-- Whether `loaded`, the search path of the workspace that a load of the current directory gave, starts the search path that Lake gave this
-program. Lake gives a program the workspace's libraries, then its own, then what it inherited (`Workspace.augmentedLeanPath`,
-`Lake/Config/Workspace.lean:391-392`), so a load of another workspace gives another start. A path that holds the search path's separator is cut in `received`, and the test
-then fails. -/
-def dispatchedFrom (loaded received : List String) : Bool :=
+/-- Whether `loaded`, the search path of the workspace that a load of the current directory gave, starts the search path that this program
+received. Lake gives a program the libraries of its workspace, then its own, then what it inherited (`Workspace.augmentedLeanPath`,
+`Lake/Config/Workspace.lean:391-392`). So a `lake -d` of an ordinary project from another workspace gives another start. That is all this says: a project sets
+those directories (`leanLibDir`, `buildDir`), so another project can give the same start, and the same start names no workspace. A path that holds the search path's
+separator is cut in `received`, and the test then fails. -/
+def startsSearchPath (loaded received : List String) : Bool :=
   loaded.isPrefixOf received
 
 end Regula.Load

@@ -270,9 +270,9 @@ end Mono
 /-! ## What a run with no refusal is owed -/
 
 /-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, and each
-environment that the run read of the workspace Lake dispatched has `BuildAnswer.Floor`. -/
+environment that the run read of the workspace in the current directory has `BuildAnswer.Floor`. -/
 structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop where
-  /-- Nothing that the load needs failed, and the current directory is the workspace Lake dispatched. -/
+  /-- Nothing that the load needs failed, and the search path starts with that of the workspace in the current directory. -/
   noReason : ¬ PlainReason t
   /-- What Lean's import gave has the floor. -/
   floor : ∀ root a roots, PlainRoot t root → BuildAnswered t root a roots → a.Floor roots p
@@ -441,7 +441,7 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
     | load _ _ h _ => rcases hno h with h | h | h <;> cases h
     | noSearchPath h =>
       rcases hno h with h | h | h <;> first | (cases h; exact h2 rfl) | cases h
-    | elsewhere _ _ h => rcases hno h with h | h | h <;> cases h
+    | otherSearchPath _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
 
 /-- The evidence of a reading stands in a larger trace, of the same state of the tree. What it keeps about the trace is what

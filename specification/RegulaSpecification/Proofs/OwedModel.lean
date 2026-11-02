@@ -210,7 +210,7 @@ theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regul
       · rw [hx] at hv
         cases hv
     | noSearchPath h => cases resp_eq h
-    | @elsewhere s d root log lp _ _ h1 h3 hn =>
+    | @otherSearchPath s d root log lp _ _ h1 h3 hn =>
       have he : (Except.ok (some root, log) : Except String (Option (Root Unit) × List String)) =
           .ok (some (witnessRoot w), []) := resp_eq h1
       have hx := Except.ok.inj he
@@ -286,7 +286,7 @@ theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Pr
     | load _ _ h _ => rcases hno h with h | h | h <;> cases h
     | noSearchPath h =>
       rcases hno h with h | h | h <;> first | cases h | (injection h with h; exact absurd h (by decide))
-    | elsewhere _ _ h => rcases hno h with h | h | h <;> cases h
+    | otherSearchPath _ _ h => rcases hno h with h | h | h <;> cases h
     | build h _ => exact hplain _ h
 
 /-- A trace of one event, a failed real path of a path other than the project and the tree, holds no reason. -/
