@@ -126,8 +126,9 @@ inductive Assumption where
   variable. With no option of Lake's, Lake loads the workspace in `.` with the configuration `lakefile`. -/
   | lakeStart
   /-- H4: `IO.FS.realPath` answers as `realpath(3)`. A path that crosses a link, or names a component in another case than
-  the volume stores it, gets other components (`RealPathBehaviour`); a path that crosses neither keeps its components; and
-  a path asked twice in one run, with no other process changing the file system, gets one answer (`OneRealPath`). -/
+  the volume stores it, gets other components (`RealPathBehaviour`); an absolute path with no `.`, `..` or empty component
+  that crosses neither keeps its components; and a path asked twice in one run, with no other process changing the file
+  system, gets one answer (`OneRealPath`). -/
   | h4
   /-- The file system. `IO.FS.readFile` gives the bytes that a name holds, decoded as UTF-8, and fails on anything else;
   `symlinkMetadata` reports what a name holds, following no link; `writeFile` and `createDirAll` act at the path given;
