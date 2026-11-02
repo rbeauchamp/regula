@@ -17,7 +17,7 @@ Shown this, the owner answered "Yes, as recommended" to narrowing the published 
 
 ## 2026-11-01
 
-The owner added a constraint over all Regula work and confirmed the restatement that follows, which the owner's delegated agent wrote. The agent decided on the owner's behalf that the README states being the most trusted linter as an aim, because the restatement allows no superlative in public until the proofs back it, and that the constraint stays a written rule with no enforcement in code, because a violation is caught at review and is easy to undo. Neither decision is the owner's confirmation.
+The owner added a constraint over all Regula work and confirmed the restatement that follows, which the owner's delegated agent wrote. The agent decided on the owner's behalf that the README state the restatement's superlative as an aim, because the restatement allows no superlative in public until the proofs back it, and that the constraint stays a written rule with no enforcement in code, because a violation is caught at review and is easy to undo. Neither decision is the owner's confirmation. On 2026-11-02 the owner's delegated agent replaced the first decision: public text no longer states the superlative, even as an aim, and states the comparison with seL4 as the aim of being a tool whose claim is exact and proved. That replacement is not the owner's confirmation either, and the restatement the owner confirmed stays quoted word for word below.
 
 > Regula is meant to be to Lean linters what seL4 is to kernels: the most trusted one, because its claim is exact and proved. Simplicity is how that becomes achievable, as in LionsOS, where each component does only the minimum its use case needs.
 >

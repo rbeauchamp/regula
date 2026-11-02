@@ -4,7 +4,7 @@
 
 - This repository delivers Regula, a checker of Lean builds whose claim is meant to be exact and proved, so that people can trust it, and whose code is meant to be the example of how Lean 4 code should be written. `README.md` states the purpose under "Purpose and constraint", and `specification/README.md` in its first paragraph.
 - Regula's checks are exactly RG1001 to RG1006, RG1010 and RG2001. `lean/Regula/` implements them, and `specification/` states and proves them. Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap.
-- Simplicity governs every change, by the owner's constraint of 2026-11-01. The aim, never to be stated as fact, is to be to Lean linters what seL4 is to kernels: the most trusted one, because its claim is exact and proved. Simplicity is how that becomes achievable.
+- Simplicity governs every change, by the owner's constraint of 2026-11-01. The aim, never to be stated as fact, is for Regula to be for Lean linters what seL4 is for kernels: a tool whose claim is exact and proved, which is what earns trust. Simplicity is how that becomes achievable.
   - Before adding or repairing anything, ask whether it can be deleted, or its input narrowed, so the need goes away.
   - A proof far harder than the code it covers means the code should get simpler, not only better proved.
   - Simplicity never replaces proof: RG1001 to RG1006, the two verdicts and the demand for no bugs all stand.
