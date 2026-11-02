@@ -249,7 +249,7 @@ inductive Step where
   | read
   /-- Build the checker's tree and replay it (`lake build --wfail`, `lake check`). -/
   | build
-  /-- Read the finished build and run the rules (`Regula.Closed.run`). -/
+  /-- Read the finished build and run the rules (`Regula.Closed.decision`). -/
   | rules
   deriving DecidableEq, Repr
 

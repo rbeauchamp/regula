@@ -9,7 +9,7 @@ import RegulaSpecification.Gate
 # The cases each rule must admit and must refuse
 
 For each rule, a small well-formed project that the rule must refuse, and a subject of a compliant
-project (`base`) that it must admit. With them `RuleRecord.adequate` discharges lean-intent's
+project (`base`) that it must admit. With them `adequate` discharges lean-intent's
 obligations for the rule's record, and `silent_fails` and `noisy_fails` prove that neither the
 checker that reports nothing nor the one that reports every candidate meets it. A statement that a
 do-nothing checker met, or that refused the compliant case, would fail here.
