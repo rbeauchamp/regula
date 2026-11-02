@@ -21,19 +21,16 @@ namespace RegulaSpecification.GateProgram
 
 open Regula.DiagnosticsGate
 
-/-- A step of `IO`'s bind on success, by its definition. -/
 theorem io_bind_ok {α β : Type} {x : IO α} {f : α → IO β} {w w₁ : Void IO.RealWorld} {a : α}
     (h : x w = .ok a w₁) : (x >>= f) w = f a w₁ := by
   show EST.bind x f w = _
   simp [EST.bind, h]
 
-/-- A step of `IO`'s bind on failure, by its definition. -/
 theorem io_bind_error {α β : Type} {x : IO α} {f : α → IO β} {w w₁ : Void IO.RealWorld} {e : IO.Error}
     (h : x w = .error e w₁) : (x >>= f) w = .error e w₁ := by
   show EST.bind x f w = _
   simp [EST.bind, h]
 
-/-- A step of `IO`'s `finally` that gives a result: the body gave that result, and the finalizer succeeded. -/
 theorem finally_ok {α β : Type} {x : IO α} {f : IO β} {w w' : Void IO.RealWorld} {a : α}
     (h : (tryFinally x f) w = .ok a w') : ∃ w₁, x w = .ok a w₁ ∧ ∃ b, f w₁ = .ok b w' := by
   have hu : (tryFinally' x (fun _ => f) : IO (α × β)) w =
@@ -80,7 +77,6 @@ theorem finally_ok {α β : Type} {x : IO α} {f : IO β} {w w' : Void IO.RealWo
       obtain ⟨rfl, rfl⟩ := EST.Out.ok.inj h
       exact ⟨w₁, rfl, b, hf⟩
 
-/-- `runSteps` at `IO`: on a run that reports no step, for each step there are worlds in which it gives 0. -/
 theorem runSteps_io (run : Step → IO UInt32) (steps : List Step) (w w' : Void IO.RealWorld)
     (h : runSteps run steps w = .ok none w') :
     ∀ s ∈ steps, ∃ w₁ w₂, run s w₁ = .ok 0 w₂ := by
@@ -120,8 +116,6 @@ def StepRan (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
   ∃ w₁ w₂, ∃ child : IO.Process.Child (stepRequest step).toStdioConfig,
     announce step w = .ok () w₁ ∧ IO.Process.spawn (stepRequest step) w₁ = .ok child w₂ ∧ child.wait w₂ = .ok code w'
 
-/-- Every result of `runStep` is one of its own process: a step that reports a code spawned exactly its request, and that code is what the
-child's wait gave. So a `runStep` that gives a code it did not get from that child does not meet this. -/
 theorem runStep_ran (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) (h : runStep step w = .ok code w') :
     StepRan step code w w' := by
   unfold runStep at h
@@ -141,7 +135,6 @@ theorem runStep_ran (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) (h 
       rw [io_bind_ok hs] at h
       exact ⟨w₁, w₂, child, ha, hs, h⟩
 
-/-- `runIn` gives 0 only when, for each step, there are worlds in which it spawned exactly its request and that child's wait gave 0. -/
 theorem runIn_zero (target root : String) (w w' : Void IO.RealWorld)
     (h : runIn target root w = .ok 0 w') :
     ∀ s ∈ localSteps target root, ∃ w₁ w₂, StepRan s 0 w₁ w₂ := by
@@ -165,7 +158,6 @@ theorem runIn_zero (target root : String) (w w' : Void IO.RealWorld)
       obtain ⟨w₃, w₄, hrun⟩ := runSteps_io _ _ _ _ hr s hs
       exact ⟨w₃, w₄, runStep_ran s 0 w₃ w₄ hrun⟩
 
-/-- `regularFiles` holds each path that its test found no directory, and no other, in some worlds. -/
 theorem regularFiles_io (paths : List System.FilePath) (w w' : Void IO.RealWorld) (files : List System.FilePath)
     (h : regularFiles paths w = .ok files w') :
     (∀ p ∈ files, p ∈ paths ∧ ∃ w₁ w₂, (p.isDir : IO Bool) w₁ = .ok false w₂) ∧
@@ -215,8 +207,6 @@ theorem regularFiles_io (paths : List System.FilePath) (w w' : Void IO.RealWorld
               · exact .inl (by simp [x])
               · exact .inr x
 
-/-- What `checkerFiles` gives: the three files of the configuration, and each path below `lean` that `walkDir` listed and that
-is no directory, and no other path. -/
 theorem checkerFiles_io (w w' : Void IO.RealWorld) (files : List System.FilePath) (h : checkerFiles w = .ok files w') :
     ∃ sources others w₁, System.FilePath.walkDir "lean" (fun _ => pure true) w = .ok sources w₁ ∧
       regularFiles sources.toList w₁ = .ok others w' ∧
@@ -238,10 +228,9 @@ theorem checkerFiles_io (w w' : Void IO.RealWorld) (files : List System.FilePath
       subst hw'
       exact ⟨sources, others, w₁, rfl, hr, hf.symm⟩
 
-/-- A copy of one file that succeeds wrote to `target / file` the bytes that its read of `file` gave. This says nothing of where
-`target / file` lies: `/` gives `file` itself for an absolute `file` (`FilePath.join`, `Init/System/FilePath.lean:126-130` at
-v4.35.0), so such a copy writes to the file it read, and a relative `file` with `..` can leave `target`. `join_relative` states `/`
-for a relative `file`, and `checkerFiles_io` states which files the gate passes. -/
+/-- This says nothing of where `target / file` lies: `/` gives `file` itself for an absolute `file`
+(`FilePath.join`, `Init/System/FilePath.lean:126-130` at v4.35.0), so such a copy writes to the file it
+read, and a relative `file` with `..` can leave `target`. -/
 theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (h : copyFile target file w = .ok () w') :
     ∃ bytes w₁ w₂, IO.FS.readBinFile file w₁ = .ok bytes w₂ ∧
       IO.FS.writeBinFile (target / file) bytes w₂ = .ok () w' := by
@@ -271,14 +260,12 @@ theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (
       rw [io_bind_ok hm] at h
       exact hrest w₁ h
 
-/-- For a `file` that is not absolute, `target / file` is the text of `target`, a separator and the text of `file`. A `file` with
-`..` can name a path outside `target`, so this is no statement of containment. -/
+/-- A `file` with `..` can name a path outside `target`, so this is no statement of containment. -/
 theorem join_relative (target file : System.FilePath) (h : file.isAbsolute = false) :
     target / file = System.FilePath.mk (target.toString ++ System.FilePath.pathSeparator.toString ++ file.toString) := by
   show System.FilePath.join target file = _
   simp [System.FilePath.join, h]
 
-/-- A copy of a list of files that succeeds copied each. -/
 theorem copyAll_io (target : System.FilePath) (files : List System.FilePath) (w w' : Void IO.RealWorld)
     (h : copyAll target files w = .ok () w') :
     ∀ file ∈ files, ∃ bytes w₁ w₂ w₃, IO.FS.readBinFile file w₁ = .ok bytes w₂ ∧
@@ -299,7 +286,6 @@ theorem copyAll_io (target : System.FilePath) (files : List System.FilePath) (w 
         exact ⟨bytes, a, b, w₁, h1, h2⟩
       · exact ih w₁ h file hf
 
-/-- `copyChecker` takes the files that `checkerFiles` gives, and for each, the bytes that a read of it gave are what a write to `target / file` took. -/
 theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h : copyChecker target w = .ok () w') :
     ∃ files w₁, checkerFiles w = .ok files w₁ ∧
       ∀ file ∈ files, ∃ bytes w₂ w₃ w₄, IO.FS.readBinFile file w₂ = .ok bytes w₃ ∧
@@ -313,11 +299,9 @@ theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h 
     rw [io_bind_ok hc] at h
     exact ⟨files, w₁, rfl, copyAll_io target files w₁ w' h⟩
 
-/-- What the whole gate establishes, at `IO`, from any state of the world: `runLocal` gives 0 only when it made its directory,
-wrote to it joined with each file that `checkerFiles` gives the bytes it read of that file, and, with that directory as the
-checker and the working directory as the project, for each step of `localSteps` there are worlds in which it spawned exactly that
-step's request and that child's wait gave 0. That a step builds what was written and checks this checkout rests on what `localSteps`
-names, the file system and Lake, which this does not state, and so do which program `PATH` selects and what Lake's exit code means. -/
+/-- That a step builds what was written and checks this checkout rests on what `localSteps` names, the file
+system and Lake, which this does not state, and so do which program `PATH` selects and what Lake's exit code
+means. -/
 theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
     ∃ target root w₁ w₂ w₃ w₄, IO.FS.createTempDir w = .ok target w₁ ∧ copyChecker target w₁ = .ok () w₂ ∧
       IO.currentDir w₂ = .ok root w₃ ∧ runIn target.toString root.toString w₃ = .ok 0 w₄ ∧
@@ -345,7 +329,6 @@ theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
         rw [io_bind_ok hd] at hbody
         exact ⟨target, root, w₁, w₃, w₄, w₂, rfl, hc, hd, hbody, runIn_zero _ _ _ _ hbody⟩
 
-/-- The command line of the gate: it gives 0 only for the one argument `local`, on a run of `runLocal` that gave 0. -/
 theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.main args w = .ok 0 w') :
     args = ["local"] ∧ runLocal w = .ok 0 w' := by
   unfold _root_.main at h
@@ -361,10 +344,8 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
       have := (EST.Out.ok.inj h).1
       exact absurd this (by decide)
 
-/-- The variable that the gate sets is the one that the checker reads. -/
 theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := rfl
 
-/-- The steps of `localSteps`, in order, with each one's arguments, directory and project of the full gate. -/
 theorem localSteps_eq (checker root : String) :
     localSteps checker root =
       [⟨["clean"], "specification", none⟩,
@@ -377,7 +358,6 @@ theorem localSteps_eq (checker root : String) :
         ⟨["check", "--inadvisably-no-sandbox"], "specification", none⟩,
         ⟨["lint"], "specification", none⟩] := rfl
 
-/-- Only the step that runs `lake exe lint standard-logical` names a project, and that project is `root`. -/
 theorem localSteps_full (checker root : String) :
     ∀ s ∈ localSteps checker root,
       s.full = if s.arguments = ["exe", "lint", "standard-logical"] then some root else none := by

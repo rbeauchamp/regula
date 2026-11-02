@@ -1,4 +1,3 @@
-# Lake build outputs and dependencies
 /build/
 /.lake/
 
@@ -7,10 +6,8 @@
 *.ilean
 *.trace
 
-# macOS
 .DS_Store
 
-# Editors
 .idea/
 .vscode/
 

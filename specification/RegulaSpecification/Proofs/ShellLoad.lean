@@ -7,9 +7,6 @@ import RegulaSpecification.Proofs.Reader
 
 /-!
 # What the load of a finished build gives
-
-For every response: the closed input of a run is what the proved `Regula.Load.Facts.input` gives on the environment,
-the places and the modules that Lean and Lake returned, or an error because one of them failed.
 -/
 
 namespace RegulaSpecification.Effects
@@ -22,7 +19,6 @@ open Regula.Shell
 
 variable {L E : Type}
 
-/-- `readModules` lists each module with the place Lean's search gave on the search path of `root`, or a search failed. -/
 theorem readModules_spec {root : Root L} {toolchainDir rootDir : FilePath} (names : List Name) {t : List (Event L E)}
     {b : Except String { ms : List Regula.Load.LoadedModule // ms.map (·.name) = names ∧
       ∀ m ∈ ms, m = Regula.Load.LoadedModule.ofPlace toolchainDir rootDir m.name m.olean }}
@@ -71,7 +67,6 @@ theorem readModules_spec {root : Root L} {toolchainDir rootDir : FilePath} (name
         · simp [Regula.Load.LoadedModule.ofPlace]
         · simp [g1 m hm]
 
-/-- `factsOf` holds the environment and the places it was given. -/
 theorem factsOf_spec {env : Environment} {root : Root L} {toolchainDir rootDir : FilePath} {t : List (Event L E)}
     {b : Except String Regula.Load.Facts}
     (h : Runs (factsOf env root.leanPath toolchainDir rootDir : Attempt L E _).run t b) :
@@ -95,8 +90,6 @@ theorem factsOf_spec {env : Environment} {root : Root L} {toolchainDir rootDir :
     obtain ⟨g1, g2⟩ := m1 ⟨ms, hn, hp⟩ rfl
     exact ⟨rfl, rfl, rfl, fun m hm => by simpa using g1 m (by simpa using hm), by simpa using g2⟩
 
-/-- `inputOf`: what `Facts.input` gives on what Lean and Lake returned, with no failed answer, or one of them failed. Each lookup and import
-names the search path of `root`. -/
 theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Input}
     (hT : t.Sublist T) (h : Runs (inputOf root p : Attempt L E Regula.Closed.Input).run t b) :
     ((∃ f roots, BuildRead T root f roots ∧ b = f.input roots p ∧ Clean t) ∨

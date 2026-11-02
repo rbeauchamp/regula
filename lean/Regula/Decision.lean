@@ -28,10 +28,9 @@ universe u
 
 namespace Regula
 
-/-- A declaration of this type registers `f` as a decision function. The type has one inhabitant and
-states nothing about `f`: the registration is the declaration's existence. -/
+/-- A declaration of this type registers `f` as a decision function. The type has one inhabitant and states
+nothing about `f`: the registration is the declaration's existence. -/
 structure RegisteredDecision {α : Sort u} (f : α) : Prop where
-  /-- Registers `f`. -/
   mk ::
 
 end Regula

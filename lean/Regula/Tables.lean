@@ -65,7 +65,6 @@ namespace Input
 
 variable (i : Input)
 
-/-- What folding the constants of `l` into a table holds. -/
 theorem mem_indexFold (l : List Decl) (hu : (l.map (·.name)).Nodup)
     (init : Std.HashMap Name Decl) (n : Name) (d : Decl) :
     (l.foldl (fun m d => m.insert d.name d) init)[n]? = some d ↔
@@ -104,8 +103,6 @@ theorem mem_indexFold (l : List Decl) (hu : (l.map (·.name)).Nodup)
 def index : Std.HashMap Name Decl :=
   i.decls.foldl (fun m d => m.insert d.name d) {}
 
-/-- The index holds exactly the constants of the input, each under its name: the names are unique.
--/
 theorem index_eq_some (n : Name) (d : Decl) : i.index[n]? = some d ↔ d ∈ i.decls ∧ d.name = n := by
   rw [index, mem_indexFold _ i.unique]
   simp
@@ -115,7 +112,6 @@ def claimedDecls : List Decl :=
   let claimed := setOf i.modules
   i.decls.filter (claimed.contains ·.module)
 
-/-- These are exactly the constants of the input whose module is claimed. -/
 theorem mem_claimedDecls (d : Decl) : d ∈ i.claimedDecls ↔ d ∈ i.decls ∧ d.module ∈ i.modules := by
   simp only [claimedDecls, List.mem_filter, mem_setOf]
 
@@ -124,7 +120,6 @@ def mentionedBy : Std.HashMap Name (List Name) :=
   i.decls.foldl (init := {}) fun m d =>
     d.uses.foldl (init := m) fun m u => m.insert u (d.name :: m.getD u [])
 
-/-- What folding the mentions of one constant into the table holds. -/
 theorem mem_mentionFold (name : Name) (uses : List Name) (init : Std.HashMap Name (List Name))
     (u c : Name) :
     c ∈ (uses.foldl (fun m v => m.insert v (name :: m.getD v [])) init).getD u [] ↔
@@ -142,7 +137,6 @@ theorem mem_mentionFold (name : Name) (uses : List Name) (init : Std.HashMap Nam
       simp only [hb, Bool.false_eq_true, ↓reduceIte]
       simp [hne]
 
-/-- What folding the mentions of the constants of `l` into the table holds. -/
 theorem mem_mentionedFold (l : List Decl) (init : Std.HashMap Name (List Name)) (u c : Name) :
     c ∈ (l.foldl (fun m d => d.uses.foldl (fun m v => m.insert v (d.name :: m.getD v [])) m)
         init).getD u [] ↔ (∃ d ∈ l, d.name = c ∧ u ∈ d.uses) ∨ c ∈ init.getD u [] := by
@@ -160,13 +154,11 @@ theorem mem_mentionedFold (l : List Decl) (init : Std.HashMap Name (List Name)) 
       · exact .inl h
       · exact .inr (.inr h)
 
-/-- The constants that mention `u`, as the table holds them. -/
 theorem mem_mentionedBy (u c : Name) :
     c ∈ i.mentionedBy.getD u [] ↔ ∃ d ∈ i.decls, d.name = c ∧ u ∈ d.uses := by
   rw [mentionedBy, mem_mentionedFold]
   simp
 
-/-- The search backwards from `a` reaches `c` exactly when `c` reaches `a`. -/
 theorem reach_mentionedBy_iff {a c : Name} :
     Reach (fun n => i.mentionedBy.getD n []) a c ↔ i.Reaches c a := by
   constructor
@@ -190,7 +182,6 @@ def axiomReach : List (Name × Std.HashSet Name) :=
   (i.decls.filter (·.kind == .axiom)).map fun a =>
     (a.name, reach (callers.getD · []) weight [a.name])
 
-/-- The sets hold exactly the axioms that each constant reaches. -/
 theorem mem_axiomReach (c a : Name) :
     (∃ s, (a, s) ∈ i.axiomReach ∧ s.contains c = true) ↔ i.AxiomOf c a := by
   have hsearch : (reach (fun n => i.mentionedBy.getD n [])
@@ -228,7 +219,6 @@ variable {i : Input} (t : Tables i)
 def axiomSet (c : Name) : List Name :=
   t.axiomReach.filterMap fun p => if p.2.contains c then some p.1 else none
 
-/-- The axiom set of a constant holds exactly the axioms that it reaches. -/
 theorem mem_axiomSet (c a : Name) : a ∈ t.axiomSet c ↔ i.AxiomOf c a := by
   rw [← t.mem_axiomReach c a]
   simp only [axiomSet, List.mem_filterMap]

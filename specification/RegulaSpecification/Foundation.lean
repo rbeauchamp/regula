@@ -86,30 +86,24 @@ def rg1004 := ruleRecord "RG1004" Violates1004
 /-- The intent record of RG1005. -/
 def rg1005 := ruleRecord "RG1005" Violates1005
 
-/-- What a profile admits is known. -/
 theorem admits_known {i : Input} {p : Profile} {a : Name} (h : i.Admits p a) : i.Known a := by
   cases p with
   | kernelOnly => exact absurd h id
   | choiceFree => exact h.1
   | standardLogical => exact h
 
-/-- `sorryAx` is not known. -/
 theorem sorry_not_known (i : Input) : ¬ i.Known ``sorryAx := by
   intro h
   have := h.1
   simp [logicalAxioms] at this
 
-/-- A claimed constant that depends on an axiom that is not known violates RG1005, whatever the
-profile of its module. -/
 theorem rg1005_of_known {i : Input} {c a : Name} (hc : i.ClaimedName c) (ha : i.AxiomOf c a)
     (hk : ¬ i.Known a) : Violates1005 i c := by
   exact ⟨hc, a, ha, fun h => hk (admits_known h)⟩
 
-/-- RG1002 implies RG1005. -/
 theorem rg1005_of_hole {i : Input} {c : Name} (h : Violates1002 i c) : Violates1005 i c :=
   rg1005_of_known h.1 h.2 (sorry_not_known i)
 
-/-- RG1003 implies RG1005. -/
 theorem rg1005_of_unknown {i : Input} {c : Name} (h : Violates1003 i c) : Violates1005 i c := by
   obtain ⟨hc, a, ha, hk, -⟩ := h
   exact rg1005_of_known hc ha hk
@@ -120,19 +114,16 @@ def components : Name → Nat
   | .str p _ => components p + 1
   | .num p _ => components p + 1
 
-/-- A native proof's axiom has at least three components. -/
 theorem components_of_native {a : Name} (h : NativeProofAxiom a) : 3 ≤ components a := by
   obtain ⟨p, t, s, rfl⟩ := h
   simp only [components]
   omega
 
-/-- A native proof's axiom is none of the three logical axioms. -/
 theorem native_not_logical {a : Name} (h : NativeProofAxiom a) : a ∉ logicalAxioms := by
   have := components_of_native h
   simp only [logicalAxioms, List.mem_cons, List.not_mem_nil, or_false]
   rintro (rfl | rfl | rfl) <;> simp [components] at this
 
-/-- RG1004 implies RG1005. -/
 theorem rg1005_of_compiler {i : Input} {c : Name} (h : Violates1004 i c) : Violates1005 i c := by
   obtain ⟨hc, a, ha, hn⟩ := h
   refine rg1005_of_known hc ha fun hk => ?_

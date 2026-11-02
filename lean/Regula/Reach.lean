@@ -10,13 +10,11 @@ public import Std.Data.HashSet
 /-!
 # Reachability over names
 
-The one search of the rules over the closed input (`Regula.Rules`): from each axiom, backwards
-through the constants that mention it (`Input.axiomReach`). `reach` is total, and its fuel is an
-argument, not a guess: each step of the search takes one name off its work list, and adds to it only
-what `next` gives for a name that it has not seen, so the sum of the work list and of what `next`
-gives for the unseen names falls by at least one at each step (`unseenWeight_insert`).
-`mem_reach` states that the result is exactly the names that the seeds reach (`Reach`), for each
-function `next` that gives names only for the names of `us`.
+The one search of the rules over the closed input (`Regula.Rules`): from each axiom, backwards through the
+constants that mention it (`Input.axiomReach`). `reach` is total, and its fuel is an argument, not a guess:
+each step of the search takes one name off its work list, and adds to it only what `next` gives for a name
+that it has not seen, so the sum of the work list and of what `next` gives for the unseen names falls by at
+least one at each step (`unseenWeight_insert`).
 -/
 
 public section
@@ -43,7 +41,6 @@ def reachGo (next : Name → List Name) : Nat → Std.HashSet Name → List Name
 def unseenWeight (next : Name → List Name) (us : List Name) (seen : Std.HashSet Name) : Nat :=
   ((us.filter fun n => !seen.contains n).map fun n => (next n).length).sum
 
-/-- Marking `n` seen takes at least what `next` gives for `n` off the weight. -/
 theorem unseenWeight_insert (next : Name → List Name) (us : List Name) (seen : Std.HashSet Name)
     (n : Name) (hn : next n ≠ [] → n ∈ us) (hs : seen.contains n = false) :
     unseenWeight next us (seen.insert n) + (next n).length ≤ unseenWeight next us seen := by
@@ -92,7 +89,6 @@ theorem unseenWeight_insert (next : Name → List Name) (us : List Name) (seen :
 
 variable {next : Name → List Name}
 
-/-- The search keeps each name it has seen. -/
 theorem reachGo_mono (k : Nat) (seen : Std.HashSet Name) (work : List Name) (x : Name)
     (h : seen.contains x = true) : (reachGo next k seen work).contains x = true := by
   induction k generalizing seen work with
@@ -106,7 +102,6 @@ theorem reachGo_mono (k : Nat) (seen : Std.HashSet Name) (work : List Name) (x :
       · exact ih _ _ h
       · exact ih _ _ (by simp [Std.HashSet.contains_insert, h])
 
-/-- Soundness: each name of the result is in `seen` or reached from `work`. -/
 theorem reachGo_sound (P : Name → Prop) (hclosed : ∀ b, P b → ∀ c ∈ next b, P c)
     (k : Nat) (seen : Std.HashSet Name) (work : List Name)
     (hs : ∀ x, seen.contains x = true → P x) (hw : ∀ x ∈ work, P x) (x : Name)
@@ -132,7 +127,6 @@ theorem reachGo_sound (P : Name → Prop) (hclosed : ∀ b, P b → ∀ c ∈ ne
           · exact hclosed n (hw n (List.mem_cons_self ..)) y h1
           · exact hw y (List.mem_cons_of_mem _ h1)
 
-/-- With enough fuel the search ends with a set that is closed under `next`. -/
 theorem reachGo_closed (us : List Name) (hus : ∀ n, next n ≠ [] → n ∈ us)
     (k : Nat) (seen : Std.HashSet Name) (work : List Name)
     (hk : work.length + unseenWeight next us seen < k + 1)
@@ -191,7 +185,6 @@ theorem reachGo_closed (us : List Name) (hus : ∀ n, next n ≠ [] → n ∈ us
         · exact reachGo_mono _ _ _ _ (by simp [Std.HashSet.contains_insert])
         · exact h1 x (List.mem_append_right _ hx)
 
-/-- The weight of the unseen names is at most the weight of all names. -/
 theorem unseenWeight_le (next : Name → List Name) (us : List Name) (seen : Std.HashSet Name) :
     unseenWeight next us seen ≤ (us.map fun n => (next n).length).sum := by
   unfold unseenWeight
@@ -206,8 +199,6 @@ over all names (`mem_reach`). -/
 def reach (next : Name → List Name) (weight : Nat) (seeds : List Name) : Std.HashSet Name :=
   reachGo next (seeds.length + weight) {} seeds
 
-/-- The search finds exactly the names that the seeds reach, when `next` gives names only for the
-names of `us` and `weight` bounds what it gives for them. -/
 theorem mem_reach {weight : Nat} (us seeds : List Name) (hus : ∀ n, next n ≠ [] → n ∈ us)
     (hw : (us.map fun n => (next n).length).sum ≤ weight) (x : Name) :
     (reach next weight seeds).contains x = true ↔ ∃ s ∈ seeds, Reach next s x := by

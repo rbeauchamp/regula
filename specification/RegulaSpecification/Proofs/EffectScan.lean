@@ -9,11 +9,9 @@ import RegulaSpecification.Proofs.Foundation
 /-!
 # What the check of effects decides
 
-`Regula.ProgramCheck.Effects` runs `scan` and `judge` of `Regula.ProgramCheck.EffectScan` on the import closure of the executable and the two library roots,
-and fails the gate's build on what `judge` refuses. `mem_scan_iff` and `judge_ok_iff` state what they decide, for
-every graph, of the definitions that the check runs. `mem_own_iff` states what `graphOf` selects from the environment.
-`allowed_iff` states the closed set of what may mention an effect, by the modules' names, apart from the table that `allowed` reads. `check_ok_iff` puts them together. What `Environment.find?` and the header hold, and what `Expr.getUsedConstants` lists, stays
-Lean's.
+`Regula.ProgramCheck.Effects` runs `scan` and `judge` of `Regula.ProgramCheck.EffectScan` on the import
+closure of the executable and the two library roots, and fails the gate's build on what `judge` refuses.
+What `Environment.find?` and the header hold, and what `Expr.getUsedConstants` lists, stays Lean's.
 -/
 
 namespace RegulaSpecification.EffectScan
@@ -44,7 +42,6 @@ theorem hit_iff (g : Graph) (u : Name) : g.hit u = true ↔ Hit g u := by
     simp
   rw [hc]
 
-/-- What the fold of `callers` holds. -/
 theorem mem_callersFold (g : Graph) (l : List (Name × Name)) (init : Std.HashMap Name (List Name)) (u c : Name) :
     c ∈ (l.foldl (fun m x => (g.mentions x.1).foldl (fun m v => m.insert v (x.1 :: m.getD v [])) m) init).getD u [] ↔
       (∃ x ∈ l, x.1 = c ∧ u ∈ g.mentions x.1) ∨ c ∈ init.getD u [] := by
@@ -73,7 +70,6 @@ theorem mem_callers (g : Graph) (u c : Name) :
   · rintro ⟨⟨x, hx, rfl⟩, hu⟩
     exact ⟨x, hx, rfl, hu⟩
 
-/-- A name that the search reaches back from a seed is a constant that mentions an effect, and each such constant is reached. -/
 theorem mem_found_iff (g : Graph) (n : Name) :
     (Regula.Closed.reach (g.callers.getD · [])
       ((g.callers.keys.map fun k => (g.callers.getD k []).length).sum) g.seeds).contains n = true ↔ Effectful g n := by
@@ -102,11 +98,9 @@ theorem mem_found_iff (g : Graph) (n : Name) :
     have hnot : k ∉ g.callers := by simpa [Std.HashMap.mem_keys] using hno
     simp [Std.HashMap.getD_eq_fallback hnot]
 
-/-- `scan` gives exactly the constants of the repository that mention an effect, with their modules. -/
 theorem mem_scan_iff (g : Graph) (x : Name × Name) : x ∈ scan g ↔ x ∈ g.own ∧ Effectful g x.1 := by
   simp only [scan, List.mem_filter, mem_found_iff]
 
-/-- `judge` passes exactly when the interpreter is found and each constant found may mention an effect. -/
 theorem judge_ok_iff (found : List (Name × Name)) :
     judge found = .ok () ↔
       (∃ x ∈ found, x.1 = `Regula.Effect.Prog.interpret) ∧ ∀ x ∈ found, allowed x = true := by
@@ -139,8 +133,6 @@ theorem judge_ok_iff (found : List (Name × Name)) :
       rintro ⟨-, hall⟩
       exact absurd (hall a h1) (by simpa using h2)
 
-/-- What `graphOf` selects of the environment: each constant that a module of the repository's root states in its own data, by
-that module's index in the header. -/
 theorem mem_own_iff (env : Environment) (n m : Name) :
     (n, m) ∈ (graphOf env).own ↔ ∃ data, (m, data) ∈ env.header.moduleNames.zip env.header.moduleData ∧
       m.getRoot = `Regula ∧ n ∈ data.constNames := by
@@ -151,15 +143,12 @@ theorem mem_own_iff (env : Environment) (n m : Name) :
   · rintro ⟨data, hz, hroot, hn⟩
     exact ⟨(m, data), ⟨hz, hroot⟩, n, hn, rfl, rfl⟩
 
-/-- What may mention an effect, by name, apart from `effectModules`: a constant of the one table, of the calls of Lake or of the executable's root, or the interpreter's in `Regula.Effect`. So a check that allowed more than this fails this theorem. -/
 theorem allowed_iff (x : Name × Name) :
     allowed x = true ↔
       x.2 ∈ [`Regula.Table, `Regula.Workspace, `Regula.LintMain] ∨
         (x.2 = `Regula.Effect ∧ (`Regula.Effect.Prog.interpret).isPrefixOf x.1 = true) := by
   simp [allowed, effectModules]
 
-/-- The decision of the check on an environment: it passes exactly when the interpreter mentions an effect and each constant of
-`own` that mentions one lies where `allowed_iff` says. -/
 theorem check_ok_iff (env : Environment) :
     judge (scan (graphOf env)) = .ok () ↔
       (∃ m, (`Regula.Effect.Prog.interpret, m) ∈ (graphOf env).own ∧

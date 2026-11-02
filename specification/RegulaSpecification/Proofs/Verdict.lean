@@ -7,18 +7,6 @@ import RegulaSpecification.Proofs.Records
 
 /-!
 # The verdict, against its statement
-
-`Regula.Closed.Draft.admit` is the admission that the checker runs, and `Regula.Closed.decision` its
-verdict on what the admission gives (`run`). `admit_ok_iff` proves that the admission gives an input
-exactly for a reading that has the specification's `Input.WellFormed`. `run_refused` and
-`run_complete` then state the verdict: a refused reading is `incomplete`, and an admitted one is
-`pass` or `fail`, and `pass` exactly when every rule that reads the input holds of it. `run_meets` states that as the
-record `gateRecord` over the
-specification's input.
-
-`Proofs/Load.lean` states what the loader gives in terms of the environment, and the shell's refusal
-of a build that it cannot load (`Regula.Closed.decision`, the record's first property, which
-`runChecker` reads as `none`).
 -/
 
 namespace RegulaSpecification
@@ -28,13 +16,11 @@ open LeanIntent
 
 open Link
 
-/-- The verdict of a reading, by the two functions that the checker runs on it: the admission, and
-the decision on what the admission gives. The loader runs the first (`Facts.input`) and the shell
-the second. -/
+/-- The verdict of a reading, by the two functions that the checker runs on it: the admission, and the decision
+on what the admission gives. -/
 def run (d : Regula.Closed.Draft) : Regula.Closed.Report :=
   Regula.Closed.decision d.admit
 
-/-- What the admission gives is the closed form of the reading it read. -/
 theorem admit_toDraft {d : Regula.Closed.Draft} {i : Regula.Closed.Input}
     (h : d.admit = .ok i) : i.toDraft = d := by
   simp only [Regula.Closed.Draft.admit] at h
@@ -45,7 +31,6 @@ theorem admit_toDraft {d : Regula.Closed.Draft} {i : Regula.Closed.Input}
     · simp only [Except.ok.injEq] at h
       exact h ▸ rfl
 
-/-- What the admission decides: it gives an input exactly when the reading has the closed form. -/
 theorem admit_ok_iff (d : Regula.Closed.Draft) :
     (∃ i, d.admit = .ok i) ↔ (toSpecDraft d).WellFormed := by
   rw [wf_toSpecDraft_iff]
@@ -65,7 +50,6 @@ theorem admit_ok_iff (d : Regula.Closed.Draft) :
       · exact absurd ‹_› hm
       · exact ⟨_, rfl⟩
 
-/-- What the admission refuses is what the closed form excludes. -/
 theorem admit_error_iff (d : Regula.Closed.Draft) :
     (∃ why, d.admit = .error why) ↔ ¬ (toSpecDraft d).WellFormed := by
   rw [← admit_ok_iff]
@@ -73,7 +57,6 @@ theorem admit_error_iff (d : Regula.Closed.Draft) :
   | error why => simp
   | ok i => simp
 
-/-- A list of findings is empty exactly when it reports no subject. -/
 theorem nil_iff_no_subject (fs : List Regula.Closed.Finding) :
     fs = [] ↔ ∀ s, s ∉ fs.map (·.subject) := by
   cases fs with
@@ -85,7 +68,6 @@ theorem nil_iff_no_subject (fs : List Regula.Closed.Finding) :
     · intro h
       exact absurd (List.mem_cons_self ..) (h f.subject)
 
-/-- An input has no finding exactly when every rule that reads the input holds of it. -/
 theorem findings_nil_iff (i : Regula.Closed.Input) :
     i.findings = [] ↔ AllHold (toSpec i) := by
   have hall : i.findings = [] ↔ ∀ r, i.tables.check r = [] := by
@@ -114,8 +96,6 @@ theorem findings_nil_iff (i : Regula.Closed.Input) :
     · simp [Regula.Closed.Tables.check] at hs
     · simp [Regula.Closed.Tables.check] at hs
 
-/-- The report of an input is not `incomplete`, and it is `pass` exactly when every rule that reads the input holds of
-it. No hypothesis is needed: the type of the input carries the closed form. -/
 theorem report_complete (i : Regula.Closed.Input) :
     i.report.verdict ≠ .incomplete ∧
       (i.report.verdict = .pass ↔ AllHold (toSpec i)) := by
@@ -123,20 +103,15 @@ theorem report_complete (i : Regula.Closed.Input) :
   simp only [Regula.Closed.Input.report]
   cases i.findings <;> simp [Regula.Closed.Report.verdict]
 
-/-- The report of an input holds exactly the findings of the rules. -/
 theorem report_findings (i : Regula.Closed.Input) : i.report.findings = i.findings := by
   simp only [Regula.Closed.Input.report]
   cases i.findings <;> rfl
 
-/-- A reading that the admission refuses is `incomplete`: a part of the input that cannot be read is
-never a pass and never an empty report. -/
 theorem run_refused {d : Regula.Closed.Draft} (h : ¬ (toSpecDraft d).WellFormed) :
     (run d).verdict = .incomplete := by
   obtain ⟨why, hw⟩ := (admit_error_iff d).mpr h
   simp only [run, hw, Regula.Closed.decision, Regula.Closed.Report.verdict]
 
-/-- An admitted reading is not `incomplete`, and it is `pass` exactly when every rule that reads the input holds of it.
--/
 theorem run_complete {d : Regula.Closed.Draft} (h : (toSpecDraft d).WellFormed) :
     (run d).verdict ≠ .incomplete ∧
       ((run d).verdict = .pass ↔ AllHold (toSpecDraft d)) := by
@@ -146,15 +121,12 @@ theorem run_complete {d : Regula.Closed.Draft} (h : (toSpecDraft d).WellFormed) 
   simp only [run, hi, Regula.Closed.decision]
   exact report_complete i
 
-/-- A pass of the checker is an admitted reading: a reading that the admission refuses is never a
-pass. -/
 theorem run_pass_admitted {d : Regula.Closed.Draft}
     (hp : (run d).verdict = .pass) : (toSpecDraft d).WellFormed :=
   Classical.byContradiction fun hn => by
     rw [run_refused hn] at hp
     cases hp
 
-/-- A pass of the checker is exactly a reading of the closed form of which each rule holds. -/
 theorem run_pass_iff {d : Regula.Closed.Draft} :
     (run d).verdict = .pass ↔
       (toSpecDraft d).WellFormed ∧ AllHold (toSpecDraft d) := by
@@ -177,7 +149,6 @@ def runChecker : Option Input → Verdict
   | none => .incomplete
   | some s => verdict (run (ofSpec s)).verdict
 
-/-- The checker's verdict meets the record of the verdict. -/
 theorem run_meets : gateRecord.Meets runChecker := by
   rw [gate_meets_iff]
   refine ⟨rfl, fun s hs => ?_, fun s hs => ?_⟩
@@ -192,7 +163,6 @@ theorem run_meets : gateRecord.Meets runChecker := by
     · rw [← hp]
       cases (run (ofSpec s)).verdict <;> simp [verdict]
 
-/-- Regula's checks are exactly RG1001 to RG1006, RG1010 and RG2001. -/
 theorem rule_spellings :
     Regula.RuleId.all.map (·.spelling) =
       ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1010", "RG2001"] := rfl

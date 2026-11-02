@@ -7,9 +7,6 @@ import RegulaSpecification.Proofs.ReaderWalk
 
 /-!
 # What the reader's parse of each file gives
-
-For every response: each file of a reading holds the header and the commands that Lean's parser gave from the text
-the walk read, in the environment that an import gave for exactly the modules `Sees` states.
 -/
 
 namespace RegulaSpecification.Effects
@@ -24,7 +21,6 @@ open RegulaSpecification.Language
 
 variable {L E : Type}
 
-/-- What a list's `lookup` gives is a member of the list. -/
 theorem mem_of_lookup {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β)} {a : α} {b : β}
     (h : l.lookup a = some b) : (a, b) ∈ l := by
   induction l with
@@ -41,7 +37,6 @@ theorem mem_of_lookup {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β
       simp only [this] at h
       exact List.mem_cons_of_mem _ (ih h)
 
-/-- With no key twice, `lookup` gives the value of each member. -/
 theorem lookup_of_mem {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β)} {a : α} {b : β}
     (hn : (l.map (·.1)).Nodup) (h : (a, b) ∈ l) : l.lookup a = some b := by
   induction l with
@@ -59,7 +54,6 @@ theorem lookup_of_mem {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β
       simp only [List.lookup_cons, this]
       exact ih hn.2 hm
 
-/-- The events of a parse only observe, and none of them failed. -/
 theorem parsed_events {input : InputContext} {env : E} {fuel : Nat} {state : ModuleParserState} {messages : MessageLog}
     {commands : List Syntax} {final : MessageLog} {t : List (Event L E)}
     (h : Parsed input env fuel state messages commands final t) : Quiet t ∧ Clean t := by
@@ -87,7 +81,6 @@ def FileFrom (T : List (Event L E)) (root : Root L) (sources : List (Name × Sou
         commands.Sublist T ∧
       f.parsed = !final.hasErrors
 
-/-- What the search gives holds only the toolchain's modules. -/
 theorem mem_visible_held {headers : Name → Option (Array Import)} {isToolchain : Name → Bool} {todo seen : List Name}
     {fuel : Nat} {n : Name} (h : n ∈ visibleToolchain headers isToolchain todo seen fuel) : isToolchain n = true := by
   induction fuel generalizing todo seen with
@@ -106,7 +99,6 @@ theorem mem_visible_held {headers : Name → Option (Array Import)} {isToolchain
         · exact ih h
         · exact ih h
 
-/-- `environmentFor` gives what an import on the toolchain's library gave for exactly those modules. -/
 theorem environmentFor_spec {T t : List (Event L E)} {root : Root L} {cache : ParserCache E} {mods : List Name}
     {b : Except String ((E × List Name) × ParserCache E)} (hT : t.Sublist T)
     (hc : ∀ x ∈ cache, (⟨.importForParser root.toolchain x.1, .ok x.2⟩ : Event L E) ∈ T)
@@ -143,7 +135,6 @@ theorem environmentFor_spec {T t : List (Event L E)} {root : Root L} {cache : Pa
       · exact hev
       · exact hc x hx
 
-/-- `parseFile` holds what `FileFrom` states, or an import failed. -/
 theorem parseFile_spec {T t : List (Event L E)} {root : Root L} {sources : List (Name × Source)} {toolchain : List Name}
     {cache : ParserCache E} {m : Name} {s : Source} {b : Except String (FileRead × ParserCache E)}
     (hT : t.Sublist T) (hc : ∀ x ∈ cache, (⟨.importForParser root.toolchain x.1, .ok x.2⟩ : Event L E) ∈ T)
@@ -176,7 +167,6 @@ theorem parseFile_spec {T t : List (Event L E)} {root : Root L} {sources : List 
     cases he
     exact ⟨⟨rfl, rfl, env, final, t₃, hev, hparsed, by simpa using hT₂, rfl⟩, hc', by simpa using hclean.append hcl⟩
 
-/-- `parseFiles` holds each source's file, and nothing else, or an import failed. -/
 theorem parseFiles_spec (root : Root L) (sources : List (Name × Source)) (toolchain : List Name) {T : List (Event L E)}
     (todo : List (Name × Source)) (cache : ParserCache E) {t : List (Event L E)}
     {b : Except String (List FileRead)}

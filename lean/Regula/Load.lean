@@ -16,29 +16,26 @@ import Lean.Compiler.Old
 /-!
 # The loader of the closed input
 
-What reads a loaded environment into the closed input (`Regula.Closed.Input`), and refuses, as an
-error that makes the run `incomplete` (RG2001), what it cannot read. It performs no effect: `Regula.Shell` asks Lean
-for the environment and the places, and `Regula.Workspace` holds the calls of Lake. `Facts.input` is a pure function of the
-environment, and `specification/RegulaSpecification/Proofs/Load.lean` states what it gives in terms
-of the environment. What that leaves assumed about Lean and Lake is in the specification's trusted
+What reads a loaded environment into the closed input (`Regula.Closed.Input`), and refuses, as an error that
+makes the run `incomplete` (RG2001), what it cannot read. It performs no effect: `Regula.Shell` asks Lean
+for the environment and the places, and `Regula.Workspace` holds the calls of Lake. `Facts.input` is a pure
+function of the environment, and `specification/RegulaSpecification/Proofs/Load.lean` states what it gives
+in terms of the environment. What that leaves assumed about Lean and Lake is in the specification's trusted
 base.
 
 What it reads, and through what:
-
-- The constants: each constant of an environment that `Lean.importModules` loads with `loadExts :=
-  false`, so no extension state is built and no initializer of a loaded module runs, and at the
-  level `.private`, so a `module` file gives each constant with its body, exposed or not
-  (`Lean/Environment.lean:1871` and `:2183` at v4.35.0).
-  `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
+- The constants: each constant of an environment that `Lean.importModules` loads with `loadExts := false`,
+  so no extension state is built and no initializer of a loaded module runs, and at the level `.private`, so a
+  `module` file gives each constant with its body, exposed or not (`Lean/Environment.lean:1871` and `:2183` at
+  v4.35.0). `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
   which `importModules` sets whatever `loadExts` is, and no extension's built state.
-- Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds
-  them, so that a constant that Lean's import replaced is read too. What any of them mentions, and
-  whether it is an axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed
-  module. A claimed module's own constant must also fit the rules itself (`Facts.unread?`).
-- The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A
-  claimed module lies below the root package's library directory; a constant of the toolchain is one
-  whose module lies below the toolchain's library directory. `Facts` carries that its modules are
-  those of the environment's header and what each place decides, and `Regula.Shell.readModules` constructs both.
+- Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
+  that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
+  axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
+  constant must also fit the rules itself (`Facts.unread?`).
+- The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A claimed
+  module lies below the root package's library directory; a constant of the toolchain is one whose module lies
+  below the toolchain's library directory.
 -/
 
 public section
@@ -140,12 +137,10 @@ def LoadedModule.ofPlace (toolchainDir rootDir : FilePath) (name : Name) (olean 
     LoadedModule :=
   { name, olean, inToolchain := below toolchainDir olean, claimed := below rootDir olean }
 
-/-- A module at a place has the name it was given. -/
 theorem LoadedModule.ofPlace_name (toolchainDir rootDir : FilePath) (name : Name) (olean : FilePath) :
     (LoadedModule.ofPlace toolchainDir rootDir name olean).name = name := by
   simp [LoadedModule.ofPlace]
 
-/-- What a place decides is what a module at that place says. -/
 theorem LoadedModule.ofPlace_self (toolchainDir rootDir : FilePath) (name : Name) (olean : FilePath) :
     LoadedModule.ofPlace toolchainDir rootDir name olean =
       LoadedModule.ofPlace toolchainDir rootDir
@@ -209,7 +204,6 @@ def Facts.decl (f : Facts) (n : Name) (info : ConstantInfo) (stated : List Const
   | some m => .ok (f.declIn n m info stated)
   | none => .error s!"the constant {n} was loaded, and Lean gives it no module"
 
-/-- What running a function of `Except` over a list gives, member by member. -/
 theorem mapM_ok {α β ε : Type} (g : α → Except ε β) (name : β → Name) (key : α → Name)
     (hname : ∀ a b, g a = .ok b → name b = key a) (l : List α) (r : List β)
     (h : l.mapM g = .ok r) :
@@ -251,7 +245,6 @@ theorem mapM_ok {α β ε : Type} (g : α → Except ε β) (name : β → Name)
             exact ⟨y, List.mem_cons_of_mem _ hy, hxy⟩
         · simp [hname a b hg, h3]
 
-/-- What `Facts.decl` gives has the name it was asked for. -/
 theorem Facts.decl_name (f : Facts) {n : Name} {info : ConstantInfo} {stated : List ConstantInfo}
     {d : Decl} (h : f.decl n info stated = .ok d) : d.name = n := by
   simp only [Facts.decl] at h
@@ -260,8 +253,6 @@ theorem Facts.decl_name (f : Facts) {n : Name} {info : ConstantInfo} {stated : L
     rfl
   · cases h
 
-/-- The constants that the environment keeps have distinct names, so a reading of them has too: the
-keys of a hash map are distinct (`Std.HashMap.distinct_keys_toList`). -/
 theorem Facts.decls_nodup (f : Facts) {stated : Name → List ConstantInfo} {decls : List Decl}
     (h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated x.1)) = .ok decls) :
     (decls.map (·.name)).Nodup := by

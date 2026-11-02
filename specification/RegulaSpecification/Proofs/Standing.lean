@@ -10,15 +10,7 @@ import RegulaSpecification.Proofs.Written
 /-!
 # What a full verdict's admission is about
 
-These theorems read the record alone, so they hold of every program that meets it. `FullRun.gate_stands` states that a full run
-that reaches a Lake command or a load for the rules has an admitted reading and a gate, and that at each point of the gate what
-stands is what the reading left, on `Evidence` of that state. `FullRun.at_consumer` and `FullRun.judged_at_consumer` state it at the
-consumer, and `Evidence.judged` that each text standing was judged. `uncheckedCopy_fails` and `uncheckedCopy_build_fails` make the
-trace of an audit of an earlier revision fail the record, for every text other than the pinned one that neither Lake's nor Lean's
-parser was given, and `judgedCopy_stands` is its neighbour: the same copy of a text that stands keeps the evidence.
-`rewritten_stands` gives what stands after two writes. `FullRun.answered_at_consumer` states that each text standing by a write of the
-reading is what the file system answered for that write's path after the reading's last act, and `act_after_readBack_fails` that a
-reading that ends with an act, once a written text stands, fails the clause, for each act of `Op`.
+These theorems read the record alone, so they hold of every program that meets it.
 -/
 
 namespace RegulaSpecification.Effects
@@ -36,14 +28,12 @@ variable {L E : Type}
 def Event.consumesTree (e : Event L E) : Bool :=
   e.isBuild || e.isImportForRules
 
-/-- An event that only reports or that the rules phase may ask does not write or remove. -/
 theorem keeps_of_no_mutation {e : Event L E} (h : match e.op with
     | .writeFile .. | .createDirAll _ | .createTempDir | .removeDirAll _ => False
     | _ => True) : e.keepsFiles := by
   obtain ⟨o, r⟩ := e
   cases o <;> first | trivial | exact h.elim
 
-/-- An event that is not in a prefix of a list comes after all of that prefix. -/
 theorem prefix_of_not_mem {A B pre post : List (Event L E)} {e : Event L E} (h : A ++ B = pre ++ e :: post) (he : e ∉ A) :
     ∃ mid, pre = A ++ mid ∧ B = mid ++ e :: post := by
   induction A generalizing pre with
@@ -59,7 +49,6 @@ theorem prefix_of_not_mem {A B pre post : List (Event L E)} {e : Event L E} (h :
       obtain ⟨mid, rfl, hb⟩ := ih h' (fun hx => he (List.mem_cons_of_mem _ hx))
       exact ⟨mid, rfl, hb⟩
 
-/-- An event that is not in a suffix of a list lies in the rest, after what comes before it. -/
 theorem split_before {G R mid post : List (Event L E)} {e : Event L E} (h : G ++ R = mid ++ e :: post) (he : e ∉ R) :
     ∃ rest, G = mid ++ e :: rest := by
   induction G generalizing mid with
@@ -76,10 +65,8 @@ theorem split_before {G R mid post : List (Event L E)} {e : Event L E} (h : G ++
       obtain ⟨rest, hr⟩ := ih h.2
       exact ⟨rest, by simp [hr, h.1]⟩
 
-/-- A full run that reaches a Lake command or a load for the rules has made its tree, read, and gone on to a gate that ends with the
-removal. Its reading is inside the closed language with no failed answer, on `Evidence` of what the reading left. No event of the
-gate writes or removes a file, so at each point of the gate, the reload included, what stands is what the reading left. This is
-about the run's own requests: what a trusted call does inside itself and what another process does are not events of the trace. -/
+/-- This is about the run's own requests: what a trusted call does inside itself and what another process does
+are not events of the trace. -/
 theorem FullRun.gate_stands {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) :
@@ -95,7 +82,7 @@ theorem FullRun.gate_stands {t : List (Event L E)} {dir : FilePath} {p : Regula.
     cases o <;> first | rfl | cases hs
   rcases h with ⟨err, rest, rfl, -, -, hs⟩ |
     ⟨tree, tRead, tGate, resp, last, rfl, hrd, hlast, o, report, hdec, hnf, hstop, hadm, -, -, -, -, -, -⟩
-  · -- No tree: nothing consumes one.
+  ·
     exfalso
     have hmem : e ∈ (⟨.createTempDir, .error err⟩ :: rest : List (Event L E)) := by rw [ht]; simp
     rcases List.mem_cons.mp hmem with rfl | hmem
@@ -130,9 +117,6 @@ theorem FullRun.gate_stands {t : List (Event L E)} {dir : FilePath} {p : Regula.
     · rw [(hstop ho).1] at htail
       simp at htail
 
-/-- At each Lake command and each load for the rules of a full run, the events before it are the tree's allocation, a reading and
-events that neither write nor remove, and the reading is inside the closed language with no failed answer, on `Evidence` of what
-stands right then. So what the admission judged is what stands by the run's requests at that request. -/
 theorem FullRun.at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) :
@@ -148,8 +132,6 @@ theorem FullRun.at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.
   rw [hsame]
   exact hev
 
-/-- Each text that the state of `Evidence` holds is one the run judged: the text of `lakefile.toml` that Lake's parser read, the
-pinned text, or a text that a file of the reading was parsed from. -/
 theorem Evidence.judged {T : List (Event L E)} {dir treeDir : FilePath} {held : List String → Option String} {r : Reading}
     (h : Evidence T dir treeDir held r) {q : List String} {text : String} (hq : held q = some text) :
     (∃ table, (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ T) ∨ text = leanToolchain ∨
@@ -163,13 +145,11 @@ theorem Evidence.judged {T : List (Event L E)} {dir treeDir : FilePath} {held : 
   · exact .inr (.inl (Option.some.inj (hq.symm.trans hpin)))
   · exact .inr (.inr ⟨f, hf, root, project, tree, path, i, md, h1, h2⟩)
 
-/-- The trace of an audit of an earlier revision: after the reading, read a file of the project again, and copy what that read gave
-over the file in the tree. -/
+/-- A trace that, after the reading, reads a file of the project again and copies what that read gave over the
+file in the tree. -/
 def uncheckedCopy (source path parent : FilePath) (text : String) : List (Event L E) :=
   [⟨.readFile source, .ok text⟩, ⟨.createDirAll parent, .ok ()⟩, ⟨.writeFile path text, .ok ()⟩]
 
-/-- The module-copy grammar alone admits that trace, for every text, when `path` is a needed name's file with its parent in the tree. So what
-refuses it is `Evidence` of what it leaves, and not the grammar. -/
 theorem moduleCopies_admits_uncheckedCopy {project tree path parent : FilePath} {root : Root L} {modules : List (Name × FilePath)}
     {prior body : List (Event L E)} {m : Name} {rel : List String} (text : String)
     (hc : ModuleCopies project tree root modules prior body)
@@ -188,9 +168,6 @@ theorem moduleCopies_admits_uncheckedCopy {project tree path parent : FilePath} 
   · exact CopyStep.parentWritten ⟨rel, hr⟩ hp hparent
   · exact ModuleCopies.nil
 
-/-- That trace has no `Evidence` of the state it leaves, for every path, every reading and every text other than the pinned one that
-neither Lake's TOML parser nor Lean's header parser was given: the state holds that text, and `Evidence` says that every text
-standing was judged. So an earlier good reading gives no authority for what a later write replaced. -/
 theorem uncheckedCopy_fails {T : List (Event L E)} {dir treeDir source path parent : FilePath} {text : String} {r : Reading}
     (hpin : text ≠ leanToolchain)
     (hnotToml : ∀ table, (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∉ T ++ uncheckedCopy source path parent text)
@@ -207,7 +184,6 @@ theorem uncheckedCopy_fails {T : List (Event L E)} {dir treeDir source path pare
   · exact hpin h
   · exact hnotFile _ _ (h4.subset (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))))
 
-/-- At each Lake command and each load for the rules of a full run, each text standing is one the run judged before it. -/
 theorem FullRun.judged_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) {q : List String} {text : String} (hq : written pre q = some text) :
@@ -222,8 +198,6 @@ theorem FullRun.judged_at_consumer {t : List (Event L E)} {dir : FilePath} {p : 
   · exact .inr (.inl hpin)
   · exact .inr (.inr ⟨_, _, hsub _ (h4.subset (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))))⟩)
 
-/-- No full run reaches a Lake command after that trace, for every path, every run and every text other than the pinned one that
-neither parser was given before that command. -/
 theorem uncheckedCopy_build_fails {T post : List (Event L E)} {dir source path parent tree program cwd : FilePath} {text : String}
     {args : List String} {r : Except IO.Error UInt32} {p : Regula.Closed.Profile} {c : UInt32}
     (hpin : text ≠ leanToolchain)
@@ -268,7 +242,6 @@ theorem FullRun.answered_at_consumer {t : List (Event L E)} {dir : FilePath} {p 
   rw [← hs, hpre]
   exact (hstands mid (e :: rest) hgate _).symm
 
-/-- A text that the acts of `t` leave at a path was written there, under some spelling of it. -/
 theorem written_some_write {t : List (Event L E)} {p : List String} {text : String} (h : written t p = some text) :
     ∃ path r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t ∧ parts path = p := by
   have key : ∀ (l : List (Event L E)) (held : Option String), leavesFrom l p held = some text →
@@ -304,11 +277,7 @@ theorem written_some_write {t : List (Event L E)} {p : List String} {text : Stri
 def OneRealPath (t : List (Event L E)) : Prop :=
   ∀ (p a b : FilePath), (⟨.realPath p, .ok a⟩ : Event L E) ∈ t → (⟨.realPath p, .ok b⟩ : Event L E) ∈ t → a = b
 
-/-- **What Lake takes as its configuration, at each consumer.** At each Lake command and each load for the rules of a full run, on one answer for each
-real path, the part `suffix` of the reading holds no act, comes after every act of the reading, and is followed only by events that neither write nor remove,
-and it holds two answers of the file system: nothing has the name `lakefile.lean` in the tree, at the real path this run's tree got, and a read through a
-spelling of `lakefile.toml` there gave the text that Lake's TOML parser read. `lake_takes_judged` says what follows under H5. Another process is not in this
-statement. -/
+/-- `lake_takes_judged` says what follows under H5. Another process is not in this statement. -/
 theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) (hone : OneRealPath t) :
@@ -333,8 +302,6 @@ theorem FullRun.config_at_consumer {t : List (Event L E)} {dir : FilePath} {p : 
   exact ⟨tree, evTree, before, suffix, mid, err, path, text, table, hpre, hq,
     fun x hx => hkeep x (by rw [hgate]; exact List.mem_append_left _ hx), hreal, herr, hno, hp, hr, h5⟩
 
-/-- An act at the end of a reading fails the clause, for each act of the closed type `Op`, once any text stands: the segment that
-holds the read-back has no room for it, so no read after the act is there. -/
 theorem act_after_readBack_fails {T : List (Event L E)} {e : Event L E} (hact : ¬ QuietOp e.op) {path : FilePath} {text : String}
     {r : Except IO.Error Unit} (hw : (⟨.writeFile path text, r⟩ : Event L E) ∈ T ++ [e])
     (hs : written (T ++ [e]) (parts path) = some text) {tree : FilePath} : ¬ ReadBack (T ++ [e]) tree := by
@@ -351,7 +318,6 @@ theorem act_after_readBack_fails {T : List (Event L E)} {e : Event L E} (hact : 
   subst hnil
   cases hread path text r hw hs
 
-/-- The neighbour of `act_after_readBack_fails`: reads and reports after the read-back keep the clause. -/
 theorem ReadBack.append_quiet {t after : List (Event L E)} {tree : FilePath} (h : ReadBack t tree) (hq : Quiet after)
     (hk : ∀ x ∈ after, x.keepsFiles) : ReadBack (t ++ after) tree := by
   obtain ⟨pre, suffix, rfl, hs, hread, err, herr, hno⟩ := h
@@ -372,7 +338,6 @@ theorem ReadBack.append_quiet {t after : List (Event L E)} {tree : FilePath} (h 
       rfl
     exact List.mem_append_left _ (hread path text r hin (by rw [← hsame]; simpa [List.append_assoc] using hst))
 
-/-- Events before a reading that hold no act keep the clause. -/
 theorem ReadBack.prepend_no_acts {a t : List (Event L E)} {tree : FilePath} (ha : ∀ e ∈ a, e.acted? = none) (h : ReadBack t tree) :
     ReadBack (a ++ t) tree := by
   obtain ⟨pre, suffix, rfl, hs, hread, err, herr, hno⟩ := h
@@ -385,8 +350,6 @@ theorem ReadBack.prepend_no_acts {a t : List (Event L E)} {tree : FilePath} (ha 
   have hsame := written_after_no_acts (b := pre ++ suffix) ha (parts path)
   exact hread path text r hin (by rw [← hsame]; exact hst)
 
-/-- The neighbour of `uncheckedCopy_fails`: a read and a copy of the text that already stands there change nothing the evidence is
-about. So what `uncheckedCopy_fails` refuses is the unjudged text, and not the shape of the trace. -/
 theorem judgedCopy_stands {T : List (Event L E)} {dir treeDir source path parent : FilePath} {text : String} {r : Reading}
     (hev : Evidence T dir treeDir (written T) r) (hq : written T (parts path) = some text) :
     Evidence (T ++ uncheckedCopy source path parent text) dir treeDir
@@ -402,8 +365,6 @@ theorem judgedCopy_stands {T : List (Event L E)} {dir treeDir source path parent
   rw [hsame]
   exact Evidence.mono (List.sublist_append_left _ _) hev
 
-/-- After a write and a later write of another text at one path, with nothing after that writes or removes, what stands is the
-last. -/
 theorem rewritten_stands (a b c : List (Event L E)) (path : FilePath) (x y : String) (r₁ r₂ : Except IO.Error Unit)
     (hc : LeavesAs c []) :
     written (a ++ ⟨.writeFile path x, r₁⟩ :: b ++ ⟨.writeFile path y, r₂⟩ :: c) (parts path) = some y := by

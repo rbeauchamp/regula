@@ -135,7 +135,8 @@ which the rules read the same. -/
 def Shown (n : Name) (info : ConstantInfo) : Prop :=
   ∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead k info ∧ StrictlyBelow a.rootDir x.2
 
-/-- **What the rules ask of a finished build**, by what Lean and Lake answered and with none of the checker's functions. -/
+/-- What the rules ask of a finished build, by what Lean and Lake answered and with none of the checker's
+functions. -/
 structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   /-- Each module of the default targets is claimed. -/
   roots : ∀ r ∈ roots, a.Claimed r
@@ -157,8 +158,6 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
     (∃ t, info = .thmInfo t) ∧ info.isUnsafe = false ∧ info.isPartial = false ∧
     (∀ b, n ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ∀ u, Mentions info u → (∃ k, a.env.constants.map₁[u]? = some k) ∧ ∀ e, a.Reaches u e → a.Axiom e → a.Admits p e
-
-/-! ## The checker's reading, against these answers -/
 
 /-- The answers that a reading of the checker holds. -/
 def ofFacts (f : Regula.Load.Facts) : BuildAnswer where
@@ -245,9 +244,6 @@ theorem own_ofFacts (m n : Name) (info : ConstantInfo) : (ofFacts f).Own m n inf
 
 end BuildAnswer
 
-/-! ## What the rules read of a constant -/
-
-/-- The fold that keeps each first occurrence is Lean's `List.eraseDups`. -/
 theorem dedup_eq_eraseDups (all : Array Name) : (Regula.Load.dedup all).toList = all.toList.eraseDups := by
   have key : ∀ (l : List Name) (acc : Array Name) (bs : List Name), acc.toList = bs.reverse →
       (l.foldl (fun acc n => if acc.contains n then acc else acc.push n) acc).toList = List.eraseDupsBy.loop (· == ·) l bs := by
@@ -278,12 +274,10 @@ theorem dedup_eq_eraseDups (all : Array Name) : (Regula.Load.dedup all).toList =
   rw [← Array.foldl_toList]
   exact key _ _ _ rfl
 
-/-- The kinds of two constants agree as Lean's kinds do. -/
 theorem kindOf_eq_iff (k v : ConstantInfo) :
     Regula.Load.kindOf k = Regula.Load.kindOf v ↔ ConstantKind.ofConstantInfo k = ConstantKind.ofConstantInfo v := by
   cases k <;> cases v <;> simp [Regula.Load.kindOf, ConstantKind.ofConstantInfo]
 
-/-- The safety of two constants agrees as their two flags do. -/
 theorem safetyOf_eq_iff (k v : ConstantInfo) :
     Regula.Load.safetyOf k = Regula.Load.safetyOf v ↔ k.isUnsafe = v.isUnsafe ∧ k.isPartial = v.isPartial := by
   have hk := not_unsafe_of_partial k
@@ -332,7 +326,6 @@ theorem shown_ofFacts (f : Regula.Load.Facts) (m n : Name) (info : ConstantInfo)
 theorem kindOf_theorem_iff (info : ConstantInfo) : Regula.Load.kindOf info = .theorem ↔ ∃ t, info = .thmInfo t := by
   cases info <;> simp [Regula.Load.kindOf]
 
-/-- **`LoadFloor`, the requirement over the checker's reading, is `BuildAnswer.Floor` of the answers that reading holds**, in both directions. -/
 theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile) :
     LoadFloor f roots p ↔ (BuildAnswer.ofFacts f).Floor roots p := by
   have hq (n : Name) : (∃ x, (BuildAnswer.ofFacts f).place? n = some x) ↔ ∃ m, f.info? n = some m := by
@@ -391,12 +384,10 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
     exact ⟨fun r hr => (BuildAnswer.claimed_ofFacts f r).mp (h.roots r hr), fun n info hn => (hq n).mp (h.placed n info hn),
       ⟨fun n u hm => h.closed n u ((BuildAnswer.mention_ofFacts f n u).mpr hm), hclaims.mp h.claims⟩, hfloor.mp h.floor, hunshown.mp h.unshown⟩
 
-/-- **The checker's verdict on a build is a pass exactly on `BuildAnswer.Floor` of what the build answered.** -/
 theorem pass_iff_answer (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile) :
     (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ (BuildAnswer.ofFacts f).Floor roots p :=
   pass_iff_floor.trans (loadFloor_iff f roots p)
 
-/-- A reading of the checker is an answer of the run. -/
 theorem BuildRead.answered {t : List (Event L E)} {root : Root L} {f : Regula.Load.Facts} {roots : List Name}
     (h : BuildRead t root f roots) : BuildAnswered t root (BuildAnswer.ofFacts f) roots := by
   obtain ⟨modules, h1, h2, h3, h4, h5, h6⟩ := h

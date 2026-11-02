@@ -8,13 +8,14 @@ import RegulaSpecification.Proofs.Shell
 /-!
 # A project that the reader admits
 
-`admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there is a trace on which the
-check that runs admits. The proof's trace is that of a project of one module `Good` in the closed language. `Proofs/OwedModel.lean` carries it to the whole run.
+`admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there is a
+trace on which the check that runs admits. The proof's trace is that of a project of one module `Good` in
+the closed language.
 
-The answers are `answers`, one function of the operation. The tests of a path read `System.FilePath`, whose separator
-depends on `System.Platform.isWindows`, an `opaque` constant, so `WitnessPaths` states what those tests give on the paths of the
-project as hypotheses, and no theorem discharges them. **Observed**: the gate's run on Regula's own checkout takes the same
-branches on real paths, and its run ends with `full verdict: pass`.
+The tests of a path read `System.FilePath`, whose separator depends on `System.Platform.isWindows`, an
+`opaque` constant, so `WitnessPaths` states what those tests give on the paths of the project as hypotheses,
+and no theorem discharges them. Observed: the gate's run on Regula's own checkout takes the same branches on
+real paths, and its run ends with `full verdict: pass`.
 -/
 
 namespace RegulaSpecification.Effects
@@ -151,7 +152,6 @@ theorem deeper_empty : ¬ Deeper 8 Lake.Toml.Table.empty := by
   generalize ht : Lake.Toml.Table.empty = t at h
   cases h <;> (subst ht; simp [Lake.Toml.Table.empty, Lake.Toml.RBDict.empty] at *)
 
-/-- What the reader read of a file, on the answers of the witness, is in the closed language. -/
 theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {f : FileRead} {root : Root Unit} {project tree path : FilePath}
     {imports : Array Lean.Import} {mods : List Name}
     (h : ReadAs (traceWith (answers w env) p) root project tree f path imports mods) : FileAdmitted f := by
@@ -199,7 +199,6 @@ theorem good_file {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Uni
     rw [hterm] at ht
     cases ht
 
-/-- What the default targets of the witness give. -/
 theorem good_modules {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {modules : List (Name × FilePath)}
     (h : DefaultModules (traceWith (answers w env) p) (witnessRoot w) (witnessRoot w).defaultTargets modules) :
     modules = [(`Good, w.file)] := by
@@ -214,7 +213,6 @@ theorem good_modules {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit 
   | exe hl => cases hl
   | other hl => cases hl
 
-/-- What a `Scene` of the witness is. -/
 theorem scene_witness {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit Unit α} {dir treeDir project tree : FilePath} {root : Root Unit}
     {modules : List (Name × FilePath)}
     (h : Scene (traceWith (answers w env) p) dir treeDir project tree root modules) :
@@ -231,7 +229,6 @@ theorem scene_witness {w : WitnessPaths} {env : Lean.Environment} {p : Prog Unit
   subst hr
   exact ⟨hreal h1, hreal h2, rfl, good_modules h4⟩
 
-/-- No reason keeps the project of the witness from being admitted. -/
 theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Unit α) (o : Outcome) :
     ¬ Reason (traceWith (answers w env) p) w.project w.tree o := by
   intro hr
@@ -420,7 +417,6 @@ theorem no_reason (w : WitnessPaths) (env : Lean.Environment) (p : Prog Unit Uni
   | file hs _ _ ha _ _ _ _ _ hna =>
     exact hna (good_file ha)
 
-/-- For paths that meet the hypotheses `WitnessPaths`, there are answers on which the check that runs admits a project. -/
 theorem admits_a_project (w : WitnessPaths) (env : Lean.Environment) :
     ∃ t, Runs (check w.leanPath w.project w.tree : Prog Unit Unit Outcome) t .admitted := by
   let q : Prog Unit Unit Outcome := .ask (.getEnv "LEAN_SYSROOT") fun _ => check w.leanPath w.project w.tree
