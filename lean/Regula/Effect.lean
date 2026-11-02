@@ -91,14 +91,12 @@ inductive Op (L E : Type) where
   | parseHeader (input : InputContext)
   /-- Lean's parser, on one command of a file. -/
   | parseCommand (input : InputContext) (env : E) (state : ModuleParserState) (messages : MessageLog)
-  /-- Set Lean's search path for modules. -/
-  | setSearchPath (path : List FilePath)
-  /-- Where Lean finds the `.olean` of a module on that search path. -/
-  | findOLean (module : Name)
-  /-- Load the modules of a finished build, for the rules. -/
-  | importForRules (modules : Array Name)
-  /-- Load modules of the toolchain, for Lean's parser. -/
-  | importForParser (modules : List Name)
+  /-- Where Lean finds the `.olean` of a module on this search path. -/
+  | findOLean (path : List FilePath) (module : Name)
+  /-- Load the modules of a finished build on this search path, for the rules. -/
+  | importForRules (path : List FilePath) (modules : Array Name)
+  /-- Load modules of the toolchain on this search path, for Lean's parser. -/
+  | importForParser (path : List FilePath) (modules : List Name)
   /-- Lake's TOML parser. -/
   | parseToml (input : InputContext)
   /-- The Lake that lies beside the Lean of a system root: its program and its library directory. -/
@@ -127,10 +125,9 @@ inductive Op (L E : Type) where
   | .flush => Except IO.Error Unit
   | .parseHeader _ => Except IO.Error (Syntax × ModuleParserState × MessageLog × Array Import)
   | .parseCommand .. => Syntax × ModuleParserState × MessageLog
-  | .setSearchPath _ => Unit
-  | .findOLean _ => Except IO.Error FilePath
-  | .importForRules _ => Except IO.Error Environment
-  | .importForParser _ => Except IO.Error (E × List Name)
+  | .findOLean .. => Except IO.Error FilePath
+  | .importForRules .. => Except IO.Error Environment
+  | .importForParser .. => Except IO.Error (E × List Name)
   | .parseToml _ => Except MessageLog Lake.Toml.Table
   | .lakeInstall _ => FilePath × FilePath
   | .loadWorkspace .. => Except String (Option (Root L) × List String)

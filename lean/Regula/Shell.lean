@@ -94,15 +94,15 @@ def profileOfRun (version commit : String) (args : List String) : Except String 
       .error s!"state one profile in `lintDriverArgs`: {profileSpellings}. No argument names a project: for a full \
         verdict, from a checkout of Regula, run `{fullVariable}=DIR lake exe lint PROFILE`"
 
-/-- Each of the modules `names`, in that order, with where Lean finds its `.olean` on Lake's search
-path. The result carries that it is these modules and what each place decides. -/
-def readModules (toolchainDir rootDir : FilePath) : (names : List Name) →
+/-- Each of the modules `names`, in that order, with where Lean finds its `.olean` on the search
+path `path`. The result carries that it is these modules and what each place decides. -/
+def readModules (path : List FilePath) (toolchainDir rootDir : FilePath) : (names : List Name) →
     Attempt L E { ms : List Regula.Load.LoadedModule // ms.map (·.name) = names ∧
       ∀ m ∈ ms, m = Regula.Load.LoadedModule.ofPlace toolchainDir rootDir m.name m.olean }
   | [] => pure ⟨[], rfl, by simp⟩
   | n :: rest => do
-    let olean ← attempt (Prog.call (.findOLean n))
-    let ⟨ms, hn, hp⟩ ← readModules toolchainDir rootDir rest
+    let olean ← attempt (Prog.call (.findOLean path n))
+    let ⟨ms, hn, hp⟩ ← readModules path toolchainDir rootDir rest
     pure ⟨Regula.Load.LoadedModule.ofPlace toolchainDir rootDir n olean :: ms,
       by simp [Regula.Load.LoadedModule.ofPlace_name, hn],
       by
@@ -112,8 +112,8 @@ def readModules (toolchainDir rootDir : FilePath) : (names : List Name) →
         · exact hp m hm⟩
 
 /-- The facts of `env`, from where the `.olean` of each of its modules lies. -/
-def factsOf (env : Lean.Environment) (toolchainDir rootDir : FilePath) : Attempt L E Regula.Load.Facts := do
-  let ⟨ms, hn, hp⟩ ← readModules toolchainDir rootDir env.header.moduleNames.toList
+def factsOf (env : Lean.Environment) (path : List FilePath) (toolchainDir rootDir : FilePath) : Attempt L E Regula.Load.Facts := do
+  let ⟨ms, hn, hp⟩ ← readModules path toolchainDir rootDir env.header.moduleNames.toList
   pure { env, toolchainDir, rootDir, modules := ms.toArray, names := by simpa using hn,
          placed := by simpa using hp }
 
@@ -121,9 +121,8 @@ def factsOf (env : Lean.Environment) (toolchainDir rootDir : FilePath) : Attempt
 def inputOf (root : Root L) (profile : Profile) : Attempt L E Input := do
   let modules ← defaultModules root root.defaultTargets
   let roots := modules.map (·.1)
-  ExceptT.lift (Prog.call (.setSearchPath root.leanPath))
-  let env ← attempt (Prog.call (.importForRules roots.toArray))
-  let f ← factsOf env root.leanLib root.rootLib
+  let env ← attempt (Prog.call (.importForRules root.leanPath roots.toArray))
+  let f ← factsOf env root.leanPath root.leanLib root.rootLib
   ExceptT.mk (pure (f.input roots profile))
 
 /-- The closed input of the finished build of the workspace that Lake dispatched from the current directory, with that

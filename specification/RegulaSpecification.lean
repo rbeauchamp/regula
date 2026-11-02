@@ -35,7 +35,6 @@ import RegulaSpecification.Proofs.ReaderWalk
 import RegulaSpecification.Proofs.ReaderFiles
 import RegulaSpecification.Proofs.Reader
 import RegulaSpecification.Proofs.ReaderOnly
-import RegulaSpecification.Proofs.ReaderFailed
 import RegulaSpecification.Proofs.ShellLoad
 import RegulaSpecification.Proofs.ShellParts
 import RegulaSpecification.Proofs.Standing

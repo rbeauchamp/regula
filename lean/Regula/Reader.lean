@@ -302,10 +302,10 @@ def readBack : List (FilePath × String) → Attempt L E Unit
     else
       throw s!"{path} does not hold the text written to it"
 
-/-- Whether the toolchain's library holds the module `m`: Lean finds its `.olean` on the search path, which holds only that library's directories. An error is that it holds no such
+/-- Whether the toolchain's library holds the module `m`: Lean finds its `.olean` on `path`, which holds only that library's directories. An error is that it holds no such
 module. -/
-def toolchainOLean (m : Name) : Attempt L E Unit := do
-  let _ ← attempt (Prog.call (.findOLean m))
+def toolchainOLean (path : List FilePath) (m : Name) : Attempt L E Unit := do
+  let _ ← attempt (Prog.call (.findOLean path m))
   pure ()
 
 /-- What the walk over the imports has found so far. -/
@@ -346,7 +346,7 @@ def walk (project tree : FilePath) (root : Root L) (modules : List (Name × File
             { w with reached := m :: w.reached, sources := (m, s) :: w.sources }
         | .error e => walk project tree root modules fuel rest (w.leaveUnread m e)
       | none => do
-        match ← (toolchainOLean m).run with
+        match ← (toolchainOLean root.toolchain m).run with
         | .ok _ =>
           walk project tree root modules fuel rest { w with toolchain := m :: w.toolchain }
         | .error e =>
@@ -377,34 +377,34 @@ abbrev ParserCache (E : Type) : Type := List (List Name × (E × List Name))
 
 /-- The parser's environment for a set of toolchain modules, with the namespaces that hold a scoped parser
 entry in it. -/
-def environmentFor (cache : ParserCache E) (mods : List Name) :
+def environmentFor (path : List FilePath) (cache : ParserCache E) (mods : List Name) :
     Attempt L E ((E × List Name) × ParserCache E) := do
   let key := mods.eraseDups
   match cache.lookup key with
   | some pair => pure (pair, cache)
   | none =>
-    let pair ← attempt (Prog.call (.importForParser key))
+    let pair ← attempt (Prog.call (.importForParser path key))
     pure (pair, (key, pair) :: cache)
 
 /-- Read the file of a source in the parser's constant context. -/
-def parseFile (cache : ParserCache E) (sources : List (Name × Source)) (toolchain : List Name) (m : Name)
+def parseFile (path : List FilePath) (cache : ParserCache E) (sources : List (Name × Source)) (toolchain : List Name) (m : Name)
     (s : Source) : Attempt L E (FileRead × ParserCache E) := do
   let headers := fun n => (sources.lookup n).map (·.imports)
   let direct := s.imports.toList.map (·.module)
   let fuel := direct.length + (sources.map (·.2.imports.size)).sum + 1
   let mods := visibleToolchain headers toolchain.contains direct [] fuel
-  let ((env, scopedParsers), cache') ← environmentFor cache mods
+  let ((env, scopedParsers), cache') ← environmentFor path cache mods
   let (commands, final) ← ExceptT.lift
     (parseAll s.input env s.state s.messages (s.input.inputString.utf8ByteSize + 1))
   pure ({ module := m, header := s.header, commands, parsed := !final.hasErrors, scopedParsers }, cache')
 
 /-- Read each file of `todo`, keeping what the imports of Lean's parser gave. -/
-def parseFiles (sources : List (Name × Source)) (toolchain : List Name) (cache : ParserCache E) :
+def parseFiles (path : List FilePath) (sources : List (Name × Source)) (toolchain : List Name) (cache : ParserCache E) :
     List (Name × Source) → Attempt L E (List FileRead)
   | [] => pure []
   | (m, s) :: rest => do
-    let (file, cache') ← parseFile cache sources toolchain m s
-    let files ← parseFiles sources toolchain cache' rest
+    let (file, cache') ← parseFile path cache sources toolchain m s
+    let files ← parseFiles path sources toolchain cache' rest
     pure (file :: files)
 
 /-- What `lean-toolchain` says, or none, when `readExact` does not read it. -/
@@ -499,18 +499,17 @@ def baseReading (config : List (FilePath × String)) (start : Reading)
 decision admits, each text written to its file and each planned file read back. So no module's file is asked to be written until all
 of it was judged, then only the text that was, and each planned path's answer gives that text. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
 the configuration (`Lake/Config/Module.lean:41-42`, `Lake/Config/LeanLibConfig.lean:140`), and a single-module `globs` entry
-lists nothing (`Lake/Config/Glob.lean:53-59`). The search path holds the toolchain's directories alone, because a module is
+lists nothing (`Lake/Config/Glob.lean:53-59`). Each lookup and each import names the toolchain's directories alone as its search path, because a module is
 the file Lake names or else the toolchain's: no output of the project is on it. -/
 def readFiles (config : List (FilePath × String)) (project tree : FilePath) (root : Root L)
     (modules : List (Name × FilePath)) (start : Reading) :
     Attempt L E (Reading × List (Name × Source)) := do
-  ExceptT.lift (Prog.call (.setSearchPath root.toolchain))
   let w ← ExceptT.lift (walk project tree root modules 1000000 (modules.map (·.1)) {})
   let base := baseReading config start modules w
   if !base.readInFull || base.mathlibReached then
     pure (base, [])
   else
-    let files ← parseFiles w.sources.reverse w.toolchain [] w.sources.reverse
+    let files ← parseFiles root.toolchain w.sources.reverse w.toolchain [] w.sources.reverse
     let reading := { base with files }
     match decision reading with
     | .admitted =>

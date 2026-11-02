@@ -153,7 +153,7 @@ pinned text, or a text that a file of the reading was parsed from. -/
 theorem Evidence.judged {T : List (Event L E)} {dir treeDir : FilePath} {held : List String → Option String} {r : Reading}
     (h : Evidence T dir treeDir held r) {q : List String} {text : String} (hq : held q = some text) :
     (∃ table, (⟨.parseToml (mkInputContext text "lakefile.toml"), .ok table⟩ : Event L E) ∈ T) ∨ text = leanToolchain ∨
-      ∃ f ∈ r.files, ∃ project tree path imports mods, parts path = q ∧ ReadText T project tree f path imports mods text := by
+      ∃ f ∈ r.files, ∃ root project tree path imports mods, parts path = q ∧ ReadText T root project tree f path imports mods text := by
   obtain ⟨project, tree, -, -, -, -, -, ⟨t0, -, table, -, -, -, -, h5, h6, -, -⟩, hpin, -, -, -, root, -, modules, -, -, -, -, -, -,
     -, -, -, headers, -, -, -, -, -, -, honly⟩ := h.places
   rcases honly q text hq with rfl | rfl | ⟨f, hf, path, i, md, -, h1, h2⟩
@@ -161,12 +161,32 @@ theorem Evidence.judged {T : List (Event L E)} {dir treeDir : FilePath} {held : 
     subst this
     exact .inl ⟨table, h5⟩
   · exact .inr (.inl (Option.some.inj (hq.symm.trans hpin)))
-  · exact .inr (.inr ⟨f, hf, project, tree, path, i, md, h1, h2⟩)
+  · exact .inr (.inr ⟨f, hf, root, project, tree, path, i, md, h1, h2⟩)
 
 /-- The trace of an audit of an earlier revision: after the reading, read a file of the project again, and copy what that read gave
 over the file in the tree. -/
 def uncheckedCopy (source path parent : FilePath) (text : String) : List (Event L E) :=
   [⟨.readFile source, .ok text⟩, ⟨.createDirAll parent, .ok ()⟩, ⟨.writeFile path text, .ok ()⟩]
+
+/-- The module-copy grammar alone admits that trace, for every text, when `path` is a needed name's file with its parent in the tree. So what
+refuses it is `Evidence` of what it leaves, and not the grammar. -/
+theorem moduleCopies_admits_uncheckedCopy {project tree path parent : FilePath} {root : Root L} {modules : List (Name × FilePath)}
+    {prior body : List (Event L E)} {m : Name} {rel : List String} (text : String)
+    (hc : ModuleCopies project tree root modules prior body)
+    (hn : Named (prior ++ body) project tree root modules m)
+    (hf : FileOfModule root modules m path)
+    (hr : TreeRelative (parts tree) (parts path) rel)
+    (hp : path.parent = some parent)
+    (hparent : ∃ rel, TreeRelative (parts tree) (parts parent) rel) :
+    ModuleCopies project tree root modules prior (body ++ uncheckedCopy (under project rel) path parent text) := by
+  apply ModuleCopies.append hc
+  apply ModuleCopies.observe (Or.inl (show QuietOp (.readFile (under project rel) : Op L E) from trivial))
+  apply ModuleCopies.copy (Named.mono (List.sublist_append_left _ _) hn) hf
+    (text := text) (complete := true) (rest := [])
+    (step := [⟨.createDirAll parent, .ok ()⟩, ⟨.writeFile path text, .ok ()⟩])
+  · exact ⟨rel, hr, by simp⟩
+  · exact CopyStep.parentWritten ⟨rel, hr⟩ hp hparent
+  · exact ModuleCopies.nil
 
 /-- That trace has no `Evidence` of the state it leaves, for every path, every reading and every text other than the pinned one that
 neither Lake's TOML parser nor Lean's header parser was given: the state holds that text, and `Evidence` says that every text
@@ -182,7 +202,7 @@ theorem uncheckedCopy_fails {T : List (Event L E)} {dir treeDir source path pare
     have := written_last_write (T ++ [⟨.readFile source, .ok text⟩, ⟨.createDirAll parent, .ok ()⟩]) ([] : List (Event L E)) path text (.ok ())
       (fun _ _ => rfl)
     simpa [uncheckedCopy, List.append_assoc] using this
-  rcases Evidence.judged hev hq with ⟨table, hm⟩ | h | ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h4, _⟩
+  rcases Evidence.judged hev hq with ⟨table, hm⟩ | h | ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h4, _⟩
   · exact hnotToml table hm
   · exact hpin h
   · exact hnotFile _ _ (h4.subset (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))))
@@ -197,7 +217,7 @@ theorem FullRun.judged_at_consumer {t : List (Event L E)} {dir : FilePath} {p : 
   have hsub : ∀ x ∈ tRead, x ∈ pre := fun x hx => by
     rw [hpre]
     simp [hx]
-  rcases Evidence.judged hev hq with ⟨table, hm⟩ | hpin | ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h4, _⟩
+  rcases Evidence.judged hev hq with ⟨table, hm⟩ | hpin | ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h4, _⟩
   · exact .inl ⟨table, hsub _ hm⟩
   · exact .inr (.inl hpin)
   · exact .inr (.inr ⟨_, _, hsub _ (h4.subset (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_self ..))))⟩)

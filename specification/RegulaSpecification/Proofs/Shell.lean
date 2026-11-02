@@ -3,10 +3,7 @@ Copyright (c) 2026 Regula contributors. All rights reserved.
 Released under MIT license as described in the file LICENSE.
 Authors: Regula contributors
 -/
-import RegulaSpecification.Proofs.ReaderFailed
 import RegulaSpecification.Proofs.ShellParts
-import RegulaSpecification.Proofs.Preparation
-import RegulaSpecification.Proofs.PreparationLoad
 
 /-!
 # What a whole run does
@@ -30,42 +27,25 @@ variable {L E : Type}
 
 /-! ## The check -/
 
-/-- The check meets `ReadingPreparation`, after any quiet prefix that holds the toolchain's answer. -/
-theorem check_preparation {prior t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
-    (hq : Quiet prior) (hs : SysrootIs prior sysroot)
-    (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) : ReadingPreparation (prior ++ t) dir tree := by
-  unfold check at h
-  obtain ⟨first, last, response, rfl, hf, hl⟩ := runs_seq_iff.mp h
-  have hp := read_preparation hq hs hf
-  have hlast : Quiet last := by
-    cases response with
-    | error error =>
-      obtain ⟨a, b, u, rfl, ha, hb⟩ := runs_seq_iff.mp hl
-      obtain ⟨rfl, -⟩ := runs_pure_iff.mp hb
-      simpa using quiet_of_saying (say_spec ha).1
-    | ok pair =>
-      obtain ⟨reading, lines⟩ := pair
-      obtain ⟨a, b, u, rfl, ha, hb⟩ := runs_seq_iff.mp hl
-      obtain ⟨c, d, v, rfl, hc, hd⟩ := runs_seq_iff.mp hb
-      obtain ⟨rfl, -⟩ := runs_pure_iff.mp hd
-      simpa using (quiet_of_saying (sayAll_spec ha).1).append (quiet_of_saying (say_spec hc).1)
-  simpa [List.append_assoc] using hp.appendQuiet hlast
+theorem quiet_of_saying {t : List (Event L E)} (h : ∀ e ∈ t, e.isOnlySaying = true) : Quiet t := by
+  intro e he
+  have hs := h e he
+  obtain ⟨op, response⟩ := e
+  cases op <;> first | trivial | cases hs
 
-/-- What `check` decides rests on what the reader read, and it prints only details. -/
-theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
-    (hI : t <:+: T) (hsys : SysrootIs T sysroot) (hpre : ∃ pre, T = pre ++ t ∧ ∀ e ∈ pre, e.acted? = none)
+/-- What `check` decides rests on what the reader read, after a prefix that only observes and that holds the toolchain's answer; its acts are the
+grammar's; an admission received no failed answer; and it builds nothing, loads no build for the rules, removes nothing and prints only details. -/
+theorem check_spec {prior t : List (Event L E)} {sysroot : String} {dir tree : FilePath} {o : Outcome}
+    (hq : Quiet prior) (hps : SysrootIs prior sysroot)
     (h : Runs (check sysroot dir tree : Prog L E Outcome) t o) :
-    Decided T dir tree o ∧ ReadActs t dir tree ∧
-      (∀ e ∈ t, e.isBuild = false ∧ e.isImportForRules = false) ∧ (∀ l ∈ printed t, IsDetail l) := by
+    Decided (prior ++ t) dir tree o ∧ ReadingPreparation (prior ++ t) dir tree ∧ (o = .admitted → Clean t) ∧
+      (∀ e ∈ t, e.isBuild = false ∧ e.isImportForRules = false ∧ NotRemoving e.op) ∧ (∀ l ∈ printed t, IsDetail l) := by
   unfold check at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
-  obtain ⟨g1, g2, g3⟩ := read_spec (List.infix_append_left.trans hI) hsys h₁
+  have hI : t₁ <:+: prior ++ (t₁ ++ t₂) := ⟨prior, t₂, by simp⟩
+  have hsys : SysrootIs (prior ++ (t₁ ++ t₂)) sysroot := by simpa [SysrootIs] using .inl hps
+  obtain ⟨g1, g2, g3⟩ := read_spec hI hsys hq hps h₁
   have honly := only_readProject (L := L) (E := E) sysroot dir tree _ _ h₁
-  have hquiet : ∀ e ∈ t₁, e.isBuild = false ∧ e.isImportForRules = false := by
-    intro e he
-    have := honly e he
-    obtain ⟨o', r'⟩ := e
-    cases o' <;> first | exact ⟨rfl, rfl⟩ | exact this.elim
   have hprinted₁ : printed t₁ = [] := by
     have hn : t₁.filterMap Event.line? = [] := by
       rw [List.filterMap_eq_nil_iff]
@@ -74,38 +54,29 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
       obtain ⟨o', r'⟩ := e
       cases o' <;> first | rfl | exact this.elim
     simp [printed, hn]
-  have hacts : ∀ {t' : List (Event L E)}, Details t' → ReadActs (t₁ ++ t') dir tree := by
-    intro t' hd
-    rcases g3 with g3 | ⟨project, real, hp, hr, ha, hin⟩
-    · refine .inl fun e he => ?_
-      rcases List.mem_append.mp he with he | he
-      · exact g3 e he
-      · exact acted_of_saying (hd.1 e he)
-    · refine .inr ⟨project, real, List.mem_append_left _ hp, List.mem_append_left _ hr, ha, fun e he p hp' => ?_⟩
-      rcases List.mem_append.mp he with he | he
-      · exact hin e he p hp'
-      · rw [acted_of_saying (hd.1 e he)] at hp'
-        cases hp'
   have hrest : ∀ {t' : List (Event L E)}, Details t' →
-      (∀ e ∈ t₁ ++ t', e.isBuild = false ∧ e.isImportForRules = false) ∧
+      (∀ e ∈ t₁ ++ t', e.isBuild = false ∧ e.isImportForRules = false ∧ NotRemoving e.op) ∧
         (∀ l ∈ printed (t₁ ++ t'), IsDetail l) := by
     intro t' hd
     refine ⟨fun e he => ?_, fun l hl => ?_⟩
     · rcases List.mem_append.mp he with he | he
-      · exact hquiet e he
+      · have := honly e he
+        obtain ⟨o', r'⟩ := e
+        cases o' <;> first | exact ⟨rfl, rfl, trivial⟩ | exact this.elim
       · have := hd.1 e he
         obtain ⟨o', r'⟩ := e
-        cases o' <;> first | exact ⟨rfl, rfl⟩ | cases this
+        cases o' <;> first | exact ⟨rfl, rfl, trivial⟩ | cases this
     · rw [printed_append, hprinted₁] at hl
       exact hd.2 l (by simpa using hl)
+  have hprep : ∀ {t' : List (Event L E)}, Details t' → ReadingPreparation (prior ++ (t₁ ++ t')) dir tree := fun hd => by
+    simpa [List.append_assoc] using g3.appendQuiet (quiet_of_saying hd.1)
   cases r with
   | error why =>
     obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
     obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
     have hd := say_spec h₃
-    have hr := g2 ⟨why, rfl⟩
     have : Details (t₃ ++ ([] : List (Event L E))) := by simpa using hd
-    exact ⟨⟨fun he => (by cases he), fun _ => hr, .inr rfl⟩, hacts this, hrest this⟩
+    exact ⟨⟨fun he => (by cases he), fun _ => g2 ⟨why, rfl⟩, .inr rfl⟩, hprep this, fun he => (by cases he), hrest this⟩
   | ok x =>
     obtain ⟨reading, lines⟩ := x
     obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
@@ -114,79 +85,23 @@ theorem check_spec {T t : List (Event L E)} {sysroot : String} {dir tree : FileP
     have hd : Details (t₃ ++ (t₅ ++ ([] : List (Event L E)))) := by
       simpa using details_append (sayAll_spec h₃) (say_spec h₅)
     obtain ⟨g4, g5⟩ := g1 reading lines rfl
-    obtain ⟨pre, hpreT, hpreNo⟩ := hpre
     have hsay : ∀ e ∈ t₃ ++ (t₅ ++ ([] : List (Event L E))), e.acted? = none := fun e he => acted_of_saying (hd.1 e he)
-    have hstands : ∀ p, written T p = written t₁ p := by
+    have hstands : ∀ p, written (prior ++ (t₁ ++ (t₃ ++ (t₅ ++ [])))) p = written t₁ p := by
       intro p
-      rw [hpreT, written_after_no_acts hpreNo p]
+      rw [written_after_no_acts hq.noActs p]
       exact written_before_no_acts hsay p
-    have hback : decision reading = .admitted → ∃ real, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ T ∧ ReadBack T real := by
+    have hback : decision reading = .admitted → ∃ real, (⟨.realPath tree, .ok real⟩ : Event L E) ∈ prior ++ (t₁ ++ (t₃ ++ (t₅ ++ []))) ∧
+        ReadBack (prior ++ (t₁ ++ (t₃ ++ (t₅ ++ [])))) real := by
       intro ha
-      obtain ⟨real, hm, hb⟩ := (g4 ha).2
-      refine ⟨real, ?_, ?_⟩
-      · rw [hpreT]
-        simp [hm]
-      · rw [hpreT]
-        refine ReadBack.prepend_no_acts hpreNo (ReadBack.append_quiet hb (quiet_of_saying hd.1) ?_)
-        intro e he
-        exact keeps_of_no_acts (hsay e he)
-    refine ⟨⟨fun ha => ⟨reading, (hback ha).choose, (decision_admitted_iff reading).mp ha, (g4 ha).1 _ hstands, (hback ha).choose_spec.1, (hback ha).choose_spec.2⟩,
-      fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hacts hd, hrest hd⟩
-
-/-- On an admission, nothing that `check` asked failed. -/
-theorem check_no_failed {sysroot : String} {dir tree : FilePath} {t : List (Event L E)}
-    (h : Runs (check sysroot dir tree : Prog L E Outcome) t .admitted) : ∀ e ∈ t, ¬ e.failed := by
-  unfold check at h
-  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
-  cases r with
-  | error why =>
-    obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-    cases (runs_pure_iff.mp h₄).2
-  | ok x =>
-    obtain ⟨reading, lines⟩ := x
-    obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-    obtain ⟨t₅, t₆, u', rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
-    obtain ⟨rfl, hadm⟩ := runs_pure_iff.mp h₆
-    unfold Regula.Reader.read at h₁
-    obtain ⟨t₇, t₈, r₇, rfl, h₇, h₈⟩ := runs_attempt_bind_iff.mp h₁
-    cases r₇ with
-    | error w => cases h₈.2
-    | ok y =>
-      obtain ⟨r, srcs⟩ := y
-      obtain ⟨rfl, he⟩ := runs_attempt_pure_iff.mp h₈
-      cases he
-      have hd := details_append (sayAll_spec h₃) (say_spec h₅)
+      obtain ⟨real, hm, hb⟩ := (g4 ha).2.1
+      refine ⟨real, by simp [hm], ReadBack.prepend_no_acts hq.noActs (ReadBack.append_quiet hb (quiet_of_saying hd.1) ?_)⟩
       intro e he
-      simp only [List.append_nil, List.mem_append] at he
-      rcases he with he | he
-      · exact readProject_no_failed h₇ hadm.symm e he
-      · have hs : e.isOnlySaying = true := hd.1 e (by simpa using he)
-        obtain ⟨o', r'⟩ := e
-        cases o' <;> first | exact id | cases hs
+      exact keeps_of_no_acts (hsay e he)
+    refine ⟨⟨fun ha => ⟨reading, (hback ha).choose, (decision_admitted_iff reading).mp ha, (g4 ha).1 _ hstands, (hback ha).choose_spec.1, (hback ha).choose_spec.2⟩,
+      fun hne => g5 _ rfl hne, .inl ⟨reading, rfl⟩⟩, hprep hd, fun ho => ?_, hrest hd⟩
+    exact (g4 ho).2.2.append (fun e he => not_failed_of_saying (hd.1 e he))
 
 /-! ## The build -/
-
-/-- The reader and its reporting issue no removal request, on any outcome. -/
-theorem check_notRemoving (sysroot : String) (dir tree : FilePath) :
-    OnlyIn NotRemoving (check sysroot dir tree : Prog L E Outcome) := by
-  have saying {t : List (Event L E)} (h : Details t) : ∀ e ∈ t, NotRemoving e.op := by
-    intro e he
-    have hs := h.1 e he
-    obtain ⟨o, r⟩ := e
-    cases o <;> first | trivial | cases hs
-  have hsay (s : String) : OnlyIn NotRemoving (say s : Prog L E Unit) :=
-    fun _ _ h => saying (say_spec h)
-  have hall (ss : List String) : OnlyIn NotRemoving (sayAll ss : Prog L E Unit) :=
-    fun _ _ h => saying (sayAll_spec h)
-  unfold check
-  refine only_seq ((only_readProject sysroot dir tree).mono ?_) fun r => ?_
-  · intro o ho
-    cases o <;> first | trivial | exact ho.elim
-  · cases r with
-    | error why => exact only_seq (hsay _) fun _ => only_pure _
-    | ok pair =>
-      obtain ⟨reading, lines⟩ := pair
-      exact only_seq (hall _) fun _ => only_seq (hsay _) fun _ => only_pure _
 
 /-- One Lake command in the tree. -/
 theorem lake_spec {program tree : FilePath} {args : List String} {t : List (Event L E)} {b : Bool}
@@ -289,11 +204,6 @@ theorem buildEvents_lake {program tree : FilePath} {args : List String} {r}
     (buildEvents_of_details (tree := tree) hpost)
   simpa using this
 
-/-- An event that only says something is no failure. -/
-theorem not_failed_of_saying {e : Event L E} (h : e.isOnlySaying = true) : ¬ e.failed := by
-  obtain ⟨o, r⟩ := e
-  cases o <;> first | exact id | cases h
-
 /-- What a `Details` holds is no failure. -/
 theorem details_not_failed {t : List (Event L E)} (h : Details t) : ∀ e ∈ t, ¬ e.failed :=
   fun e he => not_failed_of_saying (h.1 e he)
@@ -375,17 +285,8 @@ def LoadOp : Op L E → Prop
   | .createDirAll _ => False
   | _ => True
 
-theorem only_readModules (a b : FilePath) (names : List Name) :
-    OnlyAIn LoadOp (readModules a b names : Attempt L E _) := by
-  induction names with
-  | nil => rw [readModules]; exact onlyA_pure _
-  | cons n rest ih =>
-    rw [readModules]
-    exact onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_seq ih fun _ => onlyA_pure _
-
 theorem only_inputOf (root : Root L) (p : Regula.Closed.Profile) :
     OnlyAIn LoadOp (inputOf root p : Attempt L E _) := by
-  rw [inputOf]
   have hdefault : ∀ targets, OnlyAIn LoadOp (defaultModules root targets : Attempt L E _) := by
     intro targets
     induction targets with
@@ -393,37 +294,34 @@ theorem only_inputOf (root : Root L) (p : Regula.Closed.Profile) :
     | cons t ts ih =>
       rw [defaultModules]
       refine onlyA_seq ?_ fun _ => onlyA_seq ih fun _ => onlyA_pure _
-      rw [modulesOfTarget]
-      split
-      · exact onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_pure _
-      · split <;> exact onlyA_pure _
-  refine onlyA_seq (hdefault _) fun modules => ?_
-  refine onlyA_seq (onlyA_lift (only_call trivial)) fun _ => onlyA_seq (onlyA_attempt (only_call trivial)) fun env => ?_
-  refine onlyA_seq ?_ fun f => only_pure _
+      rw [modulesOfTarget]; only_steps
+  have hmodules : ∀ names, OnlyAIn LoadOp (readModules root.leanPath root.leanLib root.rootLib names : Attempt L E _) := by
+    intro names
+    induction names with
+    | nil => rw [readModules]; exact onlyA_pure _
+    | cons n rest ih =>
+      rw [readModules]
+      exact onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_seq ih fun _ => onlyA_pure _
+  rw [inputOf]
+  refine onlyA_seq (hdefault _) fun modules => onlyA_seq (onlyA_attempt (only_call trivial)) fun env => onlyA_seq ?_ fun f => only_pure _
   rw [factsOf]
-  exact onlyA_seq (only_readModules _ _ _) fun _ => onlyA_pure _
-
-theorem only_loadRoot (sysroot : String) (dir : FilePath) (what : String) :
-    OnlyAIn LoadOp (ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot dir)) fun r =>
-      pure (loaded what r)) : Attempt L E (Root L)) :=
-  only_seq (only_call trivial) fun _ => only_pure _
+  exact onlyA_seq (hmodules _) fun _ => onlyA_pure _
 
 theorem only_loadTree (sysroot : String) (tree : FilePath) (p : Regula.Closed.Profile) :
     OnlyAIn LoadOp (loadTree sysroot tree p : Attempt L E _) := by
   unfold loadTree
   exact onlyA_seq (onlyA_attempt (only_call trivial)) fun dir =>
-    onlyA_seq (only_loadRoot _ _ _) fun _ => only_inputOf _ _
-
-theorem only_requireEnv (name why : String) : OnlyAIn LoadOp (requireEnv name why : Attempt L E _) := by
-  rw [requireEnv]
-  refine only_seq (only_call trivial) fun r => ?_
-  cases r <;> exact only_pure _
+    onlyA_seq (only_seq (only_call trivial) fun _ => only_pure _) fun _ => only_inputOf _ _
 
 theorem only_loadPlain (p : Regula.Closed.Profile) : OnlyAIn LoadOp (loadPlain p : Attempt L E _) := by
+  have henv (name why : String) : OnlyAIn LoadOp (requireEnv name why : Attempt L E _) := by
+    rw [requireEnv]
+    refine only_seq (only_call trivial) fun r => ?_
+    cases r <;> exact only_pure _
   unfold loadPlain
-  refine onlyA_seq (only_requireEnv _ _) fun sysroot => onlyA_seq (onlyA_attempt (only_call trivial)) fun dir =>
+  refine onlyA_seq (henv _ _) fun sysroot => onlyA_seq (onlyA_attempt (only_call trivial)) fun dir =>
     onlyA_seq (only_seq (only_call trivial) fun _ => only_pure _) fun root =>
-      onlyA_seq (only_requireEnv _ _) fun received => ?_
+      onlyA_seq (henv _ _) fun received => ?_
   try dsimp only
   split
   · exact onlyA_seq (only_inputOf _ _) fun _ => onlyA_pure _
@@ -451,163 +349,46 @@ theorem sayCoverage_spec {r : Except String Regula.Closed.Input} {t : List (Even
     obtain ⟨rfl, -⟩ := runs_pure_iff.mp h
     exact details_nil
 
-/-! ## A load that gives an input received no failed answer -/
-
-theorem sound_call_lift {α : Type} {p : Prog L E α} (hp : ∀ t a, Runs p t a → ∀ e ∈ t, ¬ e.failed) :
-    Sound (ExceptT.lift p : Attempt L E α) := by
-  intro t a h e he
-  obtain ⟨a', h₁, -⟩ := runs_lift_iff.mp h
-  exact hp _ _ h₁ e he
-
-theorem sound_requireEnv (name why : String) : Sound (requireEnv name why : Attempt L E _) := by
-  intro t a h e he
-  obtain ⟨r, rfl, h1, -⟩ := requireEnv_spec h
-  have := h1 a rfl
-  subst this
-  have : e = _ := List.mem_singleton.mp he
-  subst this
-  exact fun hn => by cases hn
-
-theorem sound_readModules (a b : FilePath) (names : List Name) : Sound (readModules a b names : Attempt L E _) := by
-  induction names with
-  | nil => rw [readModules]; exact sound_pure _
-  | cons n rest ih =>
-    rw [readModules]
-    refine sound_seq ?_ fun _ => sound_seq ih fun _ => sound_pure _
-    sound_io
-
-theorem sound_factsOf (env : Lean.Environment) (a b : FilePath) : Sound (factsOf env a b : Attempt L E _) := by
-  rw [factsOf]
-  exact sound_seq (sound_readModules _ _ _) fun _ => sound_pure _
-
-theorem sound_inputOf (root : Root L) (p : Regula.Closed.Profile) : Sound (inputOf root p : Attempt L E _) := by
-  rw [inputOf]
-  refine sound_seq (sound_defaultModules _ _) fun modules => sound_seq (sound_call_lift ?_) fun _ =>
-    sound_seq ?_ fun env => sound_seq (sound_factsOf _ _ _) fun f => ?_
-  · intro t a h e he
-    obtain rfl := runs_call_iff.mp h
-    have : e = _ := List.mem_singleton.mp he
-    subst this
-    exact id
-  · sound_io
-  · intro t a h e he
-    obtain ⟨rfl, -⟩ := runs_done_iff.mp h
-    cases he
-
-theorem sound_loadRoot (sysroot : String) (dir : FilePath) (what : String) :
-    Sound (ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot dir)) fun r =>
-      pure (loaded what r)) : Attempt L E (Root L)) := by
-  intro t a h e he
-  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_bind_iff.mp h
-  obtain rfl := runs_call_iff.mp h₁
-  obtain ⟨rfl, hb⟩ := runs_done_iff.mp h₂
-  simp only [List.append_nil, List.mem_singleton] at he
-  subst he
-  obtain ⟨log, rfl⟩ := (loaded_spec (what := what) (r := r)).1 a hb.symm
-  rintro (⟨x, hx⟩ | ⟨x, hx⟩) <;> cases hx
-
-theorem sound_loadWorkspace (sysroot : String) (dir : FilePath) (what : String) :
-    Sound (ExceptT.mk (Prog.bind (Prog.call (.loadWorkspace sysroot dir)) fun r =>
-      pure (loaded what r)) : Attempt L E (Root L)) := by
-  intro t a h e he
-  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_bind_iff.mp h
-  obtain rfl := runs_call_iff.mp h₁
-  obtain ⟨rfl, hb⟩ := runs_done_iff.mp h₂
-  simp only [List.append_nil, List.mem_singleton] at he
-  subst he
-  obtain ⟨log, rfl⟩ := (loaded_spec (what := what) (r := r)).1 a hb.symm
-  rintro (⟨x, hx⟩ | ⟨x, hx⟩) <;> cases hx
-
-theorem sound_loadTree (sysroot : String) (tree : FilePath) (p : Regula.Closed.Profile) :
-    Sound (loadTree sysroot tree p : Attempt L E _) := by
-  unfold loadTree
-  exact sound_seq (sound_realPath _) fun dir => sound_seq (sound_loadRoot _ _ _) fun _ => sound_inputOf _ _
-
-theorem sound_loadPlain (p : Regula.Closed.Profile) : Sound (loadPlain p : Attempt L E _) := by
-  unfold loadPlain
-  refine sound_seq (sound_requireEnv _ _) fun sysroot => sound_seq (sound_realPath _) fun dir =>
-    sound_seq (sound_loadWorkspace _ _ _) fun root => sound_seq (sound_requireEnv _ _) fun received => ?_
-  split
-  · exact sound_seq (sound_inputOf _ _) fun _ => sound_pure _
-  · exact sound_throw _
-
-/-- The rules on the finished build: their verdict is the decision's on what the load gave. -/
+/-- The rules on the finished build: their verdict is the decision's on what the load gave, and the phase meets `RulesPreparation`. It issues no
+write, directory creation, allocation, removal or command request, on success or failure, and a pass received no failed answer. -/
 theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
     {v : Regula.Closed.Verdict} (hT : t.Sublist T)
     (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) :
     (∃ result, Loaded (TreeRoot sysroot tree) (TreeReason sysroot tree) T p result ∧
       v = (Regula.Closed.decision result).verdict) ∧
-      (∀ l ∈ printed t, IsDetail l) ∧ (∀ e ∈ t, e.acted? = none) ∧ (∀ e ∈ t, e.isBuild = false) ∧
-      (v = .pass → ∀ e ∈ t, ¬ e.failed) := by
+      (∀ l ∈ printed t, IsDetail l) ∧ (∀ e ∈ t, ReloadOp e.op ∧ e.isBuild = false) ∧
+      (v = .pass → Clean t) ∧ RulesPreparation sysroot tree t := by
   unfold rules at h
   obtain ⟨t₁, t₂, result, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
   obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
   obtain ⟨t₅, t₆, u', rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
   obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₆
-  obtain ⟨l1, l2⟩ := loadTree_spec ((List.sublist_append_left _ _).trans hT) h₁
+  obtain ⟨l1, l2, l3⟩ := loadTree_spec ((List.sublist_append_left _ _).trans hT) h₁
   have hd : Details (t₃ ++ (t₅ ++ ([] : List (Event L E)))) := by
     simpa using details_append (sayCoverage_spec h₃) (sayAll_spec h₅)
-  refine ⟨⟨result, l1, rfl⟩, fun l hl => ?_, fun e he => ?_, fun e he => ?_, fun hv e he => ?_⟩
+  refine ⟨⟨result, l1, rfl⟩, fun l hl => ?_, fun e he => ?_, fun hv e he => ?_, l3.appendQuiet (quiet_of_saying hd.1)⟩
   · rw [printed_append, printed_of_load (only_loadTree _ _ _) h₁] at hl
     exact hd.2 l (by simpa using hl)
   · rcases List.mem_append.mp he with he | he
-    · exact l2 e he
-    · exact acted_of_saying (hd.1 e he)
-  · rcases List.mem_append.mp he with he | he
     · have := only_loadTree (L := L) (E := E) sysroot tree p _ _ h₁ e he
       obtain ⟨o', r'⟩ := e
-      cases o' <;> first | rfl | exact this.elim
+      cases o' <;> first | exact ⟨trivial, rfl⟩ | exact this.elim
     · have := hd.1 e he
       obtain ⟨o', r'⟩ := e
-      cases o' <;> first | rfl | cases this
+      cases o' <;> first | exact ⟨trivial, rfl⟩ | cases this
   · obtain ⟨i, hi, -⟩ := RegulaSpecification.Loader.decision_pass hv
     subst hi
     rcases List.mem_append.mp he with he | he
-    · exact sound_loadTree _ _ _ _ _ h₁ e he
+    · exact l2 i rfl e he
     · exact details_not_failed hd e he
 
-/-- The actual rule phase issues no explicit write, directory creation, allocation, removal or command request, on success or failure. -/
-theorem rules_reload {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
-    {t : List (Event L E)} {v : Regula.Closed.Verdict}
-    (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) : ∀ e ∈ t, ReloadOp e.op := by
-  have hsay {u : List (Event L E)} (hd : Details u) : ∀ e ∈ u, ReloadOp e.op := by
-    intro e he
-    have hs := hd.1 e he
-    obtain ⟨o, r⟩ := e
-    cases o <;> first | trivial | cases hs
-  unfold rules at h
-  obtain ⟨t₁, t₂, result, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
-  obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-  obtain ⟨t₅, t₆, u', rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
-  obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₆
-  intro e he
-  simp only [List.append_nil, List.mem_append] at he
-  rcases he with he | he | he
-  · have ho := only_loadTree (L := L) (E := E) sysroot tree p _ _ h₁ e he
-    obtain ⟨o, r⟩ := e
-    cases o <;> first | trivial | exact ho.elim
-  · exact hsay (sayCoverage_spec h₃) e he
-  · exact hsay (sayAll_spec h₅) e he
-
 /-! ## The gate in its tree -/
-
-/-- The rule phase meets `RulesPreparation`. -/
-theorem rules_preparation {sysroot : String} {tree : FilePath} {p : Regula.Closed.Profile}
-    {t : List (Event L E)} {v : Regula.Closed.Verdict}
-    (h : Runs (rules (loadTree sysroot tree p) : Prog L E _) t v) : RulesPreparation sysroot tree t := by
-  unfold rules at h
-  obtain ⟨first, last, result, rfl, hf, hl⟩ := runs_seq_iff.mp h
-  obtain ⟨a, b, u, rfl, ha, hb⟩ := runs_seq_iff.mp hl
-  obtain ⟨c, d, v, rfl, hc, hd⟩ := runs_seq_iff.mp hb
-  obtain ⟨rfl, -⟩ := runs_pure_iff.mp hd
-  simpa using (loadTree_preparation hf).appendQuiet
-    ((quiet_of_saying (sayCoverage_spec ha).1).append (quiet_of_saying (sayAll_spec hc).1))
 
 /-- What the gate's events are, and what it reports. -/
 structure GateEvents (tRead tGate : List (Event L E)) (dir tree : FilePath) (p : Regula.Closed.Profile)
     (report : Report) : Prop where
-  /-- The reading stage builds nothing and loads no build. -/
-  quiet : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false
+  /-- The reading stage builds nothing, loads no build and issues no removal request. -/
+  quiet : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false ∧ NotRemoving e.op
   /-- What decided. -/
   decided : ∃ o, Decided tRead dir tree o ∧ (o = .admitted → ∀ e ∈ tRead, ¬ e.failed) ∧
     (o ≠ .admitted → tGate = [] ∧ report = (match o with
@@ -620,10 +401,6 @@ structure GateEvents (tRead tGate : List (Event L E)) (dir tree : FilePath) (p :
   healthy : report = .full .pass → ∀ e ∈ tRead ++ tGate, ¬ e.failed
   /-- Each line is a detail. -/
   lines : (∀ l ∈ printed tRead, IsDetail l) ∧ ∀ l ∈ printed tGate, IsDetail l
-  /-- The reading stage's acts. -/
-  readActs : ReadActs tRead dir tree
-  /-- The reading stage issues no removal request before admission. -/
-  readKeeps : ∀ e ∈ tRead, NotRemoving e.op
   /-- The reading's ordered acts and the context of every search consumer. -/
   readPrepared : ReadingPreparation tRead dir tree
   /-- The gate's acts. -/
@@ -645,109 +422,54 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
                  .failed (e := ⟨.getEnv "LEAN_SYSROOT", none⟩) (by simp) .sysroot rfl, .inr rfl⟩,
                fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
              healthy := fun he => (by cases he),
-             lines := ⟨?_, by simp [printed]⟩, readActs := .inl ?_, readKeeps := ?_,
-             readPrepared := .inl ?_, gateActs := by simp }
+             lines := ⟨?_, by simp [printed]⟩,
+             readPrepared := .inl ((quiet_one (o := .getEnv "LEAN_SYSROOT") (r := none) trivial).append (quiet_of_saying hd.1)), gateActs := by simp }
     · intro e he
       rcases List.mem_append.mp he with he | he
-      · have : e = _ := List.mem_singleton.mp he
-        subst this
-        exact ⟨rfl, rfl⟩
+      · obtain rfl := List.mem_singleton.mp he
+        exact ⟨rfl, rfl, trivial⟩
       · have := hd.1 e he
         obtain ⟨o', r'⟩ := e
-        cases o' <;> first | exact ⟨rfl, rfl⟩ | cases this
+        cases o' <;> first | exact ⟨rfl, rfl, trivial⟩ | cases this
     · intro l hl
       rw [printed_append] at hl
       exact hd.2 l (by simpa [printed, Event.line?] using hl)
-    · intro e he
-      rcases List.mem_append.mp he with he | he
-      · have : e = _ := List.mem_singleton.mp he
-        subst this
-        rfl
-      · exact acted_of_saying (hd.1 e he)
-    · intro e he
-      rcases List.mem_append.mp he with he | he
-      · have : e = _ := List.mem_singleton.mp he
-        subst this
-        trivial
-      · have hs := hd.1 e he
-        obtain ⟨o, r⟩ := e
-        cases o <;> first | trivial | cases hs
-    · exact (show Quiet ([⟨.getEnv "LEAN_SYSROOT", none⟩] : List (Event L E)) from by
-        intro e he; obtain rfl := List.mem_singleton.mp he; trivial).append (quiet_of_saying hd.1)
   | some sysroot =>
     unfold Regula.Language.gate at h₂
     obtain ⟨t₃, t₄, o, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-    have hT : t₃ <:+: ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃) := List.infix_append_right
     have hsys : SysrootIs ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃ : List (Event L E)) sysroot := by simp [SysrootIs]
-    obtain ⟨c1, c2, c3, c4⟩ := check_spec hT hsys
-      ⟨[⟨.getEnv "LEAN_SYSROOT", some sysroot⟩], rfl, fun e he => by obtain rfl := List.mem_singleton.mp he; rfl⟩ h₃
-    have hprepared := check_preparation
-      (prior := [⟨.getEnv "LEAN_SYSROOT", some sysroot⟩])
-      (by intro e he; obtain rfl := List.mem_singleton.mp he; trivial) (by simp [SysrootIs]) h₃
-    have hkeep : ∀ e ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃,
-        NotRemoving e.op := by
-      intro e he
-      rcases List.mem_append.mp he with he | he
-      · have : e = _ := List.mem_singleton.mp he
-        subst this
-        trivial
-      · exact check_notRemoving sysroot dir tree _ _ h₃ e he
+    obtain ⟨c1, hprepared, c3, c4, c5⟩ := check_spec (prior := [⟨.getEnv "LEAN_SYSROOT", some sysroot⟩])
+      (quiet_one trivial) (by simp [SysrootIs]) h₃
     have hquiet : ∀ e ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃,
-        e.isBuild = false ∧ e.isImportForRules = false := by
+        e.isBuild = false ∧ e.isImportForRules = false ∧ NotRemoving e.op := by
       intro e he
       rcases List.mem_append.mp he with he | he
-      · have : e = _ := List.mem_singleton.mp he
-        subst this
-        exact ⟨rfl, rfl⟩
-      · exact c3 e he
+      · obtain rfl := List.mem_singleton.mp he
+        exact ⟨rfl, rfl, trivial⟩
+      · exact c4 e he
     have hlines : ∀ l ∈ printed (([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃),
         IsDetail l := by
       intro l hl
       rw [printed_append] at hl
-      exact c4 l (by simpa [printed, Event.line?] using hl)
-    have hacts : ReadActs (([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃) dir tree := by
-      rcases c2 with c2 | ⟨project, real, hp, hr, ha, hin⟩
-      · refine .inl fun e he => ?_
-        rcases List.mem_append.mp he with he | he
-        · have : e = _ := List.mem_singleton.mp he
-          subst this
-          rfl
-        · exact c2 e he
-      · refine .inr ⟨project, real, List.mem_append_right _ hp, List.mem_append_right _ hr, ha, fun e he p' hp' => ?_⟩
-        rcases List.mem_append.mp he with he | he
-        · have : e = _ := List.mem_singleton.mp he
-          subst this
-          cases hp'
-        · exact hin e he p' hp'
+      exact c5 l (by simpa [printed, Event.line?] using hl)
     refine ⟨[⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] ++ t₃, t₄, by simp, ?_⟩
     cases o with
     | refused =>
       obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
       exact { quiet := hquiet, decided := ⟨.refused, c1, fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
-              healthy := fun he => (by cases he),
-              lines := ⟨hlines, by simp [printed]⟩, readActs := hacts, readKeeps := hkeep,
-              readPrepared := hprepared, gateActs := by simp }
+              healthy := fun he => (by cases he), lines := ⟨hlines, by simp [printed]⟩, readPrepared := hprepared, gateActs := by simp }
     | incomplete =>
       obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
       exact { quiet := hquiet, decided := ⟨.incomplete, c1, fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
-              healthy := fun he => (by cases he),
-              lines := ⟨hlines, by simp [printed]⟩, readActs := hacts, readKeeps := hkeep,
-              readPrepared := hprepared, gateActs := by simp }
+              healthy := fun he => (by cases he), lines := ⟨hlines, by simp [printed]⟩, readPrepared := hprepared, gateActs := by simp }
     | proofOnly =>
       obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
       exact { quiet := hquiet, decided := ⟨.proofOnly, c1, fun he => (by cases he), fun _ => ⟨rfl, rfl⟩, fun he => (by cases he)⟩,
-              healthy := fun he => (by cases he),
-              lines := ⟨hlines, by simp [printed]⟩, readActs := hacts, readKeeps := hkeep,
-              readPrepared := hprepared, gateActs := by simp }
+              healthy := fun he => (by cases he), lines := ⟨hlines, by simp [printed]⟩, readPrepared := hprepared, gateActs := by simp }
     | admitted =>
       have hnoFail : Outcome.admitted = Outcome.admitted →
-          ∀ e ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃, ¬ e.failed := by
-        intro _ e he
-        rcases List.mem_append.mp he with he | he
-        · have : e = _ := List.mem_singleton.mp he
-          subst this
-          exact fun hn => by cases hn
-        · exact check_no_failed h₃ e he
+          ∀ e ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃, ¬ e.failed :=
+        fun _ => (clean_one (fun hn => by cases hn)).append (c3 rfl)
       obtain ⟨t₅, t₆, c, rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
       obtain ⟨b1, b2, b3⟩ := buildAndReplay_spec h₅
       have protocol := buildAndReplay_protocol h₅
@@ -759,23 +481,21 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
                   ⟨sysroot, t₅, [], hsys, by simp, protocol, by simp,
                     .inr ⟨rfl, by simp, b3 rfl⟩, .inl quiet_nil⟩⟩,
                 healthy := fun he => (by cases he),
-                lines := ⟨hlines, by simpa using b1.2.1⟩, readActs := hacts, readKeeps := hkeep,
-                readPrepared := hprepared,
+                lines := ⟨hlines, by simpa using b1.2.1⟩, readPrepared := hprepared,
                 gateActs := by simpa using b1.2.2 }
       | true =>
         rw [ite_eq_left rfl] at h₆
         obtain ⟨t₇, t₈, v, rfl, h₇, h₈⟩ := runs_seq_iff.mp h₆
         obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₈
         simp only [List.append_nil] at h₇ ⊢
-        obtain ⟨⟨result, r1, rfl⟩, r2, r3, r4, r5⟩ := rules_spec (List.Sublist.refl _) h₇
+        obtain ⟨⟨result, r1, rfl⟩, r2, r3, r5, r6⟩ := rules_spec (List.Sublist.refl _) h₇
         obtain ⟨⟨program, lakeLib, hsub⟩, hb⟩ := b2 rfl
         refine { quiet := hquiet,
                  decided := ⟨.admitted, c1, hnoFail, fun he => absurd rfl he, fun _ =>
-                   ⟨sysroot, t₅, t₇, hsys, rfl, protocol, rules_reload h₇,
-                     .inl ⟨program, lakeLib, result, r4, hsub, r1, rfl⟩, rules_preparation h₇⟩⟩,
+                   ⟨sysroot, t₅, t₇, hsys, rfl, protocol, fun e he => (r3 e he).1,
+                     .inl ⟨program, lakeLib, result, fun e he => (r3 e he).2, hsub, r1, rfl⟩, r6⟩⟩,
                  healthy := ?_,
-                 lines := ⟨hlines, ?_⟩, readActs := hacts, readKeeps := hkeep,
-                 readPrepared := hprepared, gateActs := ?_ }
+                 lines := ⟨hlines, ?_⟩, readPrepared := hprepared, gateActs := ?_ }
         · intro hrep e he
           rcases List.mem_append.mp he with he | he
           · exact hnoFail rfl e he
@@ -790,8 +510,9 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
         · intro e he p' hp'
           rcases List.mem_append.mp he with he | he
           · exact b1.2.2 e he p' hp'
-          · rw [r3 e he] at hp'
-            cases hp'
+          · have := (r3 e he).1
+            obtain ⟨o', r'⟩ := e
+            cases o' <;> first | exact this.elim | cases hp'
 
 /-! ## The whole run -/
 
@@ -821,8 +542,7 @@ theorem confined_of {tRead tGate last : List (Event L E)} {dir tree : FilePath} 
   · refine .inr ⟨project, real, by simp [hp], by simp [hreal], ha, fun e he path hpath => ?_⟩
     rcases hrest e he with h' | h'
     · refine .inr ?_
-      obtain ⟨rel, hrel⟩ := (inTree_iff real path).mp (hin e h' path hpath)
-      exact ⟨rel, hrel.1.symm⟩
+      exact hin e h' path hpath
     · exact .inl (h' path hpath)
 
 theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Event L E)} {c : UInt32}
@@ -864,7 +584,7 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
     obtain ⟨o, hdec, hnf, hn, ha⟩ := G.decided
     have hsaying : Confined (⟨.createTempDir, .ok tree⟩ :: tRead ++ tGate ++
         ⟨.removeDirAll tree, r₅⟩ :: (last ++ [⟨.println (report.labelOn dir.toString), r'⟩])) dir tree := by
-      refine confined_of G.readActs G.gateActs fun e he => ?_
+      refine confined_of G.readPrepared.readActs G.gateActs fun e he => ?_
       rcases List.mem_append.mp he with he | he
       · exact hd.1 e he
       · have : e = _ := List.mem_singleton.mp he
@@ -877,8 +597,8 @@ theorem runFull_spec {p : Regula.Closed.Profile} {dir : FilePath} {t : List (Eve
       · have : e = _ := List.mem_singleton.mp he
         subst this
         rfl
-    refine .inr ⟨tree, tRead, tGate, r₅, last ++ [⟨.println (report.labelOn dir.toString), r'⟩], by simp, G.quiet, hlastSaying, o, report,
-      hdec, hnf, hn, ha, hc, ?_, hsaying, ?_, G.readKeeps, G.readPrepared⟩
+    refine .inr ⟨tree, tRead, tGate, r₅, last ++ [⟨.println (report.labelOn dir.toString), r'⟩], by simp, fun e he => ⟨(G.quiet e he).1, (G.quiet e he).2.1⟩, hlastSaying, o, report,
+      hdec, hnf, hn, ha, hc, ?_, hsaying, ?_, fun e he => (G.quiet e he).2.2, G.readPrepared⟩
     rotate_left
     · intro hzero e he
       have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp (hc.symm.trans hzero)
@@ -909,10 +629,9 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
   obtain ⟨hc, hend, hsay⟩ := finishPlain_spec h₄
   have hsub : t₁.Sublist (⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ t₄))) :=
     (List.sublist_append_left _ _).trans (List.sublist_cons_self _ _)
-  obtain ⟨l1, ls, l2⟩ := loadPlain_spec hsub h₁
+  obtain ⟨l1, ls, hprep⟩ := loadPlain_spec (prior := [⟨.leanVersion, v⟩]) hsub (quiet_one trivial) h₁
   have hd := sayCoverage_spec h₃
-  have hprep := loadPlain_preparation (prior := [⟨.leanVersion, v⟩])
-    (by intro e he; obtain rfl := List.mem_singleton.mp he; trivial) h₁
+  have honly := only_loadPlain (L := L) (E := E) p _ _ h₁
   refine ⟨result.map (·.2), subjectOf result, l1, hc, ?_, ?_, fun e he => ?_, (fun hzero e he => ?_), ?_⟩
   · obtain ⟨pre, r, rfl, hn, hp⟩ := hend
     refine ⟨⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ pre)), r, by simp, hn, fun l hl => ?_⟩
@@ -926,11 +645,13 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     obtain ⟨i, hi, -⟩ := RegulaSpecification.Loader.decision_pass hv
     cases result with
     | error why => cases hi
-    | ok x => exact ls x.1 x.2 rfl
+    | ok x => exact (ls x.1 x.2 rfl).1
   · rcases List.mem_cons.mp he with rfl | he
     · rfl
     rcases List.mem_append.mp he with he | he
-    · exact l2 e he
+    · have := honly e he
+      obtain ⟨o', r'⟩ := e
+      cases o' <;> first | rfl | exact this.elim
     · rcases List.mem_append.mp he with he | he
       · exact acted_of_saying (hd.1 e he)
       · exact acted_of_saying (hsay e he)
@@ -945,7 +666,7 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     rcases List.mem_cons.mp he with rfl | he
     · exact id
     rcases List.mem_append.mp he with he | he
-    · exact sound_loadPlain _ _ _ h₁ e he
+    · exact (ls x.1 x.2 rfl).2 e he
     · rcases List.mem_append.mp he with he | he
       · exact details_not_failed hd e he
       · exact not_failed_of_saying (hsay e he)

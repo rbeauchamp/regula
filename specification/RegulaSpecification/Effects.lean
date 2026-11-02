@@ -86,7 +86,7 @@ def Event.isBuild : Event L E → Bool
 
 /-- Whether an event loads a finished build for the rules. -/
 def Event.isImportForRules : Event L E → Bool
-  | ⟨.importForRules _, _⟩ => true
+  | ⟨.importForRules .., _⟩ => true
   | _ => false
 
 /-- An event that makes nothing outside what it prints or what it asks of Lean's constants. -/
@@ -135,7 +135,7 @@ def Event.leaves (e : Event L E) (p : List String) (held : Option String) : Opti
   | .removeDirAll q => if (parts q).isPrefixOf p then none else held
   | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .createDirAll _ | .createTempDir | .println _ | .flush | .parseHeader _ | .parseCommand ..
-  | .setSearchPath _ | .findOLean _ | .importForRules _ | .importForParser _ | .parseToml _
+  | .findOLean .. | .importForRules .. | .importForParser .. | .parseToml _
   | .lakeInstall _ | .loadWorkspace .. | .loadRoot .. | .libModules _ | .runLake .. => held
 
 /-- What the acts of `t` leave at the path with the components `p`, from a tree that held nothing there: the text of its
@@ -153,14 +153,14 @@ either, because no verdict rests on it. Whether a failure justifies a result is 
 state, which bind it to the requested build. -/
 def Event.failed : Event L E → Prop
   | ⟨.getEnv _, r⟩ => r = (none : Option String)
-  | ⟨.realPath _, r⟩ | ⟨.findOLean _, r⟩ | ⟨.createTempDir, r⟩ =>
+  | ⟨.realPath _, r⟩ | ⟨.findOLean .., r⟩ | ⟨.createTempDir, r⟩ =>
     ∃ e, r = (Except.error e : Except IO.Error FilePath)
   | ⟨.readFile _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error String)
   | ⟨.writeFile .., r⟩ | ⟨.createDirAll _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error Unit)
   | ⟨.parseHeader _, r⟩ =>
     ∃ e, r = (Except.error e : Except IO.Error (Syntax × ModuleParserState × MessageLog × Array Import))
-  | ⟨.importForParser _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error (E × List Name))
-  | ⟨.importForRules _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error Environment)
+  | ⟨.importForParser .., r⟩ => ∃ e, r = (Except.error e : Except IO.Error (E × List Name))
+  | ⟨.importForRules .., r⟩ => ∃ e, r = (Except.error e : Except IO.Error Environment)
   | ⟨.parseToml _, r⟩ => ∃ e, r = (Except.error e : Except MessageLog Lake.Toml.Table)
   | ⟨.libModules _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error (Array (Name × FilePath)))
   | ⟨.loadWorkspace .., r⟩ | ⟨.loadRoot .., r⟩ =>
@@ -192,10 +192,10 @@ inductive Parsed (input : InputContext) (env : E) :
 
 /-- `f` is what the run judged of the text `text` of one file: the project's file `under project rel` passed the
 exact-path test on its real path, `text` is what `readFile` returned, and Lean's parser gave the header and
-commands of `f` from that same text, in an environment that an import gave together with the scoped parsers `f`
+commands of `f` from that same text, in an environment that an import on the toolchain's library of `root` gave together with the scoped parsers `f`
 states. `imports` is what that header states, and `mods` is what the import was asked to load. This says what was
 read and parsed, and nothing of what the tree holds: `Evidence` says that, through what it is given as held. -/
-def ReadText (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (path : FilePath)
+def ReadText (t : List (Event L E)) (root : Root L) (project tree : FilePath) (f : FileRead) (path : FilePath)
     (imports : Array Import) (mods : List Name) (text : String) : Prop :=
   ∃ (rel : List String) (real : FilePath) (state : ModuleParserState)
     (messages final : MessageLog) (env : E) (commands : List (Event L E)),
@@ -204,16 +204,16 @@ def ReadText (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (pa
     ([⟨.realPath (under project rel), .ok real⟩, ⟨.readFile (under project rel), .ok text⟩,
       ⟨.parseHeader (mkInputContext text (inputNameOf path)), .ok (f.header, state, messages, imports)⟩] :
         List (Event L E)).Sublist t ∧
-    (⟨.importForParser mods, .ok (env, f.scopedParsers)⟩ : Event L E) ∈ t ∧
+    (⟨.importForParser root.toolchain mods, .ok (env, f.scopedParsers)⟩ : Event L E) ∈ t ∧
     Parsed (mkInputContext text (inputNameOf path)) env ((mkInputContext text (inputNameOf path)).inputString.utf8ByteSize + 1)
       state messages f.commands final commands ∧
     commands.Sublist t ∧
     f.parsed = !final.hasErrors
 
 /-- `f` is what the run judged of some text of one file. -/
-def ReadAs (t : List (Event L E)) (project tree : FilePath) (f : FileRead) (path : FilePath)
+def ReadAs (t : List (Event L E)) (root : Root L) (project tree : FilePath) (f : FileRead) (path : FilePath)
     (imports : Array Import) (mods : List Name) : Prop :=
-  ∃ text, ReadText t project tree f path imports mods text
+  ∃ text, ReadText t root project tree f path imports mods text
 
 /-- `modules` are the modules of the default targets of `root`, as this run's responses list them: each module
 of a default library, and the root of each default executable, in the order of the targets. -/
@@ -232,9 +232,9 @@ inductive DefaultModules (t : List (Event L E)) (root : Root L) :
   | other {target targets modules} : root.findLib target = none → root.findExe target = none →
       DefaultModules t root targets modules → DefaultModules t root (target :: targets) modules
 
-/-- `n` is the toolchain's own module by this run's responses: Lean's search, on the search path that `ReadingLoaded` has the run set to the toolchain's library, found its `.olean`. -/
-def HeldByToolchain (t : List (Event L E)) (n : Name) : Prop :=
-  ∃ olean, (⟨.findOLean n, .ok olean⟩ : Event L E) ∈ t
+/-- `n` is the toolchain's own module by this run's responses: Lean's search, on the toolchain's library that the load `root` names, found its `.olean`. -/
+def HeldByToolchain (t : List (Event L E)) (root : Root L) (n : Name) : Prop :=
+  ∃ olean, (⟨.findOLean root.toolchain n, .ok olean⟩ : Event L E) ∈ t
 
 /-- What Lake compiles for the claim: the modules of the default targets with their files, each module
 that the imports of what it compiles reach and that Lake's resolution of an import gives a file for, and the file

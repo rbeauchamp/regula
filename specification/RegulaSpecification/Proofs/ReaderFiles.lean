@@ -59,29 +59,26 @@ theorem lookup_of_mem {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β
       simp only [List.lookup_cons, this]
       exact ih hn.2 hm
 
-/-- The events of a parse act on nothing. -/
-theorem parsed_no_act {input : InputContext} {env : E} {fuel : Nat} {state : ModuleParserState} {messages : MessageLog}
+/-- The events of a parse only observe, and none of them failed. -/
+theorem parsed_events {input : InputContext} {env : E} {fuel : Nat} {state : ModuleParserState} {messages : MessageLog}
     {commands : List Syntax} {final : MessageLog} {t : List (Event L E)}
-    (h : Parsed input env fuel state messages commands final t) : ∀ e ∈ t, e.acted? = none := by
+    (h : Parsed input env fuel state messages commands final t) : Quiet t ∧ Clean t := by
   induction h with
-  | stop => intro e he; cases he
-  | last _ =>
-    intro e he
-    have : e = _ := List.mem_singleton.mp he
-    subst this
-    rfl
+  | stop => exact ⟨quiet_nil, clean_nil⟩
+  | last _ => exact ⟨by quiet_events, clean_one id⟩
   | next _ _ ih =>
-    intro e he
-    rcases List.mem_cons.mp he with rfl | he
-    · rfl
-    · exact ih e he
+    refine ⟨fun x hx => ?_, fun x hx => ?_⟩ <;> rcases List.mem_cons.mp hx with rfl | hx
+    · exact trivial
+    · exact ih.1 x hx
+    · exact id
+    · exact ih.2 x hx
 
 /-- What one file of a reading holds, from the source `s`. -/
-def FileFrom (T : List (Event L E)) (sources : List (Name × Source)) (toolchain : List Name) (m : Name)
+def FileFrom (T : List (Event L E)) (root : Root L) (sources : List (Name × Source)) (toolchain : List Name) (m : Name)
     (s : Source) (f : FileRead) : Prop :=
   f.module = m ∧ f.header = s.header ∧
     ∃ (env : E) (final : MessageLog) (commands : List (Event L E)),
-      (⟨.importForParser
+      (⟨.importForParser root.toolchain
           (visibleToolchain (fun n => (sources.lookup n).map (·.imports)) toolchain.contains
             (s.imports.toList.map (·.module)) []
             ((s.imports.toList.map (·.module)).length + (sources.map (·.2.imports.size)).sum + 1)).eraseDups,
@@ -109,55 +106,52 @@ theorem mem_visible_held {headers : Name → Option (Array Import)} {isToolchain
         · exact ih h
         · exact ih h
 
-/-- `environmentFor` gives what an import gave for exactly those modules. -/
-theorem environmentFor_spec {T t : List (Event L E)} {cache : ParserCache E} {mods : List Name}
+/-- `environmentFor` gives what an import on the toolchain's library gave for exactly those modules. -/
+theorem environmentFor_spec {T t : List (Event L E)} {root : Root L} {cache : ParserCache E} {mods : List Name}
     {b : Except String ((E × List Name) × ParserCache E)} (hT : t.Sublist T)
-    (hc : ∀ x ∈ cache, (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T)
-    (h : Runs (environmentFor cache mods : Attempt L E _).run t b) :
-    (∀ pair c', b = .ok (pair, c') → (⟨.importForParser mods.eraseDups, .ok pair⟩ : Event L E) ∈ T ∧
-      ∀ x ∈ c', (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T) ∧
-    ((∃ e, b = .error e) → ∃ x, (⟨.importForParser mods.eraseDups, .error x⟩ : Event L E) ∈ t) ∧
-    ∀ e ∈ t, e.acted? = none := by
+    (hc : ∀ x ∈ cache, (⟨.importForParser root.toolchain x.1, .ok x.2⟩ : Event L E) ∈ T)
+    (h : Runs (environmentFor root.toolchain cache mods : Attempt L E _).run t b) :
+    (∀ pair c', b = .ok (pair, c') → (⟨.importForParser root.toolchain mods.eraseDups, .ok pair⟩ : Event L E) ∈ T ∧
+      (∀ x ∈ c', (⟨.importForParser root.toolchain x.1, .ok x.2⟩ : Event L E) ∈ T) ∧ Clean t) ∧
+    ((∃ e, b = .error e) → ∃ x, (⟨.importForParser root.toolchain mods.eraseDups, .error x⟩ : Event L E) ∈ t) ∧
+    Observes root t := by
   rw [environmentFor] at h
   split at h
   · rename_i pair' hl
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
-    refine ⟨fun pair c' he => ?_, fun ⟨e, he⟩ => (by cases he), fun e he => (by cases he)⟩
+    refine ⟨fun pair c' he => ?_, fun ⟨e, he⟩ => (by cases he), quiet_nil.observes _⟩
     cases he
-    exact ⟨hc _ (mem_of_lookup hl), hc⟩
+    exact ⟨hc _ (mem_of_lookup hl), hc, clean_nil⟩
   · obtain ⟨t₅, t₆, r₅, rfl, h₅, h₆⟩ := runs_attempt_bind_iff.mp h
     obtain ⟨r₆, h₇, rfl⟩ := runs_attempt_iff.mp h₅
     obtain rfl := runs_call_iff.mp h₇
+    have hobs {r} : Observes root ([⟨.importForParser root.toolchain mods.eraseDups, r⟩] : List (Event L E)) := by
+      intro x hx
+      obtain rfl := List.mem_singleton.mp hx
+      exact .inr rfl
     cases r₆ with
     | error e' =>
       obtain ⟨rfl, rfl⟩ := h₆
-      refine ⟨fun _ _ he => (by cases he), fun _ =>
-        ⟨e', by simp⟩, fun e he => ?_⟩
-      simp only [List.append_nil, List.mem_singleton] at he
-      subst he
-      rfl
+      exact ⟨fun _ _ he => (by cases he), fun _ => ⟨e', by simp⟩, by simpa using hobs⟩
     | ok p =>
       obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₆
-      refine ⟨fun pair c' he => ?_, fun ⟨e, he⟩ => (by cases he), fun e he => ?_⟩
-      · cases he
-        have hev : (⟨.importForParser mods.eraseDups, .ok p⟩ : Event L E) ∈ T := hT.subset (by simp)
-        refine ⟨hev, fun x hx => ?_⟩
-        rcases List.mem_cons.mp hx with rfl | hx
-        · exact hev
-        · exact hc x hx
-      · simp only [List.append_nil, List.mem_singleton] at he
-        subst he
-        rfl
+      refine ⟨fun pair c' he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using hobs⟩
+      cases he
+      have hev : (⟨.importForParser root.toolchain mods.eraseDups, .ok p⟩ : Event L E) ∈ T := hT.subset (by simp)
+      refine ⟨hev, fun x hx => ?_, by clean_events⟩
+      rcases List.mem_cons.mp hx with rfl | hx
+      · exact hev
+      · exact hc x hx
 
 /-- `parseFile` holds what `FileFrom` states, or an import failed. -/
-theorem parseFile_spec {T t : List (Event L E)} {sources : List (Name × Source)} {toolchain : List Name}
+theorem parseFile_spec {T t : List (Event L E)} {root : Root L} {sources : List (Name × Source)} {toolchain : List Name}
     {cache : ParserCache E} {m : Name} {s : Source} {b : Except String (FileRead × ParserCache E)}
-    (hT : t.Sublist T) (hc : ∀ x ∈ cache, (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T)
-    (h : Runs (parseFile cache sources toolchain m s : Attempt L E _).run t b) :
-    (∀ f c', b = .ok (f, c') → FileFrom T sources toolchain m s f ∧
-      ∀ x ∈ c', (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T) ∧
-    ((∃ e, b = .error e) → ∃ mods x, (⟨.importForParser mods, .error x⟩ : Event L E) ∈ t ∧ ∀ n ∈ mods, n ∈ toolchain) ∧
-    ∀ e ∈ t, e.acted? = none := by
+    (hT : t.Sublist T) (hc : ∀ x ∈ cache, (⟨.importForParser root.toolchain x.1, .ok x.2⟩ : Event L E) ∈ T)
+    (h : Runs (parseFile root.toolchain cache sources toolchain m s : Attempt L E _).run t b) :
+    (∀ f c', b = .ok (f, c') → FileFrom T root sources toolchain m s f ∧
+      (∀ x ∈ c', (⟨.importForParser root.toolchain x.1, .ok x.2⟩ : Event L E) ∈ T) ∧ Clean t) ∧
+    ((∃ e, b = .error e) → ∃ mods x, (⟨.importForParser root.toolchain mods, .error x⟩ : Event L E) ∈ t ∧ ∀ n ∈ mods, n ∈ toolchain) ∧
+    Observes root t := by
   rw [parseFile] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   have hT₁ : t₁.Sublist T := (List.sublist_append_left _ _).trans hT
@@ -172,37 +166,33 @@ theorem parseFile_spec {T t : List (Event L E)} {sources : List (Name × Source)
     simpa using this
   | ok envResult =>
     obtain ⟨⟨env, scopedParsers⟩, cache'⟩ := envResult
-    obtain ⟨hev, hc'⟩ := e1 _ _ rfl
+    obtain ⟨hev, hc', hclean⟩ := e1 _ _ rfl
     obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
     obtain ⟨⟨commands, final⟩, h₅, rfl⟩ := runs_lift_iff.mp h₃
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
     have hparsed := parseAll_parsed _ _ _ _ _ h₅
-    have hact := parsed_no_act hparsed
-    refine ⟨fun f c' he => ?_, fun ⟨e, he⟩ => (by cases he), fun e he => ?_⟩
-    · cases he
-      exact ⟨⟨rfl, rfl, env, final, t₃, hev, hparsed, by simpa using hT₂, rfl⟩, hc'⟩
-    · simp only [List.append_nil, List.mem_append] at he
-      rcases he with he | he
-      · exact e3 e he
-      · exact hact e he
+    obtain ⟨hq, hcl⟩ := parsed_events hparsed
+    refine ⟨fun f c' he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using e3.append (hq.observes _)⟩
+    cases he
+    exact ⟨⟨rfl, rfl, env, final, t₃, hev, hparsed, by simpa using hT₂, rfl⟩, hc', by simpa using hclean.append hcl⟩
 
 /-- `parseFiles` holds each source's file, and nothing else, or an import failed. -/
-theorem parseFiles_spec (sources : List (Name × Source)) (toolchain : List Name) {T : List (Event L E)}
+theorem parseFiles_spec (root : Root L) (sources : List (Name × Source)) (toolchain : List Name) {T : List (Event L E)}
     (todo : List (Name × Source)) (cache : ParserCache E) {t : List (Event L E)}
     {b : Except String (List FileRead)}
-    (hT : t.Sublist T) (hc : ∀ x ∈ cache, (⟨.importForParser x.1, .ok x.2⟩ : Event L E) ∈ T)
-    (h : Runs (parseFiles sources toolchain cache todo : Attempt L E _).run t b) :
-    (∀ files, b = .ok files → (∀ f ∈ files, ∃ x ∈ todo, FileFrom T sources toolchain x.1 x.2 f) ∧
-      ∀ x ∈ todo, ∃ f ∈ files, FileFrom T sources toolchain x.1 x.2 f) ∧
-    ((∃ e, b = .error e) → ∃ mods x, (⟨.importForParser mods, .error x⟩ : Event L E) ∈ t ∧ ∀ n ∈ mods, n ∈ toolchain) ∧
-    ∀ e ∈ t, e.acted? = none := by
+    (hT : t.Sublist T) (hc : ∀ x ∈ cache, (⟨.importForParser root.toolchain x.1, .ok x.2⟩ : Event L E) ∈ T)
+    (h : Runs (parseFiles root.toolchain sources toolchain cache todo : Attempt L E _).run t b) :
+    (∀ files, b = .ok files → (∀ f ∈ files, ∃ x ∈ todo, FileFrom T root sources toolchain x.1 x.2 f) ∧
+      (∀ x ∈ todo, ∃ f ∈ files, FileFrom T root sources toolchain x.1 x.2 f) ∧ Clean t) ∧
+    ((∃ e, b = .error e) → ∃ mods x, (⟨.importForParser root.toolchain mods, .error x⟩ : Event L E) ∈ t ∧ ∀ n ∈ mods, n ∈ toolchain) ∧
+    Observes root t := by
   induction todo generalizing cache t b with
   | nil =>
     rw [parseFiles] at h
     obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
-    refine ⟨fun files he => ?_, fun ⟨e, he⟩ => (by cases he), fun e he => (by cases he)⟩
+    refine ⟨fun files he => ?_, fun ⟨e, he⟩ => (by cases he), quiet_nil.observes _⟩
     cases he
-    simp
+    simpa using clean_nil
   | cons x todo ih =>
     obtain ⟨m, s⟩ := x
     rw [parseFiles] at h
@@ -217,42 +207,25 @@ theorem parseFiles_spec (sources : List (Name × Source)) (toolchain : List Name
       exact ⟨fun _ he => (by cases he), fun _ => ⟨mods, x, by simp [hx], hn⟩, by simpa using p3⟩
     | ok fileResult =>
       obtain ⟨file, cache'⟩ := fileResult
-      obtain ⟨hfile, hc'⟩ := p1 _ _ rfl
+      obtain ⟨hfile, hc', hcl₁⟩ := p1 _ _ rfl
       obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
       obtain ⟨i1, i2, i3⟩ := ih cache' ((List.sublist_append_left _ _).trans hT₂) hc' h₃
-      have hact : ∀ e ∈ t₁ ++ (t₃ ++ t₄), e.acted? = none ∧ True := by
-        intro e he
-        cases r₃ with
-        | error w =>
-          obtain ⟨rfl, rfl⟩ := h₄
-          simp only [List.append_nil, List.mem_append] at he
-          rcases he with he | he
-          · exact ⟨p3 e he, trivial⟩
-          · exact ⟨i3 e he, trivial⟩
-        | ok fs =>
-          obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-          simp only [List.append_nil, List.mem_append] at he
-          rcases he with he | he
-          · exact ⟨p3 e he, trivial⟩
-          · exact ⟨i3 e he, trivial⟩
       cases r₃ with
       | error w =>
         obtain ⟨rfl, rfl⟩ := h₄
         obtain ⟨mods, x, hx, hn⟩ := i2 ⟨w, rfl⟩
-        exact ⟨fun _ he => (by cases he), fun _ => ⟨mods, x, by simp [hx], hn⟩, fun e he => (hact e he).1⟩
+        exact ⟨fun _ he => (by cases he), fun _ => ⟨mods, x, by simp [hx], hn⟩, by simpa using p3.append i3⟩
       | ok fs =>
         obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-        refine ⟨fun files he => ?_, fun ⟨e, he⟩ => (by cases he), fun e he => (hact e he).1⟩
+        refine ⟨fun files he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using p3.append i3⟩
         cases he
-        obtain ⟨j1, j2⟩ := i1 fs rfl
-        constructor
-        · intro f hf
-          rcases List.mem_cons.mp hf with rfl | hf
+        obtain ⟨j1, j2, j3⟩ := i1 fs rfl
+        refine ⟨fun f hf => ?_, fun x hx => ?_, by simpa using hcl₁.append j3⟩
+        · rcases List.mem_cons.mp hf with rfl | hf
           · exact ⟨(m, s), List.mem_cons_self .., hfile⟩
           · obtain ⟨x, hx, hxf⟩ := j1 f hf
             exact ⟨x, List.mem_cons_of_mem _ hx, hxf⟩
-        · intro x hx
-          rcases List.mem_cons.mp hx with rfl | hx
+        · rcases List.mem_cons.mp hx with rfl | hx
           · exact ⟨file, List.mem_cons_self .., hfile⟩
           · obtain ⟨f, hf, hxf⟩ := j2 x hx
             exact ⟨f, List.mem_cons_of_mem _ hf, hxf⟩

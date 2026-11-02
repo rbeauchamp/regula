@@ -44,11 +44,10 @@ the modules `roots`. -/
 def BuildAnswered (t : List (Event L E)) (root : Root L) (a : BuildAnswer) (roots : List Name) : Prop :=
   ∃ modules,
     DefaultModules t root root.defaultTargets modules ∧ roots = modules.map (·.1) ∧
-    ([⟨.setSearchPath root.leanPath, ()⟩, ⟨.importForRules roots.toArray, .ok a.env⟩] :
-      List (Event L E)).Sublist t ∧
+    (⟨.importForRules root.leanPath roots.toArray, .ok a.env⟩ : Event L E) ∈ t ∧
     a.toolchainDir = root.leanLib ∧ a.rootDir = root.rootLib ∧
     a.places.map (·.1) = a.env.header.moduleNames.toList ∧
-    ∀ x ∈ a.places, (⟨.findOLean x.1, .ok x.2⟩ : Event L E) ∈ t
+    ∀ x ∈ a.places, (⟨.findOLean root.leanPath x.1, .ok x.2⟩ : Event L E) ∈ t
 
 /-- What the rules read of a constant by its names: those that its type and value mention, each once in the order of their first
 occurrence, the fields that `Lean.collectAxioms` walks. -/
