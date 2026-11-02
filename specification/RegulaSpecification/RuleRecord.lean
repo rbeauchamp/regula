@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import LeanIntent.Record
 import LeanIntent.Obligations
 import LeanIntent.Progress

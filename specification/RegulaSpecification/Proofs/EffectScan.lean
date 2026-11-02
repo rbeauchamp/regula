@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Regula contributors. All rights reserved.
+Released under MIT license as described in the file LICENSE.
+Authors: Regula contributors
+-/
 import Regula.ProgramCheck.EffectScan
 import RegulaSpecification.Proofs.Foundation
 
