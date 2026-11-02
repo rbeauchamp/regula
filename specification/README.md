@@ -606,7 +606,7 @@ The claim holds only for these. Anything else is outside the contract and not a 
 - **The published ways to run** (`Route`). For the proof verdict, `lake lint` from the project's own directory, with no option of Lake's and `REGULA_FULL` unset. For the full verdict, `REGULA_FULL=DIR lake exe lint PROFILE` from the directory of a checkout of Regula built apart from the project, with no option of Lake's.
 - **The platform.** macOS 27.2 on Apple silicon (arm64), on which the entries of the operating system and `platform` were observed: the measurements of this document, and on 2026-11-02 `/bin/realpath` through a link and through a name in another case, `/usr/bin/env -i`, and `mktemp -d`.
 
-So Linux, Windows, another release of macOS, another Lean, a start from a project's Lake, `lake -d`, `lake -f` and every other option of Lake's, a start through `lake test` or `lake env`, and `lake lint` with `REGULA_FULL` set are outside the contract.
+So Linux, Windows, another release of macOS, another Lean, a start of the full gate from a project's Lake, `lake -d`, `lake -f` and every other option of Lake's, a start through `lake test` or `lake env`, and `lake lint` with `REGULA_FULL` set are outside the contract.
 
 ### Outside the contract
 
