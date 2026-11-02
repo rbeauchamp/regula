@@ -142,7 +142,7 @@ The commands `lake build --wfail` and `lake check` are Lean's own, and Regula ma
 
 ## Purpose and constraint
 
-Regula is a checker of Lean builds whose claim is meant to be exact and proved, so that people can trust it, and whose own code is meant to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted, with a short list of behaviours of the operating system, each tied to the platforms on which it was observed; Regula's own code is meant to be proved, or so thin that it only calls Lean. The [run of the checker](specification/README.md#the-run-of-the-checker) states what is proved of its effects, and the [trusted base](specification/README.md#the-trusted-base) what stays assumed.
+Regula is a checker of Lean builds whose claim is meant to be exact and proved, so that people can trust it, and whose own code is meant to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided on 2026-10-31 that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted, with a short list of behaviours of the operating system, each tied to the platforms on which it was observed; Regula's own code is meant to be proved, or so thin that it only calls Lean. The [run of the checker](specification/README.md#the-run-of-the-checker) states what is proved of its effects, and the [trusted base](specification/README.md#the-trusted-base) what stays assumed.
 
 Regula aims to be for Lean linters what [seL4](https://sel4.systems/Verification/proofs.html) is for kernels: a tool whose claim is exact and proved, which is what earns trust. That sentence states the aim and does not say it has been reached. Simplicity is how it becomes achievable, as in [LionsOS](https://trustworthy.systems/projects/LionsOS), where each component does only the minimum its use case needs. On 2026-11-01 the owner made this a constraint over all work on Regula, and it governs every later change:
 
@@ -155,15 +155,11 @@ Regula aims to be for Lean linters what [seL4](https://sel4.systems/Verification
 
 So this rules out adding 1,000 lines to keep an unusual folder layout working, adding a mode to avoid a refusal, or keeping a tool in the repository for one analysis. It still allows a long proof of something truly hard, such as the two-way axiom rules.
 
+The full verdict stays at its built size. On 2026-11-01 the owner was shown that the full verdict had 11,518 lines of specification and 1,698 of program, about 6.8 to 1, against about 4,300 and 1,900 without it, about 2 to 1, and the case each way, and chose to keep it. So simplicity does not outrank the confirmed full verdict at this size. The size stays a warning, and work that shrinks it without losing a word the owner confirmed is welcome, as [the record](specification/confirmation.md#the-size-of-the-full-verdict) says.
+
 ## Work on Regula
 
-The [specification](specification/README.md) states each rule and its proofs, and lists what stays trusted. The gate of a change runs the steps of `localSteps` in [`lean/Regula/DiagnosticsGate.lean`](lean/Regula/DiagnosticsGate.lean), and needs the pinned toolchain and a read of lean-intent from GitHub:
-
-```sh
-lean --run lean/Regula/DiagnosticsGate.lean local
-```
-
-[`AGENTS.md`](AGENTS.md) gives the repository's rules for changes.
+The [specification](specification/README.md) states each rule and its proofs, and lists what stays trusted. [`CONTRIBUTING.md`](CONTRIBUTING.md) gives the rules for every change, its merge gate among them.
 
 ## License
 

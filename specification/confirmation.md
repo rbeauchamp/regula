@@ -1,10 +1,45 @@
 # The owner's confirmations
 
-This file records what the owner confirmed of Regula's specification, in the owner's words.
+This file records each decision of the owner's about Regula, the confirmations of its specification among them, in the owner's words.
+
+## 2026-11-02: where Regula's memory lives
+
+Regula is open source, and an agent that works for another contributor has none of the owner's private notes, instructions or skills, nor the records of the owner's delegated agent. On 2026-11-02 the owner raised this, set where Regula's memory lives, and then made the criterion exact. In substance: Regula's repository holds its cross-contributor memory, everything that any mind working on Regula must remember, whoever it works for. That is every decision of the owner's about Regula's purpose, contract, constraints and method, every working rule that binds a change to Regula, and every lesson a contributor needs so as not to repeat a past defect, each stated once, in Regula's own words, pointing rather than repeating. What only the owner's own agents need, such as how they schedule their work, stays private, and a private copy of anything else is only a copy, because two copies of one account drift apart, as comments drift from code. Four decisions of the owner's were recorded only privately until then: [the size of the full verdict](#the-size-of-the-full-verdict) and [the README's reader](#the-readmes-reader) of 2026-11-01, and the two of [the list of assumptions](#2026-11-02-the-list-of-assumptions), whose entry below this revision completes. Two more of 2026-11-02 were recorded only in descriptions of pull requests: [comments](#2026-11-02-comments) and [the copyright notice](#2026-11-02-the-copyright-notice).
+
+**Follows** means that the owner's words settle it. **Decided** means that the owner's delegated agents decided it on the owner's behalf, and it is no confirmation of the owner's.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| Every rule that binds a change to Regula, and each lesson of a past defect, stated as a rule, is in one file that `AGENTS.md` points to. | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Follows. That the file is `CONTRIBUTING.md`, beside a short `AGENTS.md`, is decided: a contributor's agent reads `AGENTS.md`, and a person finds `CONTRIBUTING.md` on the forge. |
+| Each decision of the owner's about Regula is in this file, in its form, with its effect stated where it governs work. | This file | Follows. That this file, which held the confirmations of the specification, holds the owner's other decisions too is decided: one record of the owner's words. |
+| Regula's purpose is stated once, and the specification and `AGENTS.md` point to it. | [Purpose and constraint](../README.md#purpose-and-constraint) | Follows, with the README chosen by the owner's standing rule that a project's purpose goes in its README. |
+| A rule that concerns only how the owner's agents work for the owner, such as their scheduling, the owner's machine or their delivery tooling, is not recorded here. | Nowhere in the repository | Follows for scheduling. The rest is decided: none of those rules binds a change to Regula. |
+
+## 2026-11-02: comments
+
+On 2026-11-02 the owner set how code is documented when agents read and write it. In substance: code documents itself through the names of its constructs and how they are composed, so that a new agent or session can understand what it means and so that comments and names cannot drift apart. A comment is a claim that nothing checks: agents read every one, and when a declaration it mentions is renamed or removed, the comment goes stale with no signal. So a comment stays only when it says what the code cannot. Pull request 535 pruned Regula's comments to that.
+
+The owner then answered "Yes, try it" to a trial of Lean's Verso doc comments, whose code roles Lean checks while it builds. The trial found that RG1010 refuses Lean's option `doc.verso` for every project, the checker's own package included, because a code block in a Verso doc comment runs during the build and the check does not read inside doc comments, so admitting the option would change the language check. Shown this, the owner answered "Yes, specification only": the specification package uses Verso doc comments, whose names Lean checks, and the checker's package keeps Markdown. The specification package gets only the proof verdict, so nothing of the checker, its language check or a published claim changes.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| A comment stays only when it says what the code cannot: the reason for a decision and the alternative rejected, a fact about Lean, Lake or the operating system that the code relies on, cited by version and source location, a hypothesis, assumption or limit the code depends on, or a short module header saying what the module is for and what it trusts. | [Text](../CONTRIBUTING.md#text) | Follows, from the owner's amendment of the account of pull request 535, which states the list. |
+| A doc comment that `linter.missingDocs` requires stays, cut to the shortest true sentence, and the linter stays on in both packages. | The same | Decided by the owner's delegated agent in pull request 535: turning the linter off would remove a check, which is the owner's call. |
+| The specification package writes its doc comments in Verso, under `doc.verso`, with the role that Lean checks for each mention that Lean can resolve where the comment stands. | The same | Follows. Leaving a mention that Lean cannot resolve there as literal text is decided by the owner's delegated agent, as accepted risk: a stale one is cheap to correct. |
+| The root package keeps Markdown doc comments, and RG1010 and its table `options` stay as they are. | The same | Follows. |
+
+## 2026-11-02: the copyright notice
+
+On 2026-11-02 the owner judged the copyright header at the top of each of Regula's 66 Lean files redundant, because `LICENSE` already carries the copyright notice and the MIT licence, and asked for the headers to be removed, which pull request 537 did. Two files written the same day were created with the old header copied from another file, which is how the rule gets lost.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| A Lean file carries no copyright or licence header, and `LICENSE` stays the repository's one copyright and licence notice, to which `lakefile.toml` and the README only point. | [Text](../CONTRIBUTING.md#text) | Follows. |
+| The whole header goes, its licence pointer and authors line included. | Pull request 537 | Decided by the owner's delegated agent: both lines are as redundant as the copyright line. |
 
 ## 2026-11-02: the list of assumptions
 
-The owner adopted three practices of seL4 for all work on Regula. In substance: every behaviour of Lake, Lean or the operating system that a verdict relies on is on one short, exhaustive list of named assumptions with its pinned source, or is outside the contract, and the build fails when a new reliance has neither; the claim holds only for named configurations, which are the pinned toolchain, the one published way to run and the platforms on which the assumptions were observed, and anything else is outside the contract, said so, and not a defect; and an audit runs only once the claim has stopped moving. Asked whether the list may name behaviours of the operating system, as seL4 names hardware, the owner answered "Yes, a short list": a few such entries, each tied to the platforms on which it was observed, with Lean, its kernel and Lake trusted as before. This revision carries out the first two practices.
+The owner adopted three practices of seL4 for all work on Regula. In substance: every behaviour of Lake, Lean or the operating system that a verdict relies on is on one short, exhaustive list of named assumptions with its pinned source, or is outside the contract, and the build fails when a new reliance has neither; the claim holds only for named configurations, which are the pinned toolchain, the one published way to run and the platforms on which the assumptions were observed, and anything else is outside the contract, said so, and not a defect; and an independent audit runs only once the claim has stopped moving, starting by checking that the list is complete and that each assumption holds on the named configurations. An audit had found behaviours of the operating system, such as `realpath` and `/usr/bin/env`, listed under the labels of Lean, of Lake or of a decision. Asked whether the list may name behaviours of the operating system, as seL4 names hardware, the owner answered "Yes, a short list": a few such entries, each tied to the platforms on which it was observed, with Lean, its kernel and Lake trusted as before. This revision carries out the first two practices. The third binds later work, which [`CONTRIBUTING.md`](../CONTRIBUTING.md#the-trusted-base) states.
 
 **Follows** means that the owner's words settle it. **Decided** means that the owner's delegated agents decided it on the owner's behalf, and it is no confirmation of the owner's.
 
@@ -16,6 +51,7 @@ The owner adopted three practices of seL4 for all work on Regula. In substance: 
 | The named configurations: Lean `v4.35.0`; `lake lint` from the project's own directory with no option of Lake's for the proof verdict, and `REGULA_FULL=DIR lake exe lint PROFILE` from a checkout of Regula built apart from the project for the full verdict; macOS 27.2 on Apple silicon. | [The named configurations](README.md#the-named-configurations) | The toolchain and the proof verdict's way follow. The full verdict's way is decided: the owner's words name one way to run, and the owner's account keeps the full verdict, whose published start this is. The platform is decided from where the entries were observed, so Linux, on which nothing was measured, is outside the contract. |
 | No verdict, rule, refusal or proved statement changes, and no proof is replaced by an assumption; a reliance already proved over every answer stays proved and is not listed. | The diff of this revision | Decided by the owner's delegated agent, because a shorter list bought by giving up a proof would trade assurance the owner already has. |
 | The entries of the operating system are `h4`, `files` and `processes`, and `platform` is Lean's, tied to the platform too. | `Assumption.owner`, `Assumption.platforms` | Decided: each behaviour of the system that a response's meaning needs is in one of them. |
+| An independent audit runs only once the claim has stopped moving, and starts by checking that the list is complete and that each entry holds on the named configurations. | [The trusted base](../CONTRIBUTING.md#the-trusted-base) in `CONTRIBUTING.md` | Follows. |
 
 ## 2026-11-02
 
@@ -49,7 +85,7 @@ The owner added a constraint over all Regula work and confirmed the restatement 
 
 Later on 2026-11-01 the owner answered "Yes, as recommended" to a restatement of what "no false refusal" means, which the owner's delegated agent wrote after an analysis the owner asked for. In substance: Regula stops trying to prove that a project matching a description is owed a pass, because that description was tied to real files only by assumptions. `Project.config` and `SourceFile.read` were chosen values, seven of the thirteen fields of `Answers` restated the conclusion for a case of `Reason`, and Lake's loader depends on axioms outside Regula's own profiles (10 for `Lake.loadTomlConfig`, 75 for `Lake.loadWorkspaceRoot`), so no correspondence with it can be proved under them. Instead Regula publishes a closed list of refusals. Each refusal is proved true of what Lean, Lake or the operating system answered, and a project passes when no refusal applies and the rules hold. So "no false refusal" means that a refusal is never untrue, not that every reasonable project passes, and "exit 0 exactly when" is withdrawn. Newly refused, each with a true message: a default executable, including the `lake new` application template; a `srcDir` on a target; and a source directory with a space or a non-ASCII name.
 
-The owner kept in force that the false-pass guarantee does not weaken: what a pass rests on stays proved over the actual program with the same three axioms, and a project with no refusal, on which the rules hold, passes, so a program that refuses everything does not meet the contract. The owner's confirmed examples keep their verdicts, and H1 to H5 stay as stated hypotheses, re-read at each upgrade. Where simplicity outranks the full verdict stays open with the owner, and this revision holds on every branch of that question.
+The owner kept in force that the false-pass guarantee does not weaken: what a pass rests on stays proved over the actual program with the same three axioms, and a project with no refusal, on which the rules hold, passes, so a program that refuses everything does not meet the contract. The owner's confirmed examples keep their verdicts, and H1 to H5 stay as stated hypotheses, re-read at each upgrade. Where simplicity outranks the full verdict stays open with the owner, and this revision holds on every branch of that question. The owner answered it the same day, under [the size of the full verdict](#the-size-of-the-full-verdict).
 
 So `Project.InDomain`, `Configuration`, `Answers`, `LakeAgrees`, `DomainRun`, `domain_owed`, `reason_excluded`, `reason_classified`, `run_plain_exit_zero_iff`, `run_full_exit_zero_iff`, `plain_exit_zero_owed`, `full_exit_zero_owed`, `OwedExact` and `OneContext` are gone, and the commit `2c9524b0` holds them. The list is [in the specification](README.md#the-closed-list-of-refusals).
 
@@ -73,6 +109,24 @@ So `Project.InDomain`, `Configuration`, `Answers`, `LakeAgrees`, `DomainRun`, `d
 | A call that does not return, as a read of a FIFO that nothing writes at any path the checker, Lake or Lean reads, and a `TMPDIR` naming nothing are outside the contract, so the claim of no crash on an admitted input does not reach them. Neither has a guard or a timeout. | [Outside the contract](README.md#the-closed-list-of-refusals), and measured for `TMPDIR` and for a FIFO at `lean-toolchain`, `lakefile.toml` and a module's file | Decided, under the owner's rule that a refusal outside the narrow published contract is not a false refusal: each takes the operator's own act and is cheap to undo, and a guard would add an operation, a reason and its proofs while leaving a race. |
 
 No second reading was made of this revision. The owner confirmed the restatement, and the list's other details are the agents', as the table says.
+
+### The size of the full verdict
+
+[What no false refusal means](#what-no-false-refusal-means) left open where simplicity outranks the full verdict. Pull request 530 then counted the full verdict's built size: 11,518 lines of specification and 1,698 of program, about 6.8 lines of specification for each line of program. Shown those numbers against about 4,300 and 1,900 without the full verdict, about 2 to 1, and the case each way, the owner answered "Yes, keep it". In substance: the full verdict stays at its built size, and simplicity does not outrank the confirmed full verdict at this size. The size remains a warning, and work that shrinks it without losing a word the owner confirmed is welcome.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| The full verdict stays, at its built size, and simplicity does not outrank it at that size. | [Purpose and constraint](../README.md#purpose-and-constraint) | Follows. |
+| The size stays a warning under the constraint, and a change that shrinks it without losing a word the owner confirmed is welcome. | The same | Follows. |
+
+### The README's reader
+
+While the README was being rewritten on 2026-11-01, the owner, who had found its opening phrase "Regula exists to be trusted" strange, set who the README is for. In substance: a person who wants their agents to write well-factored, well-designed, best-practice Lean 4 code formally proven to be free of bugs. Regula is a linter that gives those agents feedback. That reader wonders what a new tool will do for them, so the problem it solves for them and for the agent writing their code matters more than what it is. Pull request 532 rewrote the README to that.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| The README leads with the problem that Regula solves for that person and their agent, and what Regula is comes second. | [`README.md`](../README.md), and [Text](../CONTRIBUTING.md#text) in `CONTRIBUTING.md` | Follows. |
+| Its claims stay exact. | The same | Follows. |
 
 ## 2026-10-31
 
@@ -174,7 +228,7 @@ The second reading was made by Codex `gpt-6-astra` at `xhigh`, through `codex ex
 
 **The stand-ins for lean-intent's checks** are as for the language check. Issue 2: lean-intent's `Cone.checkRecord` accepted `programRecord` against `Regula.Shell.run`, `runFull`, `runPlain`, `Regula.Reader.readProject`, `walk` and `readExact`, in a scratch run on 2026-10-31. Issue 5 is open, so this file stands in for the confirmation record, and nothing checks it against the record.
 
-The first paragraph of [the specification](README.md) states the purpose, and its section "What the owner's intent requires" states what follows from these answers. A detail below that level is marked in the specification as decided on the owner's behalf, and it is no confirmation of the owner's.
+[The README](../README.md#purpose-and-constraint) states the purpose, and the section "What the owner's intent requires" of [the specification](README.md) states what follows from these answers. A detail below that level is marked in the specification as decided on the owner's behalf, and it is no confirmation of the owner's.
 
 ### A pass is owed
 
