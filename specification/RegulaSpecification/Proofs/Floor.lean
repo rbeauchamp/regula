@@ -11,10 +11,11 @@ import RegulaSpecification.Proofs.Load
 # What the rules ask of a build, by what Lean answered
 
 `RegulaSpecification.Loader.LoadFloor` says what a build must be for the loader and the rules to pass it, in the terms of
-`Regula.Load.Facts`, so as a premise of an owed pass it would apply the checker's functions to an answer. `BuildAnswer`
-holds only the answers, and `BuildAnswer.Floor` states the same requirement over them, through Lean's own fields and
-functions and the components of a path, so `pass_iff_answer` states the checker's decision against a property that names
-none of its functions.
+`Regula.Load.Facts`, the checker's own reading of what Lean answered. As a premise of an owed pass it would apply the checker's
+functions to an answer. `BuildAnswer` holds only the answers: what Lean's import gave, where Lean's search found each `.olean`, and the
+two library directories that Lake's load named. `BuildAnswer.Floor` states the same requirement over them, through Lean's own fields and
+functions and the components of a path. `loadFloor_iff` relates the two in both directions, so `pass_iff_answer` states the checker's
+decision against a property that names none of its functions.
 -/
 
 namespace RegulaSpecification.Effects
@@ -134,7 +135,8 @@ which the rules read the same. -/
 def Shown (n : Name) (info : ConstantInfo) : Prop :=
   ∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead k info ∧ StrictlyBelow a.rootDir x.2
 
-/-- What the rules ask of a finished build, by what Lean and Lake answered and with none of the checker's functions. -/
+/-- What the rules ask of a finished build, by what Lean and Lake answered and with none of the checker's
+functions. -/
 structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   /-- Each module of the default targets is claimed. -/
   roots : ∀ r ∈ roots, a.Claimed r

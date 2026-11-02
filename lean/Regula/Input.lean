@@ -11,15 +11,19 @@ public import Std.Data.HashSet
 /-!
 # The closed input
 
-The one input every rule of the checker reads: the constants Lean loads from the finished build, the
-modules that the build claims, and the profile that the project states. It carries no source text,
-message, compiled code, option or build log, so a rule cannot decide anything that is not here.
+The one input every rule of the checker reads: the constants Lean loads from the finished build, the modules
+that the build claims, and the profile that the project states. It carries no source text, message, compiled
+code, option or build log, so a rule cannot decide anything that is not here.
 
-A value of `Input` has the closed form by its type, so a rule has no case for an input that lacks
-it. The loader makes names unique by construction, and `Draft.admit` is the one place that checks
-the rest, refusing the reading or giving the proofs. The types follow
-`specification/RegulaSpecification/Input.lean`. That Lean's and Lake's interfaces report the build
-is what the specification's trusted base lists.
+A value of `Input` has the closed form by its type: no name is that of two constants (`Draft.unique`), each
+mentioned constant is held (`Input.closed`), and at least one module is claimed (`Input.claims`). So a rule
+has no case for an input that lacks that form. The loader constructs the first of these
+(`Regula.Load.Facts.input`), and `Draft.admit` is the one place that reads the other two, and either refuses
+the reading or gives the proofs.
+
+The types follow `specification/RegulaSpecification/Input.lean`, and `Draft.admit` decides that module's
+admission (`Input.WellFormed`). That Lean's and Lake's interfaces report the build is what the
+specification's trusted base lists.
 -/
 
 public section

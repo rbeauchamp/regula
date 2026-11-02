@@ -9,7 +9,8 @@ import RegulaSpecification.Effects
 # What the reader must have done, and what a whole run must do
 
 `Reason` is the closed set of what may keep a project from being admitted: a refusal or a failure to read
-that has no such reason is no behaviour of the checker, so a reader that refuses everything is ruled out too.
+that has no such reason is no behaviour of the checker, so a reader that refuses everything is ruled out
+too.
 -/
 
 namespace RegulaSpecification.Effects
@@ -81,10 +82,10 @@ inductive Sees (headers : List (Name × Array Import)) (held : List Name) : Name
 /-- What a reading of the project at `dir`, in the checker's tree `dirTree`, rests on: for each thing that the
 reading states, the events of the run that gave it.
 
-`held` says what stands at each place where the build consumes a text, by the components of a path. So the statement that
-the text judged is what stands is about that state, and not about a write that some event once made: `Evidence` with
-`held` fixed keeps under more events, and `Decided` gives it `written t`, a fold of the run's own requests over its whole
-reading, which observes no file (`ReadBack` is the observation). -/
+`held` says what stands at each place where the build consumes a text, by the components of a path. So the
+statement that the text judged is what stands is about that state, and not about a write that some event
+once made: `Evidence` with `held` fixed keeps under more events, and `Decided` gives it `written t`, a fold
+of the run's own requests over its whole reading, which observes no file (`ReadBack` is the observation). -/
 structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List String → Option String)
     (r : Reading) : Prop where
   /-- The project and the tree have real paths, and neither lies in the other. -/

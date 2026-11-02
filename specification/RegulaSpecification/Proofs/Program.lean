@@ -130,8 +130,10 @@ theorem refuser_fails (tree : FilePath) :
     | proofOnly => exact reason_nil (hdec.2.1 (by simp))
     | incomplete => exact reason_nil (hdec.2.1 (by simp))
 
-/-- That `main` of `Regula.LintMain` is this interpretation is read from the code, and that the compiled
-program does what its definition says stays with Lean's compiler, which the trusted base lists. -/
+/-- What `Prog.interpret` computes is the value of a run of the program, from any state of the world and for any
+table: so all that `run_meets` states holds of it. That `main` of `Regula.LintMain` is that interpretation is read from the code,
+and that the compiled program does what its definition says stays with
+Lean's compiler, which the trusted base lists. -/
 theorem executed_meets (table : (o : Op L E) → BaseIO (Resp o)) (args : List String) (w : Void IO.RealWorld) :
     Runs (Regula.Shell.run args : Prog L E UInt32)
       (traceFrom table (Regula.Shell.run args) w)
@@ -209,8 +211,9 @@ theorem spawnLake_eq (program cwd : FilePath) (args : List String) :
           cwd := some cwd, stdin := .null }
       child.wait) := rfl
 
-/-- What `importParsers` gives as the namespaces that hold a scoped parser is what Lean's own state of the
-parser extension holds, the keys of its `scopedEntries` map, which is what H1 reads. -/
+/-- `importParsers` enables Lean's initializers and imports: two calls, with no test, and what it gives as the
+namespaces that hold a scoped parser is what Lean's own state of the parser extension holds, the keys of its
+`scopedEntries` map, which is what H1 reads. -/
 theorem importParsers_eq (enable : BaseIO Unit) (modules : List Name) :
     importParsers enable modules = (do
       enable

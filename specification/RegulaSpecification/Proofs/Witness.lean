@@ -8,11 +8,14 @@ import RegulaSpecification.Proofs.Shell
 /-!
 # A project that the reader admits
 
-`admits_a_project` is the record's witness, under hypotheses: the trace of a project of one module `Good` in the
-closed language. The tests of a path read `System.FilePath`, whose separator depends on `System.Platform.isWindows`,
-an `opaque` constant, so `WitnessPaths` states what those tests give on the paths of the project as hypotheses, and no
-theorem discharges them. Observed: the gate's run on Regula's own checkout takes the same branches on real paths, and
-its run ends with `full verdict: pass`.
+`admits_a_project` is the record's witness, under hypotheses: for paths that meet `WitnessPaths`, there is a
+trace on which the check that runs admits. The proof's trace is that of a project of one module `Good` in
+the closed language.
+
+The tests of a path read `System.FilePath`, whose separator depends on `System.Platform.isWindows`, an
+`opaque` constant, so `WitnessPaths` states what those tests give on the paths of the project as hypotheses,
+and no theorem discharges them. Observed: the gate's run on Regula's own checkout takes the same branches on
+real paths, and its run ends with `full verdict: pass`.
 -/
 
 namespace RegulaSpecification.Effects

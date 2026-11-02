@@ -10,8 +10,13 @@ import RegulaSpecification.Proofs.Standing
 /-!
 # What the reader gives
 
-`readProject_spec` is the theorem about the reader, for every response. That `Compiled` is what Lake compiles is the
-hypothesis `LakeBehaviour`.
+`readProject_spec` is the theorem about the reader, for every response: a reading the check admits rests on
+`Evidence` of each state of the tree that holds what the plan of the reading says (`Holds`), and the state
+that the reader's own acts leave is one (`holds_of_leavesAs`), so every file `Compiled` names is read and
+the text judged is the text that stands (that `Compiled` is what Lake compiles is the hypothesis
+`LakeBehaviour`); any other outcome rests on a `Reason`, so a project with no such reason is admitted; an
+admission received no failed answer; and its acts meet the grammar `ReadingPreparation`, which places every
+act in the tree (`ReadingPreparation.readActs`).
 -/
 
 namespace RegulaSpecification.Effects

@@ -1,7 +1,7 @@
 /build/
 /.lake/
 
-# Lean's outputs from a direct `lean` invocation
+# Lean build artifacts (in case of direct `lean` invocation)
 *.olean
 *.ilean
 *.trace
@@ -11,5 +11,5 @@
 .idea/
 .vscode/
 
-# Scratch space for local probes
+# Local probe scratch space
 /tmp/

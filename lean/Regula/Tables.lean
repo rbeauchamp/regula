@@ -12,9 +12,13 @@ public import Regula.Reach
 # The tables of the closed input
 
 A value of `Tables i` holds what the rules look up of the input `i`, with the proofs of what each
-table holds, so a table of another input cannot reach a rule, and no theorem about a rule has a
-hypothesis about its table. The proofs are here because the proof fields of that value need them. No
-field holds an axiom set: the tables compute it from the input itself, so no set can be missing.
+table holds. So a table of another input cannot reach a rule, and no theorem about a rule has a
+hypothesis about its table. `Input.tables` constructs the one that a run computes, and the proofs
+are here because the proof fields of that value need them.
+
+The tables compute the axiom set of a constant from the input itself: the constants that each
+constant mentions and the kind of each (`Tables.axiomSet`). No field holds a set, so no set can be
+missing, and `Tables.mem_axiomSet` states what it holds.
 -/
 
 public section
@@ -51,7 +55,8 @@ structure Tables (i : Input) where
   claimed : List Decl
   /-- These are exactly the constants of the input whose module is claimed. -/
   mem_claimed : ∀ d, d ∈ claimed ↔ d ∈ i.decls ∧ d.module ∈ i.modules
-  /-- Each axiom of the input, with the constants that reach it. -/
+  /-- Each axiom of the input, with the constants that reach it through the constants each mentions
+  (`axiomSet`). -/
   axiomReach : List (Name × Std.HashSet Name)
   /-- The sets hold exactly the axioms that each constant reaches. -/
   mem_axiomReach : ∀ c a, (∃ s, (a, s) ∈ axiomReach ∧ s.contains c = true) ↔ i.AxiomOf c a

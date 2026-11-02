@@ -36,8 +36,8 @@ inductive RuleId where
   helper, without the exempted form of one, or a constant whose value mentions a loop
   construct of Lean. -/
   | escapeHatch
-  /-- RG1010: a Lean file or the Lake configuration of the project holds something outside the closed
-  set that the language check admits (`Regula.Language`). -/
+  /-- RG1010: a Lean file or the Lake configuration of the project holds something outside the closed set that the
+  language check admits (`Regula.Language`). -/
   | language
   /-- RG2001: the build cannot be loaded, the full gate cannot read the project, or the input does not
   have the closed form. -/

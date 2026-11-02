@@ -14,16 +14,18 @@ import all Regula.TestListing
 /-! # The load configuration of the test listing
 
 The validation pipeline runs the listing of the tests that Lake knows for the package,
-`lean/Regula/TestListing.lean`, with `lean --run` before the package is built, so the listing imports
-only Lake. It makes its load configuration itself (`Regula.TestListing.loadConfig`), because the module
-of `Lake.LakeOptions.mkLoadConfig` links the code of every command of Lake, and this module proves the
-two configurations equal. The proof reduces both sides, so each `import all` above makes visible a
-body that its module does not expose: `loadConfig` of `Regula.TestListing`, `mkLoadConfig` and what it
-calls of `Lake.CLI.Main`, and the bind of `EST` (`Init.System.ST`), the monad of `EIO`.
+`lean/Regula/TestListing.lean`, with `lean --run` before the package is built, so the listing
+imports only Lake. The listing makes its load configuration itself
+(`Regula.TestListing.loadConfig`), not with `Lake.LakeOptions.mkLoadConfig`, whose module links the
+code of every command of Lake. This module proves the two configurations equal (`loadConfig_eq`).
 
-The theorems about `main` hold for every answer of Lake and of the streams, because `IO` is a state
-monad in Lean's own definition. That the compiler keeps the order of the effects stays with the
-compiler.
+The proof reduces both sides, so it reads bodies that those modules do not expose, and each
+`import all` above is what makes one visible: `loadConfig` of `Regula.TestListing`, `mkLoadConfig`
+and what it calls of `Lake.CLI.Main`, and the bind of `EST` (`Init.System.ST`), the monad of `EIO`.
+
+It also proves of the definition of `main`, at `IO` and from any state of the world, what the program does with what the
+load gives (`main_runs`, `main_zero`). This holds for every answer of Lake and of the streams, because `IO` is a state monad in
+Lean's own definition. That the compiler keeps the order of the effects stays with the compiler.
 -/
 
 public section

@@ -11,11 +11,17 @@ import RegulaSpecification.Input
 /-!
 # The intent record of a rule
 
-A rule's intent record (`LeanIntent.IntentRecord`) has the rule's function as its subject and one property: the
-function reports a subject exactly when the subject violates the rule. So the rule's meaning is all in its
-violation predicate, which each rule module defines and documents. The function takes the proof of the form with
-the input (`Checker`), so it has no case for an input the admission refuses. What the record leaves unsaid is the
-order and repetition of reported subjects (`SameReports`).
+Each rule is a pure function from the well-formed closed input to the list of constants it reports. A rule's
+function takes the proof of the form with the input (`Checker`), so it has no case for an input the
+admission refuses. Its intent record (`LeanIntent.IntentRecord`) has that function as its subject and one
+property: the function reports a subject exactly when the subject violates the rule (`ruleRecord`). The
+rule's meaning is therefore all in its violation predicate, which each rule module defines and documents.
+
+The theorems below discharge lean-intent's obligations for such a record from two witnesses that each rule
+supplies (`Witnessed`): a well-formed input on which a subject violates the rule, and a well-formed input
+with a subject that does not. They give O2 at confirmation and before running, O3, O4, and O5 with the
+freedom `SameReports`, which is what the record leaves unsaid: the order and repetition of reported
+subjects.
 -/
 
 namespace RegulaSpecification

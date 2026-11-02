@@ -8,11 +8,20 @@ import RegulaSpecification.EffectsRun
 /-!
 # The record of a run
 
-`programRecord` states a whole run, for every response, and it is the contract that `Regula.Shell.run` is proved
-against. `Reason` is the closed list of refusals that the specification's README publishes: each case is a
-statement of what Lean, Lake or the operating system answered, so a refusal is never untrue of those answers, and
-it says nothing of who else ought to pass. Responses remain arbitrary: these relations constrain the requests,
-and nothing of whether an external system answers truly.
+`Reason` states relevance to the requested build (`Scene`, `Named`, `Needed`). `FullRun` also requires the
+ordered preparation of every copy, load and command, and the search path that each lookup and import names,
+including failed attempts, and that an admission rests on `Evidence` of the state `written` that the reading
+leaves, so that it is about the text that stands. Neither relevance alone nor the absence of a reason
+establishes preparation. `PlainRun` requires the same of each lookup and import for a proof verdict.
+Responses remain arbitrary: these relations constrain the requests, and nothing of whether an external
+system answers truly. `PlainReason`, `TreeReason` and `BuildRejected` state the reasons of the finished load
+and build. `programRecord` states a whole run, for every response, and it is the contract that
+`Regula.Shell.run` is proved against. `RegulaSpecification.Proofs.Owed` states what follows of every program
+that meets it: a run in which nothing that the build needs has failed, on a project nothing keeps from being
+admitted, and whose environment has `BuildAnswer.Floor`, passes. `Reason` is the closed list of refusals
+that the specification's README publishes: each case is a statement of what Lean, Lake or the operating
+system answered, so a refusal is never untrue of those answers, and it says nothing of who else ought to
+pass.
 -/
 
 namespace RegulaSpecification.Effects
@@ -143,9 +152,9 @@ def RulesSearchOp (root : Root L) : Op L E → Prop
   | .findOLean path _ | .importForRules path _ => path = root.leanPath
   | _ => False
 
-/-- Module copies in order, with reads free between them. This grammar says only which acts may occur: it admits a
-later copy of another text, and it is `Evidence` of what stands afterwards that refuses one the run did not judge
-(`uncheckedCopy_fails`). -/
+/-- Module copies in order, with reads free between them. This grammar says only which acts may occur: it admits
+a later copy of another text, and it is `Evidence` of what stands afterwards that refuses one the run did
+not judge (`uncheckedCopy_fails`). -/
 inductive ModuleCopies (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath)) :
     List (Event L E) → List (Event L E) → Prop where
   /-- No further module-copy events remain. -/
@@ -194,8 +203,8 @@ inductive ConfigCopies (sysroot : String) (project tree : FilePath) :
       ConfigCopies sysroot project tree copies (prior ++ before ++ step) rest →
       ConfigCopies sysroot project tree ((path, text) :: copies) prior (before ++ step ++ rest)
 
-/-- The reading phase's complete ordered acts. No act is allowed before the first copy, so every act of a reading
-lies in the tree (`ReadingPreparation.readActs`). -/
+/-- The reading phase's complete ordered acts. No act is allowed before the first copy, so every act of a
+reading lies in the tree (`ReadingPreparation.readActs`). -/
 def ReadingPreparation (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
   Quiet t ∨ ∃ project tree sysroot text before rest,
     t = before ++ rest ∧ Quiet before ∧
@@ -229,9 +238,8 @@ def PlainPreparation (t : List (Event L E)) : Prop :=
     | .ok (some root, _) => InputPreparation root rest
     | _ => Quiet rest
 
-/-- Relevance to the requested build: its observations and copies, and each needed name's file or place
-in the toolchain. This relation alone does not order events, and an operation outside these cases justifies
-nothing. -/
+/-- Relevance to the requested build: its observations and copies, and each needed name's file or place in the
+toolchain. This relation alone does not order events. An operation outside these cases justifies nothing. -/
 inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Prop where
   /-- The toolchain. -/
   | sysroot : Needed t dir treeDir (.getEnv "LEAN_SYSROOT")
@@ -319,9 +327,9 @@ inductive Planned (t : List (Event L E)) (project tree : FilePath) (root : Root 
   | source {m path text} : Named t project tree root modules m → FileOfModule root modules m path →
       SourceText t project tree path text → Planned t project tree root modules path text
 
-/-- What may keep the requested project from admission, with the outcome each response justifies. A `Reason` by
-itself is not a complete refusal contract: `FullRun` also requires preparation at every occurrence in the same
-reading phase. -/
+/-- What may keep the requested project from admission, with the outcome each response justifies. `Needed`
+supplies relevance; `FullRun` separately requires preparation at every occurrence in this same reading
+phase. Thus a `Reason` by itself is not a complete refusal contract. -/
 inductive Reason (t : List (Event L E)) (dir treeDir : FilePath) : Outcome → Prop where
   /-- An operation that the build needs failed. -/
   | failed {e : Event L E} : e ∈ t → Needed t dir treeDir e.op → e.failed → Reason t dir treeDir .incomplete
@@ -551,8 +559,8 @@ def EndsWith (t : List (Event L E)) (line : String) : Prop :=
 def Refusal (t : List (Event L E)) (c : UInt32) : Prop :=
   c = 2 ∧ EndsWith t (Regula.Closed.Verdict.proofLine .incomplete) ∧ ∀ e ∈ t, e.isOnlySaying = true
 
-/-- A run of the proof verdict: its exit code and last line are the verdict's on what the load gave, and it
-acts on nothing. -/
+/-- A run of the proof verdict: its exit code and last line are the verdict's on what the load gave, and it acts
+on nothing. -/
 def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
   ∃ result, ∃ subject : FilePath, Loaded PlainRoot PlainReason t p result ∧
     c = (Regula.Closed.decision result).verdict.exitCode ∧
@@ -579,8 +587,8 @@ def LakeInvocation (program tree : FilePath) (args : List String) (response : Ex
   ∃ pre post, t = pre ++ ⟨.runLake program tree args, response⟩ :: post ∧
     (∀ e ∈ pre, e.isOnlySaying = true) ∧ ∀ e ∈ post, e.isOnlySaying = true
 
-/-- The complete build phase: obtain this toolchain's Lake, build once, and replay once exactly when the
-build succeeded. This constrains Regula's requests, and leaves the filesystem effects of the trusted Lake commands
+/-- The complete build phase: obtain this toolchain's Lake, build once, and replay once exactly when the build
+succeeded. This constrains Regula's requests, and leaves the filesystem effects of the trusted Lake commands
 outside it. -/
 def BuildProtocol (sysroot : String) (tree : FilePath) (t : List (Event L E)) : Prop :=
   ∃ program lakeLib first rest response,
@@ -589,8 +597,9 @@ def BuildProtocol (sysroot : String) (tree : FilePath) (t : List (Event L E)) : 
     ((response ≠ .ok 0 ∧ rest = []) ∨
       (response = .ok 0 ∧ ∃ replay, LakeInvocation program tree replayArguments replay rest))
 
-/-- The reload and rule phase issues no explicit write, directory creation, allocation, removal or
-command request. Effects inside trusted calls remain outside the trace. -/
+/-- The reload and rule phase issues no explicit write, directory creation, allocation, removal or command
+request. `RulesPreparation` also orders its load and fixes the search path of each lookup and import;
+effects inside trusted calls remain outside the trace. -/
 def ReloadOp : Op L E → Prop
   | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .println _ | .flush | .parseHeader _ | .parseCommand .. | .findOLean ..
@@ -611,8 +620,10 @@ inductive BuildRejected (sysroot : String) (tree : FilePath) (t : List (Event L 
       (⟨.runLake program tree replayArguments, r⟩ : Event L E) ∈ t → r ≠ .ok 0 →
       BuildRejected sysroot tree t
 
-/-- The exact build and replay protocol, and the report justified by their responses or the rules. These guarantee
-requests, and assume nothing about effects inside Lake. -/
+/-- The exact build/replay protocol and the report justified by their responses or the rules. Neither phase may
+explicitly alter the copied inputs. `RulesPreparation` directs the reload by the tree's real-path response,
+and each rules import or lookup names the loaded root's search path, failed attempts included. These are
+guarantees about requests, and assume nothing about effects inside Lake. -/
 def BuildAndRules (sysroot : String) (tBuild tRules : List (Event L E)) (tree : FilePath) (p : Regula.Closed.Profile)
     (report : Report) : Prop :=
   BuildProtocol sysroot tree tBuild ∧ (∀ e ∈ tRules, ReloadOp e.op) ∧
@@ -631,8 +642,9 @@ def NotRemoving : Op L E → Prop
   | .removeDirAll _ => False
   | _ => True
 
-/-- A full run on `dir`. All responses remain arbitrary, including inconsistent filesystem answers and opaque
-effects inside trusted calls. -/
+/-- A full run on `dir`: relevance and ordered preparation hold together on the exact reading phase. All
+responses remain arbitrary, including inconsistent filesystem answers and opaque effects inside trusted
+calls. -/
 def FullRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
   (∃ e rest, t = ⟨.createTempDir, .error e⟩ :: rest ∧ c = Report.incomplete.exitCode ∧
     EndsWith t Report.incomplete.label ∧ ∀ e ∈ rest, e.isOnlySaying = true) ∨
@@ -656,8 +668,10 @@ def OnPinnedLean (t : List (Event L E)) (run : List (Event L E) → Prop) (c : U
   ∃ v rest, t = ⟨.leanVersion, v⟩ :: rest ∧ (v = Regula.Closed.pinnedLean → run t) ∧
     (v ≠ Regula.Closed.pinnedLean → Refusal t c)
 
-/-- What a whole run does, for each argument list. Every argument list other than one profile is a refusal, so no
-argument selects what is audited. -/
+/-- What a whole run does, for each argument list: a subject is a program of the checker. One profile, and the
+answer for the variable `REGULA_FULL` says which run: the proof verdict when it is unset, the full gate on
+the directory it names when it is set. Every other argument list is a refusal, so no argument selects what
+is audited. -/
 def RunMeets (w : List String → Prog L E UInt32) : Prop :=
   ∀ args t c, Runs (w args) t c →
     match args with

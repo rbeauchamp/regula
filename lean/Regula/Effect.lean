@@ -15,13 +15,16 @@ public import Lean.Parser.Module
 
 The checker's program is a value of `Prog`: a tree whose every node names one operation of the closed
 type `Op`, with what to do for each response that operation can give. Nothing in the tree performs an
-effect, and `Prog.interpret` performs each operation through a table. So a decision of the checker is
-pure code in the tree, and a theorem about the tree holds for every response, a failure included,
-with no assumption that the file system stays still. Each operation that can fail gives an `Except`,
-so the interpreter runs in `BaseIO`, whose type holds no exception.
+effect. `Prog.interpret` runs a tree: it performs each operation through a table, and passes the response
+to the rest. So a decision of the checker is pure code in the tree, about whatever a response holds, and a
+theorem about the tree holds for every response, a failure included, with no assumption that the file system
+stays still.
 
-`L` and `E` stand for a library, whose modules Lake lists, and the environment that Lean's parser
-reads, which the tree passes on and never reads. The checker runs at `Lake.LeanLib` and
+A failure is a response. Each operation that can fail gives an `Except`, so the interpreter runs in `BaseIO`,
+whose type holds no exception, and the tree has one way out: its leaf.
+
+`L` and `E` stand for two values of Lake and Lean that the tree passes on and never reads: a library, whose
+modules Lake lists, and the environment that Lean's parser reads. The checker runs at `Lake.LeanLib` and
 `Lean.Environment`, and each theorem holds at every type.
 -/
 
@@ -35,7 +38,8 @@ open System (FilePath)
 
 /-- What Lake's load gives of the root package and its workspace, each field a projection of that load. -/
 structure Root (L : Type) where
-  /-- The source directories that the configuration names. -/
+  /-- The source directories that the configuration names: the package's, each library's and each
+  executable's. -/
   sourceDirs : List FilePath
   /-- Each library, with the entries of its `globs`. -/
   libraries : List (Name × List Lake.Glob)
@@ -106,7 +110,7 @@ inductive Op (L E : Type) where
   /-- A Lake command in a directory: its exit code. -/
   | runLake (program : FilePath) (cwd : FilePath) (args : List String)
 
-/-- What each operation can give. -/
+/-- What each operation can give. An operation that can fail gives its failure as a value. -/
 @[expose] def Resp {L E : Type} : Op L E → Type
   | .leanVersion => String × String
   | .getEnv _ => Option String

@@ -639,8 +639,8 @@ theorem copy_sliceTo_ne (s : String) (x : s.Pos) (hx : x ≠ s.endPos) : (s.slic
   apply String.Pos.Raw.ext
   simpa using this
 
-/-- The proof reads `FilePath.parent` and takes both answers of `isAbsolute`, so it needs no value of the
-`opaque` `System.Platform.isWindows`. -/
+/-- No path is its own parent, on any platform: the proof reads `FilePath.parent` and takes both answers of
+`isAbsolute`, so it needs no value of the `opaque` `System.Platform.isWindows`. -/
 theorem parent_ne_self (p : FilePath) : p.parent ≠ some p := by
   have slice : ∀ x : p.toString.Pos, x ≠ p.toString.endPos →
       some (FilePath.mk (p.toString.sliceTo x).copy) ≠ some p := by

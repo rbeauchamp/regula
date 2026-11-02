@@ -11,15 +11,15 @@ import RegulaSpecification.Proofs.Floor
 /-!
 # A pass is owed
 
-What the record of a run (`RegulaSpecification.Effects.programRecord`) requires of every program that meets it, by the
-record alone. It reads no program, so it holds of each subject that meets the record, the one that runs included.
+What the record of a run (`RegulaSpecification.Effects.programRecord`) requires of every program that meets
+it, by the record alone. It reads no program, so it holds of each subject and not only of the one that runs.
 
-`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass, and no statement here says
-that: a refusal is true of what the run was answered, and a project with no refusal, on which the rules hold, passes.
-Preparation comes from `PlainRun` and `FullRun`, not from assuming reasons absent: their phase relations constrain every
-copy, load, command, lookup and import, failed attempts included. The pass theorems separately require the absence-of-reason
-hypotheses in `PlainOwed` and `FullOwed`. The premises concern responses and content, never a branch of a program, and neither
-implication to a pass needs consistent responses.
+`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass, and no
+statement here says that: a refusal is true of what the run was answered, and a project with no refusal, on
+which the rules hold, passes. Preparation is supplied by `PlainRun` and `FullRun`, not by assuming reasons
+absent: their exact phase relations constrain every copy, load, command, lookup and import, including failed
+attempts. The premises concern responses and content, never a branch of a program. No consistency of
+responses is needed for either implication to a pass.
 -/
 
 namespace RegulaSpecification.Effects
@@ -374,8 +374,8 @@ theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {t
   cases he'
   exact full_owed hf owed
 
-/-- A program that asks which Lean this is and which run is asked for, reads the environment variable `name`, and says that the
-proof verdict is incomplete. -/
+/-- A program that asks which Lean this is and which run is asked for, reads the environment variable `name`,
+and says that the proof verdict is incomplete. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv Regula.Shell.fullVariable) fun _ =>

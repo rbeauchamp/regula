@@ -65,8 +65,8 @@ theorem split_before {G R mid post : List (Event L E)} {e : Event L E} (h : G ++
       obtain ⟨rest, hr⟩ := ih h.2
       exact ⟨rest, by simp [hr, h.1]⟩
 
-/-- This is about the run's own requests: what a trusted call does inside itself and what another process does are
-not events of the trace. -/
+/-- This is about the run's own requests: what a trusted call does inside itself and what another process does
+are not events of the trace. -/
 theorem FullRun.gate_stands {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) :
@@ -145,8 +145,8 @@ theorem Evidence.judged {T : List (Event L E)} {dir treeDir : FilePath} {held : 
   · exact .inr (.inl (Option.some.inj (hq.symm.trans hpin)))
   · exact .inr (.inr ⟨f, hf, root, project, tree, path, i, md, h1, h2⟩)
 
-/-- A trace that, after the reading, reads a file of the project again and copies what that read gave over the file in
-the tree. -/
+/-- A trace that, after the reading, reads a file of the project again and copies what that read gave over the
+file in the tree. -/
 def uncheckedCopy (source path parent : FilePath) (text : String) : List (Event L E) :=
   [⟨.readFile source, .ok text⟩, ⟨.createDirAll parent, .ok ()⟩, ⟨.writeFile path text, .ok ()⟩]
 
@@ -219,8 +219,11 @@ theorem uncheckedCopy_build_fails {T post : List (Event L E)} {dir source path p
     · cases congrArg Event.op he
     · exact hnotFile name x hm
 
-/-- No theorem here needs that different components name different files, or that a write that answered success
-stored its text. -/
+/-- At each Lake command and each load for the rules of a full run, each text that stands by a write of the reading is the answer that
+the file system gave for that write's path after the reading's last act, and that same segment holds its answer that nothing has the name
+`lakefile.lean` in the tree, which Lake prefers to the configuration judged. Between that answer and this request the run asks no
+write and no removal, and the events of the reading after it hold no act at all. So no theorem here needs that different components
+name different files, or that a write that answered success stored its text. -/
 theorem FullRun.answered_at_consumer {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
     (h : FullRun t dir p c) {pre post : List (Event L E)} {e : Event L E} (ht : t = pre ++ e :: post)
     (he : e.consumesTree = true) :

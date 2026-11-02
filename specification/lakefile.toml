@@ -6,10 +6,14 @@ defaultTargets = ["RegulaSpecification"]
 lintDriver = "regula/lint"
 lintDriverArgs = ["standard-logical"]
 
-# The specification of Regula (`README.md` in this directory). Nothing of the root package imports it, and
-# `lake build` here checks every statement and every theorem.
+# The specification of Regula (`README.md` in this directory): each rule's formal statement, written as
+# an intent record of lean-intent, and the proofs of the functions that the checker runs against those
+# statements. Nothing of the root package imports it. `lake build` here checks every statement and every
+# theorem.
 
-# lean-intent, which requires no package.
+# lean-intent, at commit 30fe70d on its `main`, after its umbrella modules were removed. The
+# specification imports three of its modules: `LeanIntent.Record`, `LeanIntent.Obligations` and
+# `LeanIntent.Progress`. It requires no package.
 [[require]]
 name = "lean-intent"
 git = "https://github.com/rbeauchamp/lean-intent"

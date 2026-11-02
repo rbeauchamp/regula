@@ -9,11 +9,12 @@ import Regula.Shell
 /-!
 # The local gate, at `IO`
 
-The gate program is the merge gate, and a defect in it that let a broken change pass would be serious, so its
-definitions are proved at `IO`, from any state of the world. `BaseIO` and `IO` are state monads in Lean's own
-definition (`Init/System/ST.lean`), so no assumption about the order of effects is needed for this. What the
-operating system does with the request of each step stays trusted. A defect that only stops the gate visibly,
-such as a failed copy or removal, which `IO` turns into a nonzero exit, is accepted risk.
+The gate program is the merge gate, and a defect in it that let a broken change pass would be serious. `runSteps_io`,
+`runIn_zero` and `runLocal_zero` prove, of the definitions at `IO`, from any state of the world, that it gives 0 only when it
+wrote each file of `checkerFiles` to the checker's directory joined with that file, with the bytes it read, and for each step
+of `localSteps` there are worlds in which it spawned that step's own `lake` command and that child's wait gave 0 (`StepRan`, `runStep_ran`), with that directory as the checker and the working directory as the project. `BaseIO` and `IO` are state monads in Lean's own definition (`Init/System/ST.lean`), so
+no assumption about the order of effects is needed for this. `localSteps_eq`, `localSteps_full`, `stepRequest` and `runStep_spawns` state what each step asks the operating system to start, and what it does with that request stays trusted. A defect that only stops the gate visibly, such as a failed
+copy or removal, which `IO` turns into a nonzero exit, is accepted risk.
 -/
 
 namespace RegulaSpecification.GateProgram
@@ -228,8 +229,8 @@ theorem checkerFiles_io (w w' : Void IO.RealWorld) (files : List System.FilePath
       exact ⟨sources, others, w₁, rfl, hr, hf.symm⟩
 
 /-- This says nothing of where `target / file` lies: `/` gives `file` itself for an absolute `file`
-(`FilePath.join`, `Init/System/FilePath.lean:126-130` at v4.35.0), so such a copy writes to the file it read,
-and a relative `file` with `..` can leave `target`. -/
+(`FilePath.join`, `Init/System/FilePath.lean:126-130` at v4.35.0), so such a copy writes to the file it
+read, and a relative `file` with `..` can leave `target`. -/
 theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (h : copyFile target file w = .ok () w') :
     ∃ bytes w₁ w₂, IO.FS.readBinFile file w₁ = .ok bytes w₂ ∧
       IO.FS.writeBinFile (target / file) bytes w₂ = .ok () w' := by
@@ -299,8 +300,8 @@ theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h 
     exact ⟨files, w₁, rfl, copyAll_io target files w₁ w' h⟩
 
 /-- That a step builds what was written and checks this checkout rests on what `localSteps` names, the file
-system and Lake, which this theorem does not state, and so do which program `PATH` selects and what Lake's exit
-code means. -/
+system and Lake, which this does not state, and so do which program `PATH` selects and what Lake's exit code
+means. -/
 theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
     ∃ target root w₁ w₂ w₃ w₄, IO.FS.createTempDir w = .ok target w₁ ∧ copyChecker target w₁ = .ok () w₂ ∧
       IO.currentDir w₂ = .ok root w₃ ∧ runIn target.toString root.toString w₃ = .ok 0 w₄ ∧
@@ -362,7 +363,8 @@ theorem localSteps_full (checker root : String) :
       s.full = if s.arguments = ["exe", "lint", "standard-logical"] then some root else none := by
   simp [localSteps]
 
-/-- What the operating system and `lake` do with the request that `runStep` starts is trusted. -/
+/-- What `runStep` does for any `step`, with no premise about how the call ends: it announces the step, starts the process that
+`stepRequest` describes and waits for it. What the operating system and `lake` then do with the request is trusted. -/
 theorem runStep_spawns (step : Step) :
     runStep step = (do
       announce step

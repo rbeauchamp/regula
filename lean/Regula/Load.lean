@@ -16,25 +16,26 @@ import Lean.Compiler.Old
 /-!
 # The loader of the closed input
 
-What reads a loaded environment into the closed input (`Regula.Closed.Input`), and refuses, as an
-error that makes the run `incomplete` (RG2001), what it cannot read. It performs no effect:
-`Regula.Shell` asks Lean for the environment and the places, and `Regula.Workspace` holds the calls of
-Lake. What this leaves assumed about Lean and Lake is in the specification's trusted base.
+What reads a loaded environment into the closed input (`Regula.Closed.Input`), and refuses, as an error that
+makes the run `incomplete` (RG2001), what it cannot read. It performs no effect: `Regula.Shell` asks Lean
+for the environment and the places, and `Regula.Workspace` holds the calls of Lake. `Facts.input` is a pure
+function of the environment, and `specification/RegulaSpecification/Proofs/Load.lean` states what it gives
+in terms of the environment. What that leaves assumed about Lean and Lake is in the specification's trusted
+base.
 
 What it reads, and through what:
-
-- The constants: each constant of an environment that `Lean.importModules` loads with `loadExts :=
-  false`, so no extension state is built and no initializer of a loaded module runs, and at the
-  level `.private`, so a `module` file gives each constant with its body, exposed or not
-  (`Lean/Environment.lean:1871` and `:2183` at v4.35.0). `getImplementedBy?` and `isExtern` read the
-  module entries of an extension (`getModuleEntries`), which `importModules` sets whatever `loadExts`
-  is, and no extension's built state.
-- Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds
-  them, so that a constant that Lean's import replaced is read too. What any of them mentions, and
-  whether it is an axiom, counts for its name, in a dependency as in a claimed module.
-- The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A
-  claimed module lies below the root package's library directory, and a constant of the toolchain is
-  one whose module lies below the toolchain's library directory.
+- The constants: each constant of an environment that `Lean.importModules` loads with `loadExts := false`,
+  so no extension state is built and no initializer of a loaded module runs, and at the level `.private`, so a
+  `module` file gives each constant with its body, exposed or not (`Lean/Environment.lean:1871` and `:2183` at
+  v4.35.0). `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
+  which `importModules` sets whatever `loadExts` is, and no extension's built state.
+- Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
+  that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
+  axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
+  constant must also fit the rules itself (`Facts.unread?`).
+- The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A claimed
+  module lies below the root package's library directory; a constant of the toolchain is one whose module lies
+  below the toolchain's library directory.
 -/
 
 public section

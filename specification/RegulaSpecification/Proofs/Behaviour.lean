@@ -79,8 +79,8 @@ structure LakeBehaviour (headers : List (Name × Array Import)) (root : Root L)
   /-- H3. -/
   h3 : ∀ m path, Compiles m path → Compiled headers root modules m path
 
-/-- H3 says what Lake compiles. That Lake reads such a file as it stands is the rest of H3, and no
-theorem here examines it. -/
+/-- H3 says what Lake compiles. That Lake reads such a file as it stands is the rest of H3, and no theorem here
+examines it. -/
 theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {held : List String → Option String} {r : Reading}
     (h : Evidence t dir tree held r) :
     ∃ (project real : FilePath) (sysroot : String) (root : Root L) (log : List String)
@@ -114,8 +114,11 @@ theorem lakeSelection_model (real : FilePath) (err : IO.Error) :
   ⟨⟨⟨(· = real / "lakefile.lean"), fun _ _ h => by cases h⟩, rfl⟩,
     ⟨(parts · = parts (real / "lakefile.toml")), fun _ _ _ _ h => h⟩, rfl⟩
 
-/-- That the answer still holds when Lake runs is another process's matter, which this theorem leaves
-unsaid. -/
+/-- Under H5, Lake takes the configuration judged, at each consumer of a full run, on one answer for each real
+path: `real` is the real path of this run's tree, `path` has the components of `lakefile.toml` there, a read
+through `path` in the last part of the reading gave the text that Lake's parser read, and each file that
+Lake takes in `real` has those components. That the answer still holds when Lake runs is another process's
+matter, which this leaves unsaid. -/
 theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c) {e : Event L E}
     (ht : t = pre ++ e :: post) (he : e.consumesTree = true) (hone : OneRealPath t) :
     ∃ (tree real path : FilePath) (before suffix mid : List (Event L E)) (text : String) (table : Lake.Toml.Table),
@@ -133,9 +136,10 @@ theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : 
   exact B.h5 err taken (hin (List.mem_append_right _ herr)) hno ht'
 
 
-/-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains no
-symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The hypothesis relates
-crossings to those responses alone, and says nothing about the filesystem after the observation. -/
+/-- H4: what successful `IO.FS.realPath` responses in this trace mean. Lean documents that the result contains
+no symbolic links and coincides with POSIX `realpath` (`Init/System/IO.lean:874-881` at v4.35.0). The
+hypothesis relates crossings to those responses alone, and says nothing about the filesystem after the
+observation. -/
 structure RealPathBehaviour (t : List (Event L E)) where
   /-- The path crosses a link at the real-path observations in this trace. -/
   Crosses : FilePath → Prop
@@ -143,7 +147,7 @@ structure RealPathBehaviour (t : List (Event L E)) where
   h4 : ∀ path real, (⟨.realPath path, .ok real⟩ : Event L E) ∈ t →
     Crosses path → parts real ≠ parts path
 
-/-- A model of H4, which says nothing of whether the filesystem is in that state. -/
+/-- This is a model of the hypothesis, and says nothing of whether the filesystem is in that state. -/
 theorem realPathBehaviour_crossing (link target : FilePath) (hne : parts target ≠ parts link) :
     ∃ B : RealPathBehaviour (L := L) (E := E)
       [⟨.realPath link, .ok target⟩, ⟨.realPath target, .ok target⟩],

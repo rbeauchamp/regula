@@ -394,7 +394,8 @@ theorem visible_sound (hs : List (Name × Array Import)) (held : List Name) (fue
                 (Array.mem_toList_iff.mp hi) he hs'⟩
           · exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
 
-/-- That `Sees` is Lean's rule is H1. -/
+/-- The search gives exactly what `Sees` states from its first names, with the bound the reader gives it. So the
+import asked for the parser names exactly the modules that `Sees` states, and that `Sees` is Lean's rule is H1. -/
 theorem mem_visible_iff (hs : List (Name × Array Import)) (held direct : List Name) (fuel : Nat)
     (hf : direct.length + (hs.map (·.2.size)).sum ≤ fuel) (x : Name) :
     x ∈ visibleToolchain (fun n => hs.lookup n) held.contains direct [] fuel ↔

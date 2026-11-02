@@ -12,10 +12,12 @@ import Regula.LanguageSet
 /-!
 # The language check
 
-What the check that reads a project before anything of it is compiled must decide, stated over Lean's
-own `Syntax` and independently of the function that decides it. It imports the closed set, which is
-data, and no function of Regula. The owner's confirmed restatement, the status of each consequence and
-the second reading are in `confirmation.md`; `README.md` gives the plain words.
+What the check that reads a project before anything of it is compiled must decide, stated over Lean's own
+`Syntax` and independently of the function that decides it. It imports the closed set, which is data, and no
+function of Regula.
+
+The owner's confirmed restatement, the status of each consequence and the second reading are in
+`confirmation.md`; `README.md` gives the plain words.
 
 What this module cannot state is that a file the decision admits runs no code of the project when Lean
 compiles it, because no model of Lean's elaborator exists in Lean. `LeanBehaviour` names that as two
@@ -225,8 +227,8 @@ theorem language_meets_iff (d : Reading → Outcome) :
         Covered r → FilesAdmitted r → d r = .admitted) := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, languageRecord]
 
-/-- The property the check is for, read off the record: it admits a reading exactly when everything
-read is in the closed set, and nothing is left out. -/
+/-- The property the check is for, read off the record: it admits a reading exactly when everything read is in
+the closed set, and nothing is left out. -/
 def Inside (r : Reading) : Prop :=
   ConfigClosed r ∧ ReadInFull r ∧ ¬ RequiresDependency r ∧ ¬ MathlibReached r ∧ Covered r ∧
     FilesAdmitted r
@@ -676,8 +678,9 @@ structure LeanBehaviour where
   /-- H2. -/
   h2 : ∀ scopedParsers (ts : List Syntax), (∀ t ∈ ts, TreeAdmitted scopedParsers t) → NoProjectCode ts
 
-/-- What an admitted reading means, under H1 and H2 and no more. The proved part is `admitted_iff`, and
-this theorem only composes it with the hypotheses. -/
+/-- What an admitted reading means, under H1 and H2 and no more: for each file, the trees Lean elaborates are
+ones that run no project code. The proved part is `admitted_iff`; this theorem only composes it with the
+hypotheses. -/
 theorem admitted_runs_no_project_code (L : LeanBehaviour) {d : Reading → Outcome}
     (hd : languageRecord.Meets d) (r : Reading) (ha : d r = .admitted) :
     ∀ f ∈ r.files, ∃ ts, L.Elaborates f ts ∧ L.NoProjectCode ts := by

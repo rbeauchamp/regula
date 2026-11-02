@@ -3,10 +3,12 @@
 # change to it governs the runs that start after its merge.
 #
 # The gate of a change. The repository has no CI workflow. The pipeline's Test step is the gate: it
-# runs `commands.test`, the local gate (`lean/Regula/DiagnosticsGate.lean`), in the run's disposable
-# checkout at the commit it validates, and an exit code other than 0 parks it. No `build_outputs` is
-# declared: for Lake, the only store it may seed is Lake's artifact cache, and the gate runs each
-# command with `LAKE_ARTIFACT_CACHE=false`, so a seeded cache would go unread.
+# runs `commands.test` in the run's disposable checkout at the commit it validates, and an exit code
+# other than 0 parks it. The command is the local gate (`lean/Regula/DiagnosticsGate.lean`), which
+# runs its steps one after another and stops at the first that fails.
+# No `build_outputs` is declared: for Lake, the only store it may seed is Lake's
+# artifact cache, and the gate runs each command with `LAKE_ARTIFACT_CACHE=false`, so a seeded cache
+# would go unread.
 #
 # `no_ci` declares that no workflow file reports a check on a pull request, so a pull request with no
 # checks can count as ready. A check that GitHub still reports is processed as before.
@@ -40,8 +42,7 @@
 # repairs.
 #
 # The listing is lean/Regula/TestListing.lean, whose module docstring states what it reads and
-# what it trusts. The library name in the command is macOS's: on another system the command fails,
-# and so blocks.
+# what it trusts. The library name in the command is macOS's: on another system the command fails.
 #
 # Memory of the listing. Measured on 2026-10-27 on a checkout with no .lake directory: `lake env`
 # peaked at 0.75 GB resident and the program at 1.9 GB resident, most of it Lean's and Lake's .olean
@@ -54,21 +55,23 @@
 # Verdicts of the Test step. `test.no_surface: proceed` lets a `no-surface` verdict, which says that
 # no claim of a change needed a run of the product, complete the step without asking anyone. The
 # reference of no-mistakes describes `proceed` as a declaration that a repository has no running
-# product to drive, and with it tells the Test agent so, but Regula's product is its checker. The
-# setting is here because that question waited on a supervisor for changes of prose and of unused
-# code, where the proofs, the gate and reading settle each claim, and because the supervisor's answer
-# did not catch a park approved with an empty reason. `no-go` and `inconclusive` still park.
+# product to drive, and with it tells the Test agent so. That is not why it is set here: Regula's
+# product is its checker. It is set because that question waited on a supervisor on changes of prose
+# and of unused code, as on pull requests 510 and 511, where the proofs, the gate and reading settle
+# each claim, and because it did not catch the case below: the park of pull request 508 was approved
+# with an empty reason. `no-go` and `inconclusive` still park.
 #
 # `test.instructions` keeps the claims that do need the checker run, because the setting alone does
 # not. The gate's own checker runs must pass, so they show only that Regula's own builds are
 # admitted, and never a refusal on a real build. The proofs reach the closed input, the pure function
 # that fills it from an environment, and the checker's whole run for every answer of Lean, Lake and the
-# operating system (specification/README.md, "The run of the checker"). What those answer, and what
-# the compiled program does, are trusted ("The trusted base"). A change to that loader could otherwise
-# reach `no-surface` with its refusal claims only read from the source. The instructions make such a
-# claim a run against a disposable project, reported `pass` or `fail`, and no-mistakes rejects either
-# result under a `no-surface` verdict. Prose steers the agent and enforces nothing: an agent can still
-# misjudge whether a claim needs a run, and a mistaken `no-surface` then stops nobody.
+# operating system (specification/README.md, "The run of the checker"). What those answer, and
+# what the compiled program does, are trusted ("The trusted base").
+# Pull request 508 changed that loader and reached `no-surface` with its refusal claims only read
+# from the source. The instructions make such a claim a run against a disposable project, reported
+# `pass` or `fail`, and no-mistakes rejects either result under a `no-surface` verdict. Prose steers
+# the agent and enforces nothing: an agent can still misjudge whether a claim needs a run, and a
+# mistaken `no-surface` then stops nobody.
 no_ci: true
 commands:
   test: lean --run lean/Regula/DiagnosticsGate.lean local

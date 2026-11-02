@@ -1,4 +1,3 @@
-# Regula, a checker of Lean builds. It needs nothing beyond the Lean toolchain.
 name = "regula"
 version = "0.11.1"
 description = "A checker of Lean builds: proof holes, project axioms, native proofs, axioms outside a profile, unsafe and partial declarations, Lean's loop constructs, and a closed language checked before anything is compiled."
@@ -18,7 +17,9 @@ autoImplicit = false
 relaxedAutoImplicit = false
 linter.missingDocs = true
 
-# The checker: every function of it that does not itself call Lake.
+# The checker: the closed input, the rules, the verdict and the language decision, each proved against
+# `specification/RegulaSpecification/`, the closed operations and their one table, the language check's reader and
+# the shell: every function of the checker that does not itself call Lake.
 [[lean_lib]]
 name = "RegulaChecker"
 globs = ["Regula.Effect", "Regula.Table", "Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell", "Regula.LanguageSet", "Regula.Language", "Regula.Reader"]

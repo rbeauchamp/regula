@@ -9,8 +9,9 @@ import RegulaSpecification.Proofs.Load
 /-!
 # The checker's decisions over paths, against what they state
 
-Each decision of the checker over a path, with a theorem that relates it, in both directions, to a
-statement that names none of the checker's functions.
+Each decision of the checker over a path, with a theorem that relates it, in both directions, to a statement that names none of
+the checker's functions: `exactBelow` to `ExactlyBelow`, `below` to `StrictlyBelow` and `startsSearchPath` to `SearchPathStarts`. `RegulaSpecification.Language` relates `treeRelative` to `TreeRelative`, and
+`RegulaSpecification.Proofs.ReaderWalk` relates `inTree` to it, and `apart_iff` relates `apart` to `Apart`.
 -/
 
 namespace RegulaSpecification.Effects

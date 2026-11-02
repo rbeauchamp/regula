@@ -16,9 +16,11 @@ import Regula.Load
 
 What the checker's program must do with whatever Lean, Lake and the operating system answer. It imports the
 closed type of the operations, the pure loader and the pure decision, and none of the code that asks the
-operations (`Regula.Reader`, `Regula.Shell`). A run is a list of events, each an operation with the response it
-got, and each statement here is about what a run received and what it did with it, for every response, so that
-none rests on the file system staying still.
+operations (`Regula.Reader`, `Regula.Shell`).
+
+A run is a list of events, each an operation with the response it got (`Runs`). Each statement here is about
+what a run received and what it did with it, for every response, so that none rests on the file system
+staying still.
 -/
 
 namespace RegulaSpecification.Effects
@@ -130,9 +132,9 @@ def Event.leaves (e : Event L E) (p : List String) (held : Option String) : Opti
   | .findOLean .. | .importForRules .. | .importForParser .. | .parseToml _
   | .lakeInstall _ | .loadWorkspace .. | .loadRoot .. | .libModules _ | .runLake .. => held
 
-/-- What the acts of `t` leave at the path with the components `p`, from a tree that held nothing there: the text of its
-last write, unless a later removal took it away. This is a function of the run's requests alone: it observes no
-file system and says nothing about another process. -/
+/-- What the acts of `t` leave at the path with the components `p`, from a tree that held nothing there: the
+text of its last write, unless a later removal took it away. This is a function of the run's requests alone:
+it observes no file system and says nothing about another process. -/
 def written (t : List (Event L E)) (p : List String) : Option String :=
   t.foldl (fun held e => e.leaves p held) none
 
@@ -180,7 +182,10 @@ inductive Parsed (input : InputContext) (env : E) :
       Parsed input env (fuel + 1) state messages (stx :: rest) final
         (⟨.parseCommand input env state messages, (stx, state', messages')⟩ :: events)
 
-/-- `f` is what the run judged of the text `text` of one file, as this run read and parsed it. It says nothing of what
+/-- `f` is what the run judged of the text `text` of one file: the project's file `under project rel` passed the
+exact-path test on its real path, `text` is what `readFile` returned, and Lean's parser gave the header and
+commands of `f` from that same text, in an environment that an import on the toolchain's library of `root`
+gave together with the scoped parsers `f` states. This says what was read and parsed, and nothing of what
 the tree holds: `Evidence` says that, through what it is given as held. -/
 def ReadText (t : List (Event L E)) (root : Root L) (project tree : FilePath) (f : FileRead) (path : FilePath)
     (imports : Array Import) (mods : List Name) (text : String) : Prop :=

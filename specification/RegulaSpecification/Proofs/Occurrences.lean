@@ -131,8 +131,10 @@ theorem pass_occurs (hused : UsedConstantsComplete)
   exact ⟨fun l hl ho => h7 l hl (valueMentions_of_occurs hused ho),
     fun a hr hax => h8 a (envReaches_of_occurs hused hr) hax⟩
 
-/-- Lean builds `moduleData` and `modules` from one array (`Lean/Environment.lean:2313-2317` and `2369-2371`),
-which is the fact about Lean that the hypothesis `hsize` states. -/
+/-- Each pair of `constNames.zip constants` of each claimed module is one that `Facts.claimedConstants` lists, and so one that
+`pass_held` reaches, when the header holds data for each of its modules. Lean builds `moduleData`
+and `modules` from one array (`Lean/Environment.lean:2313-2317` and `2369-2371`), so this is the
+fact about Lean, as the hypothesis `hsize`. -/
 theorem claimedConstants_complete (hsize : f.env.header.moduleData.size = f.modules.size) {k : Nat}
     {lm : Regula.Load.LoadedModule} (hk : f.modules[k]? = some lm) (hc : lm.claimed = true) :
     ∃ data, f.env.header.moduleData[k]? = some data ∧

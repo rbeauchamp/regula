@@ -480,8 +480,8 @@ theorem treeRelative_iff (base path rel : List String) :
     rintro ⟨rfl, -⟩
     exact hp (List.prefix_append _ _)
 
-/-- A component of what `treeRelative` gives may still hold a separator or be absolute, for an argument that
-no real path is. -/
+/-- `..`, `.` and `.lake` are no components of what `treeRelative` gives. A component may still hold a separator or be
+absolute, for an argument that no real path is. -/
 theorem treeRelative_no_parent {base path rel : List String} (h : treeRelative base path = some rel) :
     ".." ∉ rel ∧ "." ∉ rel ∧ ".lake" ∉ rel := by
   obtain ⟨-, hc⟩ := (treeRelative_iff base path rel).mp h

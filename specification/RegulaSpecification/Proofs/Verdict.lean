@@ -16,8 +16,8 @@ open LeanIntent
 
 open Link
 
-/-- The verdict of a reading, by the two functions that the checker runs on it: the admission, and the decision on
-what the admission gives. -/
+/-- The verdict of a reading, by the two functions that the checker runs on it: the admission, and the decision
+on what the admission gives. -/
 def run (d : Regula.Closed.Draft) : Regula.Closed.Report :=
   Regula.Closed.decision d.admit
 

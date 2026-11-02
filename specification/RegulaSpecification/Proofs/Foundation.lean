@@ -8,8 +8,7 @@ import RegulaSpecification.Proofs.Tables
 /-!
 # RG1001 to RG1006, against their statements
 
-`Regula.Closed.Tables.rg1001` to `rg1006`, the functions that the checker runs, against the violation
-predicates of the specification.
+`Regula.Closed.Tables.rg1001` to `rg1006` are the functions that the checker runs.
 -/
 
 namespace RegulaSpecification
@@ -178,7 +177,8 @@ theorem rg1005_exact (s : Name) :
     | false => rfl
     | true => exact absurd ((admits_iff t i.profile a).mp hb) hn
 
-/-- The checker runs the compiler's own test, so a toolchain whose test differs fails this proof. -/
+/-- The compiler's own test of a helper's name holds exactly of the form that `HelperNamed`
+states. The checker runs this test, so a toolchain whose test differs fails this proof. -/
 theorem isUnsafeRecName_eq (n b : Name) :
     Lean.Compiler.isUnsafeRecName? n = some b ↔ n = Name.str b "_unsafe_rec" := by
   constructor
@@ -294,7 +294,9 @@ theorem rg1006_reports_named_not_partial {d : Regula.Closed.Decl} (hd : d ∈ i.
   (rg1006_exact t d.name).mpr ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm,
     .inl ⟨.inr hn, fun h => hp ((safety_iff d .partial).mpr h.1)⟩⟩
 
-/-- A rule that refuses each name of the form `b._unsafe_rec`, or all recursion, does not meet this. -/
+/-- A constant with the form of a recursion helper, whose value mentions no loop construct, is not
+reported. So a rule that refuses each name of the form `b._unsafe_rec`, or all recursion, does not
+meet this. -/
 theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     (hh : (toSpec i).HelperForm (decl d)) (hl : ¬ MentionsLoop (decl d)) :
     d.name ∉ t.rg1006.map (·.subject) := by

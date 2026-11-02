@@ -8,8 +8,8 @@ import RegulaSpecification.Safety
 /-!
 # The verdict of a run, and RG2001
 
-Regula's verdict is a closed type with three values. A build that Lean could not load, or an input
-that the admission refuses, is `incomplete` (RG2001), and is never read as absent.
+Regula's verdict is a closed type with three values. A build that Lean could not load, or an input that the
+admission refuses, is `incomplete` (RG2001), never read as absent; a claim of no module is refused too.
 -/
 
 namespace RegulaSpecification

@@ -11,18 +11,21 @@ public import Regula.LanguageSet
 /-!
 # The language decision
 
-The decision of the check that reads a project before anything of it is compiled: a pure function over
-what Lean's parser gave for each file and what Lake's TOML parser gave for the configuration.
+The decision of the check that reads a project before anything of it is compiled: a pure function over what
+Lean's parser gave for each file and what Lake's TOML parser gave for the configuration.
 `specification/RegulaSpecification/Language.lean` states what it must decide, and
 `specification/RegulaSpecification/Proofs/Language.lean` proves `decision` against that record in both
-directions. `positions` is the one walk over `Lean.Syntax`, structural, with no `partial` and no fuel,
-and everything else filters what it lists. `gate` states the order of the full gate over any monad, so
-the order is a theorem about the code that runs.
+directions.
 
-What an admitted reading means is what the specification's `LeanBehaviour` says, under its hypotheses H1
-and H2 about Lean: that each tree is the one Lean elaborates, and that what the closed set admits runs no
-code that the project wrote. No proof reaches either. A pass of the full verdict rests on them, on H3, H4
-and H5 and on the rest of the specification's trusted base.
+`positions` lists every position of a tree that the check reads, and everything else filters that list, so
+there is one walk over `Lean.Syntax`. It is structural, with no `partial` and no fuel.
+
+`gate` is the order of the full gate over any monad, so the order is a theorem about the code that runs.
+
+What an admitted reading means is what the specification's `LeanBehaviour` says, under its hypotheses H1 and
+H2 about Lean: that each tree is the one Lean elaborates, and that what the closed set admits runs no code
+that the project wrote. No proof reaches either. A pass of the full verdict rests on them, on H3, H4 and H5
+and on the rest of the specification's trusted base.
 -/
 
 public section
@@ -32,7 +35,8 @@ namespace Regula.Language
 open Lean (Name Syntax)
 
 mutual
-  /-- Every position of a tree that the check reads. -/
+  /-- Every position of a tree that the check reads: the tree, and the positions of each child of a node
+  whose kind is not a leaf kind. -/
   def positions : Syntax → List Syntax
     | .node i k as =>
       .node i k as :: (if leafKinds.contains k then [] else positionsOfArray as)
@@ -146,8 +150,8 @@ def closedModuleName : Name → Bool
   | .str (.num _ _) _ => false
 
 /-- The components of `path` below `base`, when `path` lies at or below `base` and no component below it
-starts with `.`. It maps a file that Lake names in the checker's tree to the same relative file of the
-project, and back. -/
+starts with `.`: so none is `.` or `..`, and none is `.lake`. It is what maps a file that Lake names in the
+checker's tree to the same relative file of the project, and back. -/
 def treeRelative (base path : List String) : Option (List String) :=
   if base.isPrefixOf path then
     let rel := path.drop base.length
@@ -158,7 +162,8 @@ namespace Reading
 
 variable (r : Reading)
 
-/-- Whether the project's own configuration is in the closed set. -/
+/-- The pinned toolchain, no `lakefile.lean`, no path outside the closed domain, and each key whose root is
+not `require` in the closed set. -/
 def configClosed : Bool :=
   r.toolchainFile == some leanToolchain && !r.leanConfig && r.openPaths.isEmpty &&
     r.configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k
@@ -197,7 +202,8 @@ def decision (r : Reading) : Outcome :=
   else if !r.filesAdmitted then .refused
   else .admitted
 
-/-- The order of the full gate, over any monad. -/
+/-- The order of the full gate, over any monad: `read` first, and `build` and `rules` only for an
+admitted project. -/
 def gate {m : Type → Type} [Monad m] (read : m Outcome) (build : m Bool)
     (rules : m Regula.Closed.Verdict) : m Report := do
   match ← read with
@@ -226,8 +232,8 @@ theorem exitCode_eq_zero_iff (r : Report) : r.exitCode = 0 ↔ r = .full .pass :
       | exact ⟨fun _ => rfl, fun _ => rfl⟩
       | exact ⟨fun h => absurd h (by decide), fun h => by cases h⟩
 
-/-- The words that state the report of a run of the full gate. A pass of the full verdict names the
-hypotheses it rests on. -/
+/-- The words that state the report of a run of the full gate. Each verdict names itself, and a pass of the full
+verdict names the hypotheses it rests on. -/
 def label : Report → String
   | .full .pass => "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.35.0"
   | .full v => s!"regula: full verdict: {v.label}"
@@ -238,8 +244,8 @@ def label : Report → String
   | .refused => "regula: refused before compiling (RG1010), so no build ran and no verdict is given"
   | .incomplete => "regula: incomplete (RG2001): the check could not read the project, so no build ran"
 
-/-- The last line of a run of the full gate on the project at `subject`. A pass says what it audited at
-the end of the line, so that no path can change the words that state the verdict. -/
+/-- The last line of a run of the full gate on the project at `subject`: a pass says what it audited, on one physical line and
+at the end of the line, so that no path can change the words that state the verdict. -/
 def labelOn (subject : String) : Report → String
   | .full .pass => (Report.full .pass).label ++ ", on " ++ Regula.Closed.detailText subject
   | r => r.label

@@ -12,9 +12,10 @@ import Regula.Workspace
 /-! # The `lint` executable
 
 The root of the `lint` executable, Lake's lint driver for a project that sets
-`lintDriver := "regula/lint"`. It interprets `Regula.Shell.run` through the one table of effects and
-holds no logic. It is `unsafe` because Lean's `enableInitializersExecution` is, which lets Lean's own
-parsers load for each file that the reader parses. -/
+`lintDriver := "regula/lint"`: the interpretation of `Regula.Shell.run` on the command-line arguments, through
+the one table of effects (`Regula.Effect.table`) with the calls of Lake (`Regula.Load.lakeCalls`). It holds no
+logic. It is `unsafe` because Lean's `enableInitializersExecution` is, which lets Lean's own parsers load for each
+file that the reader parses. -/
 
 /-- The `lint` executable. -/
 public unsafe def main (args : List String) : IO UInt32 :=

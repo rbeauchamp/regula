@@ -10,11 +10,13 @@ import RegulaSpecification.Proofs.Owed
 # A model of what a pass rests on
 
 The premises of `plain_owed` and `full_owed` are statements about what Lean, Lake and the operating system answered. This module
-shows that a run of the program the executable interprets meets them, and that what they state of the operations does not
-settle the conclusion by itself. The hypotheses of the two models are what remains: `WitnessPaths`, because `System.FilePath`
-depends on an `opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel`, because
-`Lean.Environment`'s constructor is private. Neither the models nor the preparation relations assert consistency of a
-filesystem behind the responses.
+shows that they are met by a run of the program the executable interprets, and that what they state of the operations does not
+settle the conclusion by itself: for paths that meet `WitnessPaths` and an
+environment with the floor (`EnvModel`), there is a run, whose proof takes the answers of the witness (`Proofs/Witness.lean`), that receives what `FullOwed` and `PlainOwed` state and exits with 0 (`full_model`,
+`plain_model`); there is a run in which no answer failed that does not exit with 0, whose proof takes a project with a
+`lakefile.lean` (`refused_model`). The hypotheses of the two models are what remains: `WitnessPaths` because `System.FilePath` depends on an
+`opaque` constant, and for two facts about the pinned text and an empty log, and `EnvModel` because `Lean.Environment`'s constructor is private. The witness runs meet the strengthened preparation relations through `run_meets`;
+neither the models nor those relations assert consistency of a filesystem behind the responses.
 -/
 
 namespace RegulaSpecification.Effects

@@ -8,19 +8,19 @@ import RegulaSpecification.Foundation
 /-!
 # RG1006: `unsafe`, `partial` and loop declarations
 
-RG1006 refuses three things in a claimed module: a constant that is unsafe or partial, a constant
-that has the name of a recursion helper, and a constant whose value mentions a loop construct of
-Lean. A `while` needs no `partial` of the module that uses it: it compiles through a private
-`partial` of Lean's library (`Init/While.lean`), so the flags alone do not show it. A constant with
-a helper's name needs no flag either: the compiler reads `f._unsafe_rec` in place of `f` by its name
-alone (`getDeclInfo?`, `Lean/Compiler/LCNF/ToDecl.lean:25-27`).
+RG1006 refuses three things in a claimed module: a constant that is unsafe or partial, a constant that has
+the name of a recursion helper, and a constant whose value mentions a loop construct of Lean. A `while`
+needs no `partial` of the module that uses it: it compiles through a private `partial` of Lean's library
+(`Init/While.lean`), so the flags alone do not show it. A constant with a helper's name needs no flag
+either: the compiler reads `f._unsafe_rec` in place of `f` by its name alone (`getDeclInfo?`,
+`Lean/Compiler/LCNF/ToDecl.lean:25-27`).
 
-The one constant of these the rule admits has the exempted form: `f._unsafe_rec`, partial and not
-unsafe, with neither `@[implemented_by]` nor `@[extern]`, beside a safe, total definition `f` of its module.
-It is the form of what Lean's elaborator adds for a safe recursive definition, which is why it is
-exempted, and it is a form and nothing else. The input holds nothing of who produced a constant, so one
-of this form that a module's own code adds during the build is admitted too, and no rule reads what it
-computes. `helperForm_unreached` states why it cannot change what the proof verdict claims, under H6.
+The one constant of these the rule admits has the exempted form: `f._unsafe_rec`, partial and not unsafe,
+with neither `@[implemented_by]` nor `@[extern]`, beside a safe, total definition `f` of its module. It is
+the form of what Lean's elaborator adds for a safe recursive definition, which is why it is exempted, and it
+is a form and nothing else. The input holds nothing of who produced a constant, so one of this form that a
+module's own code adds during the build is admitted too, and no rule reads what it computes.
+`helperForm_unreached` states why it cannot change what the proof verdict claims, under H6.
 -/
 
 namespace RegulaSpecification

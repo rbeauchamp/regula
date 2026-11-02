@@ -10,11 +10,11 @@ public import Std.Data.HashSet
 /-!
 # Reachability over names
 
-The one search of the rules over the closed input (`Regula.Rules`): from each axiom, backwards through
-the constants that mention it. `reach` is total, and its fuel is an argument whose sufficient amount is
-derived: each step of the search takes one name off its work list, and adds to it only what `next`
-gives for a name that it has not seen, so the sum of the work list and of what `next` gives for the
-unseen names falls by at least one at each step.
+The one search of the rules over the closed input (`Regula.Rules`): from each axiom, backwards through the
+constants that mention it (`Input.axiomReach`). `reach` is total, and its fuel is an argument, not a guess:
+each step of the search takes one name off its work list, and adds to it only what `next` gives for a name
+that it has not seen, so the sum of the work list and of what `next` gives for the unseen names falls by at
+least one at each step (`unseenWeight_insert`).
 -/
 
 public section
@@ -194,7 +194,8 @@ theorem unseenWeight_le (next : Name → List Name) (us : List Name) (seen : Std
     simp only [List.filter_cons, List.map_cons, List.sum_cons]
     split <;> (try simp only [List.map_cons, List.sum_cons]) <;> omega
 
-/-- Search from `seeds` through `next`, complete under the hypotheses of `mem_reach`. -/
+/-- Every name that `seeds` reach through `next`, by a search with `weight` for what `next` gives
+over all names (`mem_reach`). -/
 def reach (next : Name → List Name) (weight : Nat) (seeds : List Name) : Std.HashSet Name :=
   reachGo next (seeds.length + weight) {} seeds
 

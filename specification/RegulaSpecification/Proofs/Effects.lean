@@ -10,9 +10,12 @@ import Regula.Table
 /-!
 # Runs of a program, and what the interpreter does
 
-`BaseIO` is a state monad in Lean's own definition (`Init/System/ST.lean`), so `interpret_runs` is a
-theorem about the definition of `Regula.Effect.Prog.interpret`, with no assumption about how effects are
-ordered. That the compiler keeps that order stays with the compiler, which the trusted base lists.
+The rules that take a statement about a run of a program to statements about its parts, and the link from a
+program to its execution: `interpret_runs` proves that `Regula.Effect.Prog.interpret`, at `BaseIO` and from any
+state of the world, gives a run in the sense of `Runs`, each of whose responses is the table's answer at the world
+the run has reached. `BaseIO` is a state monad in Lean's own definition (`Init/System/ST.lean`), so this is a
+theorem about the definition and no assumption about how effects are ordered; that the compiler keeps that order
+stays with the compiler, which the trusted base lists.
 -/
 
 namespace RegulaSpecification.Effects

@@ -13,9 +13,12 @@ import Lean.Compiler.Old
 /-!
 # The rules over the closed input
 
-Each rule as a pure, total function from the closed input (`Regula.Closed.Input`) to the constants
-that violate it, in the order of `specification/RegulaSpecification/Foundation.lean` (RG1001 to
-RG1005) and `Safety.lean` (RG1006). Each reads only fields of the input, through its tables.
+Each rule as a pure, total function from the closed input (`Regula.Closed.Input`) to the constants that
+violate it, in the order of `specification/RegulaSpecification/Foundation.lean` (RG1001 to RG1005) and
+`Safety.lean` (RG1006). Each reads only fields of the input, through its tables.
+
+A rule reads the input through a value of `Tables i` (`Regula.Tables`), which carries what each of its
+tables holds of the input `i`.
 -/
 
 public section

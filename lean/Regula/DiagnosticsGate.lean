@@ -7,50 +7,61 @@ module
 
 /-! # The local gate
 
-The gate of a change, which the validation pipeline runs on each commit it validates
-(`commands.test` in `.no-mistakes.yaml`) as `lean --run lean/Regula/DiagnosticsGate.lean local`. It
-needs the pinned toolchain alone and no build before it starts. It sets no time limit, so a slow or
-sleeping machine does not fail it; a step killed by a signal ends with a code other than 0.
+The gate of a change, which the validation pipeline runs on each commit it validates (`commands.test` in
+`.no-mistakes.yaml`). It needs the pinned toolchain alone and no build before it starts:
 
-`lake build --wfail` and `lake check` are Lean's own commands, and the gate adds no claim of its own
-about what they decide. `runSteps` is the decision the program executes, and the kernel checks its
-theorems each time `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean`
-proves at `IO` what `runLocal` writes and which process each step starts. That a step then builds
-what was written and checks this checkout rests on those requests, the file system and Lake, which
-those theorems do not state. Which files exist is what `System.FilePath.walkDir` lists, which is
-Lean's. What a step does and what its exit code means are trusted effects of the operating system
-and of Lake. `lake` is the program that `PATH` selects, and no theorem says which that is. Each step
-sees the checkout as the step before it left it: the gate assumes that no other process changes the
-build between its steps. -/
+```text
+lean --run lean/Regula/DiagnosticsGate.lean local
+```
+
+It sets no time limit, so a slow or sleeping machine does not fail it; a step killed by a signal ends with a
+code other than 0.
+
+`lake build --wfail` and `lake check` are Lean's own commands, and the gate adds no claim of its own about
+what they decide.
+
+`runSteps` is the decision the program executes, and its theorems are checked by the kernel each time
+`lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`,
+that `runLocal` gives 0 only when, for each file that `checkerFiles` lists, the bytes that a read of it gave
+are what a write joined to its directory took, and then each step spawned its own `lake` command and that
+child's wait gave 0, with that directory as the checker and the working directory as the project. It also
+states what each step asks for: `localSteps_eq` and `localSteps_full` the steps, and `stepRequest` and
+`runStep_spawns` the request that `runStep` starts for one. That a step then builds what was written and
+checks this checkout rests on those requests, the file system and Lake, which those theorems do not state.
+Which files exist is what `System.FilePath.walkDir` lists, which is Lean's. What the step does and what its
+exit code means are trusted effects of the operating system and of Lake. `lake` is the program that `PATH`
+selects, and no theorem says which that is. Each step sees the checkout as the step before it left it: the
+gate assumes that no other process changes the build between its steps. -/
 
 public section
 
 namespace Regula.DiagnosticsGate
 
-/-- The variable that names the project of the full gate. It repeats `Regula.Shell.fullVariable`
-because this file imports nothing of a build, and `specification/RegulaSpecification/Proofs/Gate.lean`
-proves that the two are one. -/
+/-- The variable that names the project of the full gate, `Regula.Shell.fullVariable`: this file imports nothing of a build, and
+`specification/RegulaSpecification/Proofs/Gate.lean` proves that the two are one. -/
 def fullVariable : String := "REGULA_FULL"
 
-/-- One step of the local gate: a `lake` command in a directory of the checkout. -/
+/-- One step of the local gate: `lake ARGUMENTS` in the directory `dir` of the checkout, relative to
+its root. -/
 structure Step where
   /-- The arguments of `lake`. -/
   arguments : List String
   /-- The directory, relative to the root of the checkout. -/
   dir : String
-  /-- The project of the full gate, for `Regula.Shell.fullVariable`. `stepRequest` removes the variable
-  from a step with none, so that only the step that names a project can give a verdict about another
+  /-- The project of the full gate, for `Regula.Shell.fullVariable`. Every other step has none, and `stepRequest`
+  removes the variable from what it inherits, so that only this step can give a verdict about another
   directory. -/
   full : Option String
   deriving DecidableEq, Repr
 
-/-- The steps of the gate, in order. `lake clean` runs first, in the specification's workspace, which
-holds both packages (`Workspace.clean`, `Lake/CLI/Main.lean:1160-1172` at v4.35.0), so that no step
-reads an output of an earlier build: a module of a library that the configuration no longer names
-would still satisfy an import. The checker is built in a separate copy of the program, and the full
-gate on this checkout starts from that copy. The specification is checked on the path that a project
-that requires Regula takes, so that each of its theorems depends on no axiom beyond `propext`,
-`Quot.sound` and `Classical.choice`, on the run of the checker. -/
+/-- The steps of the gate, in order.
+- `lake clean` in the specification's workspace, which holds both packages (`Workspace.clean`,
+  `Lake/CLI/Main.lean:1160-1172` at v4.35.0), so that no step reads an output of an earlier build: a module of
+  a library that the configuration no longer names would still satisfy an import.
+- The checker, built in a separate copy of the program at `checker`.
+- The specification, with warnings as errors, Lean's replay of it, and Regula's checker on it, the path that
+  a project that requires Regula takes. So each theorem of the specification depends on no axiom beyond
+  `propext`, `Quot.sound` and `Classical.choice`, on the run of the checker. -/
 def localSteps (checker root : String) : List Step :=
   [⟨["clean"], "specification", none⟩,
     ⟨["build", "lint"], checker, none⟩,
@@ -62,7 +73,8 @@ def localSteps (checker root : String) : List Step :=
     ⟨["check", "--inadvisably-no-sandbox"], "specification", none⟩,
     ⟨["lint"], "specification", none⟩]
 
-/-- Run `steps` in order with `run`, and stop at the first step whose exit code is not 0. -/
+/-- Run `steps` in order with `run`, which runs a step and gives its exit code, and stop at the
+first step whose code is not 0: that step with its code, or none when every step ended with 0. -/
 def runSteps {m : Type → Type} [Monad m] (run : Step → m UInt32) :
     List Step → m (Option (Step × UInt32))
   | [] => pure none
@@ -99,11 +111,11 @@ def announce (step : Step) : IO Unit := do
   IO.println s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir}){(step.full.map (s!", on {·}")).getD ""}"
   (← IO.getStdout).flush
 
-/-- Run `step` with the standard streams of this process, and give its exit code. The inherited Lean
-search paths are removed, so that a Lake command resolves modules only through the workspace it runs
-in. Lake's artifact cache is off, because a module that Lake restores from that cache replays no
-warning, and `lake build --wfail` would not see it. A project of `none` removes an inherited value of
-`fullVariable` (`IO.Process.SpawnArgs.env`). -/
+/-- Run `step`, with the standard streams of this process, and give its exit code. The inherited Lean search
+paths are removed, so a Lake command resolves modules only through the workspace it runs in. Lake's artifact
+cache is off: a module that Lake restores from that cache replays no warning, so `lake build --wfail` would
+not see it. `fullVariable` is bound to the step's `full`, and `none` removes an inherited value
+(`IO.Process.SpawnArgs.env`). -/
 def runStep (step : Step) : IO UInt32 := do
   announce step
   let child ← IO.Process.spawn
@@ -127,8 +139,8 @@ def checkerFiles : IO (List System.FilePath) := do
   let files ← regularFiles sources.toList
   pure (["lakefile.toml", "lake-manifest.json", "lean-toolchain"].map System.FilePath.mk ++ files)
 
-/-- Write the bytes read of one file to `target / file`, making the directories above it. `/` gives
-`file` itself for an absolute `file`, so this relies on `checkerFiles` giving relative paths. -/
+/-- Write the bytes read of one file to `target / file`, with the directories above it. `/` gives `file` itself
+for an absolute `file`, and `checkerFiles` gives relative paths. -/
 def copyFile (target file : System.FilePath) : IO Unit := do
   let to := target / file
   if let some dir := to.parent then IO.FS.createDirAll dir
@@ -159,8 +171,8 @@ def runIn (target root : String) : IO UInt32 := do
   sayResult steps result
   return exitOf result
 
-/-- Run the steps of the gate, with the checker's copy in a directory of its own outside the
-checkout, removed at the end. -/
+/-- Run the steps of the gate, and give 0 only when each ended with exit code 0. The checker's copy
+lies in a directory of its own outside the checkout, removed at the end. -/
 def runLocal : IO UInt32 := do
   let target ← IO.FS.createTempDir
   try
@@ -171,7 +183,7 @@ def runLocal : IO UInt32 := do
 
 end Regula.DiagnosticsGate
 
-/-- Command line of `lean --run lean/Regula/DiagnosticsGate.lean local`; it returns 2 on a usage
+/-- Command line of `lean --run lean/Regula/DiagnosticsGate.lean`: `local`; returns 2 on a usage
 error. -/
 def main (args : List String) : IO UInt32 := do
   match args with

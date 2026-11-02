@@ -11,7 +11,8 @@ module
 Every rule of Regula reads one closed input: the constants Lean loads from a finished build, the
 modules that the build claims, and the profile that the project states. This module states that
 input as data, independently of the implementation. Each field says which interface of Lean or Lake
-gives it, and the specification's trusted base lists what they report.
+gives it. `Proofs/Load.lean` states what the loader gives in terms of those interfaces, and the
+specification's trusted base lists what they report.
 
 The input carries no source text, no message, no compiled code, no option and no build log: what a
 rule cannot read here, it does not decide.
