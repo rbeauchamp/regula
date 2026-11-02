@@ -5,7 +5,7 @@ import RegulaSpecification.CasesGate
 # The link from the implementation's input to the specification's
 
 The checker runs over {name}`Regula.Closed.Input`, and the specification states each rule over
-{module}`RegulaSpecification.Input`: two types with the same data, so that the specification is written
+{name}`RegulaSpecification.Input`: two types with the same data, so that the specification is written
 independently of the code. {lit}`toSpec` carries an input of the checker to the specification's, and each
 {lit}`rg100N_exact` is stated about the function that the checker runs on an input {lit}`i` and the predicate of the
 specification at {lit}`toSpec i`.
