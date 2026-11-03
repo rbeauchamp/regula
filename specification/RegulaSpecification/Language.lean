@@ -586,8 +586,8 @@ theorem lean_config_refused {d : Reading → Outcome} (h : languageRecord.Meets 
     have := hc.2.1
     simp [hr] at this
 
-/-- What the gate does and reports, given what the check decided, whether the build and replay ended
-with 0, and the rules' verdict on the finished build. -/
+/-- What the gate does and reports, given what the check decided, whether the build ended
+with 0, and the verdict from loading, replay and the rules on the finished build. -/
 abbrev GateRun : Type := Outcome → Bool → Regula.Closed.Verdict → Report × List Step
 
 /-- The contract of the gate. -/
