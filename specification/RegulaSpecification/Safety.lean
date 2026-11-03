@@ -59,7 +59,8 @@ def Violates1006 (i : Input) (c : Name) : Prop :=
 /-- H6, a hypothesis about Lean's kernel at v4.35.0, never an axiom: a safe constant mentions only safe constants. The kernel checks each
 theorem, opaque constant, axiom and safe definition at the safety {lit}`safe` ({lit}`src/kernel/environment.cpp:156`, `:181`, `:196`, `:215`, with
 {lit}`src/kernel/type_checker.h:127-128`), and refuses there a mention of an unsafe or a partial constant ({lit}`src/kernel/type_checker.cpp:110-117`).
-{lit}`lake check` replays the build in that kernel, so it holds of the build that a proof verdict reads. -/
+The checker replays the cone of the claim in that kernel, so it holds of each constant of the cone, which holds each constant that a
+claimed constant reaches. -/
 def SafeMentionsSafe (i : Input) : Prop :=
   ∀ d ∈ i.decls, d.safety = .safe → ∀ u ∈ d.uses, ∀ q ∈ i.decls, q.name = u → q.safety = .safe
 

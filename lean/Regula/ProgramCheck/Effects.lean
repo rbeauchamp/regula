@@ -14,8 +14,8 @@ public import Regula.Decision
 
 The closed form of "so thin that it only calls Lean" is stated in the specification's section "So thin that
 it only calls Lean". This module shows it where the specification's package cannot, because a constant that
-calls Lake's load depends on axioms that no profile admits, and `lake check` of that package would refuse
-them:
+calls Lake's load depends on axioms that no profile admits, and the checker on that package would refuse
+them (RG1003, RG1005):
 - Each row of `Regula.Load.lakeCalls` is a straight line of calls of Lake, with no test (the theorems below,
   each by `rfl`, so the statement is the body).
 - `Regula.ProgramCheck.Effects` reads each constant of the repository's Lean libraries through Lean's own

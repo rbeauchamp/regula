@@ -299,20 +299,14 @@ theorem LakeInvocation.operations {program tree : FilePath} {args : List String}
 theorem BuildProtocol.operations {sysroot : String} {tree : FilePath} {t : List (Event L E)}
     (h : BuildProtocol sysroot tree t) :
     ∃ program, ∀ e ∈ t, e.isOnlySaying = true ∨ e.op = .lakeInstall sysroot ∨
-      e.op = .runLake program tree ["build", "--wfail"] ∨ e.op = .runLake program tree replayArguments := by
-  obtain ⟨program, lakeLib, first, rest, response, rfl, hf, hr⟩ := h
+      e.op = .runLake program tree ["build", "--wfail"] := by
+  obtain ⟨program, lakeLib, first, response, rfl, hf⟩ := h
   refine ⟨program, fun e he => ?_⟩
   rcases List.mem_cons.mp he with rfl | he
   · exact .inr (.inl rfl)
-  · rcases List.mem_append.mp he with he | he
-    · rcases hf.operations e he with hs | hl
-      · exact .inl hs
-      · exact .inr (.inr (.inl hl))
-    · rcases hr with ⟨-, rfl⟩ | ⟨-, replay, hr⟩
-      · cases he
-      · rcases hr.operations e he with hs | hl
-        · exact .inl hs
-        · exact .inr (.inr (.inr hl))
+  · rcases hf.operations e he with hs | hl
+    · exact .inl hs
+    · exact .inr (.inr hl)
 
 /-- What may not occur among the module copies or the rules' reading: a load, a Lake command, a removal or an allocation.
 Stated apart from {name}`QuietOp`, {name}`ParserSearchOp` and {name}`RulesSearchOp`, so that a phase's list of allowed operations that came to hold one of these
@@ -358,12 +352,11 @@ theorem BuildAndRules.no_mutation {sysroot : String} {tree : FilePath} {tBuild t
   obtain ⟨program, hp⟩ := h.1.operations
   intro e he
   rcases List.mem_append.mp he with he | he
-  · rcases hp e he with hs | hi | hb | hr
+  · rcases hp e he with hs | hi | hb
     · obtain ⟨o, r⟩ := e
       cases o <;> first | trivial | cases hs
     · rw [hi]; trivial
     · rw [hb]; trivial
-    · rw [hr]; trivial
   · have hr := h.2.1 e he
     obtain ⟨o, r⟩ := e
     cases o <;> first | trivial | exact hr.elim
@@ -683,7 +676,7 @@ theorem manufacturedCopyAnswered_fails (dir tree : FilePath) (sysroot text : Str
       by_cases ho : o = .admitted
       · exfalso
         obtain ⟨sysroot', tBuild, tRules, -, rfl, hb⟩ := hgate ho
-        obtain ⟨program, lakeLib, first, rest, -, rfl, -⟩ := hb.1
+        obtain ⟨program, lakeLib, first, -, rfl, -⟩ := hb.1
         have hm : (⟨.lakeInstall sysroot', (program, lakeLib)⟩ : Event L E) ∈
             manufacturedCopyAnsweredTrace (L := L) (E := E) dir tree' sysroot text error := by
           rw [heq]; simp

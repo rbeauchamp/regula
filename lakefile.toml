@@ -30,7 +30,7 @@ globs = ["Regula.Effect", "Regula.Table", "Regula.RuleId", "Regula.Verdict", "Re
 name = "RegulaContract"
 globs = ["Regula.Contract", "Regula.Decision"]
 
-# What calls Lake, which `lake check` cannot admit (`Regula.Workspace`), the executable's thin `unsafe` root,
+# What calls Lake, whose axioms the rules refuse in a claimed module (`Regula.Workspace`), the executable's thin `unsafe` root,
 # the repository's two programs for its gate and its validation pipeline, and the checks of where effects lie. No
 # default target imports this library.
 [[lean_lib]]

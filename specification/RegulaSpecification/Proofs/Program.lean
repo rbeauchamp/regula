@@ -181,6 +181,9 @@ inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environmen
   /-- {name}`Lean.importModules`, for the parser, with {name}`Lean.searchPathRef` set to the path it names first. -/
   | importForParser {p ms} : Row enable lake (.importForParser p ms)
       (do Lean.searchPathRef.set p; importParsers enable ms : IO (Environment × List Name)).toBaseIO
+  /-- {name (full := Lean.Kernel.Environment.replay)}`Kernel.Environment.replay` of the constants, into the kernel's environment of {name}`Lean.mkEmptyEnvironment`. -/
+  | kernelReplay {constants} : Row enable lake (.kernelReplay constants)
+      (do let _ ← (← Lean.mkEmptyEnvironment).toKernelEnv.replay constants : IO Unit).toBaseIO
   /-- Lake's row. -/
   | parseToml {input} : Row enable lake (.parseToml input) (lake.parseToml input)
   /-- Lake's row. -/

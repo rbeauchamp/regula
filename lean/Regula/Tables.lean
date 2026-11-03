@@ -13,7 +13,8 @@ are here because the proof fields of that value need them.
 
 The tables compute the axiom set of a constant from the input itself: the constants that each
 constant mentions and the kind of each (`Tables.axiomSet`). No field holds a set, so no set can be
-missing, and `Tables.mem_axiomSet` states what it holds.
+missing, and `Tables.mem_axiomSet` states what it holds. The same mentions give the cone of the claim
+that Lean's kernel replays (`Input.cone`).
 -/
 
 public section
@@ -194,6 +195,22 @@ theorem mem_axiomReach (c a : Name) :
     exact ⟨hsearch.mp hc, d, hd, rfl, hk⟩
   · rintro ⟨hr, d, hd, rfl, hk⟩
     exact ⟨_, ⟨d, ⟨hd, hk⟩, rfl, rfl⟩, hsearch.mpr hr⟩
+
+/-- The constants that Lean's kernel builds into a term that it checks, so that checking a constant can need one that it does
+not mention: the types of a literal (`Lean.Literal.type`, `Lean/Expr.lean:622-624`), what the kernel unfolds a number and a
+string literal to (`src/kernel/inductive.cpp:1359-1401`), and the values of its arithmetic on numbers
+(`src/kernel/type_checker.cpp:669`, `src/library/constants.cpp:147-150`), at v4.35.0. -/
+def kernelNames : List Name :=
+  [`Nat, `String, `Nat.zero, `Nat.succ, `String.ofList, `List.cons, `List.nil, `Char, `Char.ofNat, `Bool.true,
+    `Bool.false]
+
+/-- The cone of the claim from `seeds`: each constant of a claimed module, each of `seeds`, and each constant that one of them
+reaches through what each constant mentions. The index is built once, and each lookup of the search reads it, so the search
+costs what the cone's mentions cost. -/
+def cone (seeds : List Name) : Std.HashSet Name :=
+  let index := i.index
+  reach (fun n => ((index[n]?).map (·.uses)).getD []) (i.decls.map (·.uses.length)).sum
+    (i.claimedDecls.map (·.name) ++ seeds)
 
 /-- The tables of the input. -/
 def tables : Tables i where

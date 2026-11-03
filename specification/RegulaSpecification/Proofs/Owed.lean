@@ -246,7 +246,6 @@ theorem TreeReason.mono {sysroot tree} (h : TreeReason sysroot tree T) : TreeRea
 theorem BuildRejected.mono {sysroot tree} (h : BuildRejected sysroot tree T) : BuildRejected sysroot tree T' := by
   cases h with
   | build h1 h2 h3 => exact .build (hs.subset h1) (hs.subset h2) h3
-  | replay h1 h2 h3 h4 => exact .replay (hs.subset h1) (hs.subset h2) (hs.subset h3) h4
 
 theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) : BuildRead T' root f roots := by
   obtain ⟨q, h1, h2, h3, h4, h5, h6⟩ := h
@@ -254,28 +253,33 @@ theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) 
 
 end Mono
 
-/-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, and each
-environment that the run read of the workspace in the current directory has {name}`BuildAnswer.Floor`. -/
+/-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, Lean's kernel
+accepted each replay, and each environment that the run read of the workspace in the current directory has
+{name}`BuildAnswer.Floor`. -/
 structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop where
   /-- Nothing that the load needs failed, and the search path starts with that of the workspace in the current directory. -/
   noReason : ¬ PlainReason t
+  /-- Lean's kernel accepted each replay that the run asked for. -/
+  replayed : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ t
   /-- What Lean's import gave has the floor. -/
   floor : ∀ root a roots, PlainRoot t root → BuildAnswered t root a roots → a.Floor roots p
 
 /-- What a run of the full gate receives on a build that it owes a pass: the run has its tree, nothing keeps the project from
-being admitted, no build or replay was rejected, nothing that the load of the result needs failed, and each
-build that the run read has {name}`BuildAnswer.Floor`. -/
+being admitted, the build was not rejected, nothing that the load of the result needs failed, Lean's kernel accepted each
+replay that the load asked for, and each build that the run read has {name}`BuildAnswer.Floor`. -/
 structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
   /-- The tree. -/
   tree : ∀ e, (⟨.createTempDir, .error e⟩ : Event L E) ∉ t
   /-- No reason keeps the project from being admitted. -/
   admitted : ∀ tree rest o, t = ⟨.createTempDir, .ok tree⟩ :: rest → ¬ Reason (readPhase t) dir tree o
-  /-- The build and its replay. -/
+  /-- The build. -/
   built : ∀ tree rest sysroot, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
     ¬ BuildRejected sysroot tree t
   /-- The load of the result. -/
   loaded : ∀ tree rest sysroot, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
     ¬ TreeReason sysroot tree (rulesPhase t)
+  /-- Lean's kernel accepted each replay that the load of the result asked for. -/
+  replayed : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ rulesPhase t
   /-- What Lean's import gave has the floor. -/
   floor : ∀ tree rest sysroot root a roots, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
     TreeRoot sysroot tree (rulesPhase t) root → BuildAnswered (rulesPhase t) root a roots → a.Floor roots p
@@ -287,11 +291,22 @@ abbrev plainPass (subject : FilePath) : String :=
 /-- The last line of a pass of the full verdict. -/
 abbrev fullPass (dir : FilePath) : String := (Report.full .pass).labelOn dir.toString
 
+/-- A load's result is the loader's when Lean's kernel accepted each replay of the run. -/
+theorem replayed_eq {t : List (Event L E)} {f : Regula.Load.Facts} {x result : Except String Regula.Closed.Input}
+    (hr : Replayed t f x result) (hok : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ t) : result = x := by
+  cases x with
+  | error m => exact hr
+  | ok i =>
+    obtain ⟨r, hm, (⟨-, rfl⟩ | ⟨⟨e, rfl⟩, -⟩)⟩ := hr
+    · rfl
+    · exact absurd hm (hok _ e)
+
 theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32} (h : PlainRun t p c)
     (owed : PlainOwed t p) : c = 0 ∧ ∃ subject, EndsWith t (plainPass subject) := by
   obtain ⟨result, subject, hl, hc, he, -⟩ := h
-  rcases hl with ⟨root, f, roots, hg, hb, rfl⟩ | ⟨hw, -⟩
-  · have hv := (pass_iff_answer f roots p).mpr (owed.floor root _ roots hg hb.answered)
+  rcases hl with ⟨root, f, roots, hg, hb, hrp⟩ | ⟨hw, -⟩
+  · obtain rfl := replayed_eq hrp owed.replayed
+    have hv := (pass_iff_answer f roots p).mpr (owed.floor root _ roots hg hb.answered)
     rw [hv] at hc he
     exact ⟨hc, subject, he⟩
   · exact absurd hw owed.noReason
@@ -333,8 +348,9 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
               cases o' <;> first | rfl | cases this
           have := rulesPhase_sublist (pre := ⟨.createTempDir, .ok tree⟩ :: tRead ++ tBuild) hnb hpost
           simpa [ht, List.append_assoc] using this
-        rcases hl with ⟨root, f, roots, hg, hbr, rfl⟩ | ⟨hw, -⟩
-        · rw [(pass_iff_answer f roots p).mpr (owed.floor tree _ sysroot root _ roots htree hsys
+        rcases hl with ⟨root, f, roots, hg, hbr, hrp⟩ | ⟨hw, -⟩
+        · obtain rfl := replayed_eq hrp fun m e hm => owed.replayed m e (hrules.subset hm)
+          rw [(pass_iff_answer f roots p).mpr (owed.floor tree _ sysroot root _ roots htree hsys
             (TreeRoot.mono hrules hg) (BuildRead.mono hrules hbr).answered)]
         · exact absurd (TreeReason.mono hrules hw) (owed.loaded tree _ sysroot htree hsys)
       · exact absurd (BuildRejected.mono htb hrej) (owed.built tree _ sysroot htree hsys)

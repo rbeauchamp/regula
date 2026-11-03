@@ -242,9 +242,10 @@ inductive Outcome where
 inductive Step where
   /-- Read the project and decide (`Reading`, `Outcome`). -/
   | read
-  /-- Build the checker's tree and replay it (`lake build --wfail`, `lake check`). -/
+  /-- Build the checker's tree (`lake build --wfail`). -/
   | build
-  /-- Read the finished build and run the rules (`Regula.Closed.decision`). -/
+  /-- Read the finished build, replay the cone of its claim in Lean's kernel and run the rules
+  (`Regula.Shell.inputOf`, `Regula.Closed.decision`). -/
   | rules
   deriving DecidableEq, Repr
 
@@ -253,7 +254,7 @@ can be read as the other. -/
 inductive Report where
   /-- The full verdict: the check admitted everything before anything was compiled. -/
   | full (verdict : Regula.Closed.Verdict)
-  /-- Only a proof verdict is possible for this project, and the gate built nothing. The three commands
+  /-- Only a proof verdict is possible for this project, and the gate built nothing. The two commands
   in the project give that verdict, and they run the project's code and its dependencies'. -/
   | proofOnly
   /-- The check refused the project. Nothing was compiled. -/

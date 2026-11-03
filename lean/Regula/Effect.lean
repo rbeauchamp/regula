@@ -27,7 +27,7 @@ public section
 
 namespace Regula.Effect
 
-open Lean (Name Syntax Environment Import MessageLog)
+open Lean (Name Syntax Environment Import MessageLog ConstantInfo)
 open Lean.Parser (InputContext ModuleParserState)
 open System (FilePath)
 
@@ -92,6 +92,8 @@ inductive Op (L E : Type) where
   | importForRules (path : List FilePath) (modules : Array Name)
   /-- Load modules of the toolchain on this search path, for Lean's parser. -/
   | importForParser (path : List FilePath) (modules : List Name)
+  /-- Lean's replay of these constants in its kernel, into an empty environment. -/
+  | kernelReplay (constants : Std.HashMap Name ConstantInfo)
   /-- Lake's TOML parser. -/
   | parseToml (input : InputContext)
   /-- The Lake that lies beside the Lean of a system root: its program and its library directory. -/
@@ -123,6 +125,7 @@ inductive Op (L E : Type) where
   | .findOLean .. => Except IO.Error FilePath
   | .importForRules .. => Except IO.Error Environment
   | .importForParser .. => Except IO.Error (E × List Name)
+  | .kernelReplay _ => Except IO.Error Unit
   | .parseToml _ => Except MessageLog Lake.Toml.Table
   | .lakeInstall _ => FilePath × FilePath
   | .loadWorkspace .. => Except String (Option (Root L) × List String)

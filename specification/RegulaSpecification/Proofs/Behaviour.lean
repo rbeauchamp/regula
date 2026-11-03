@@ -23,15 +23,28 @@ variable {L E : Type}
 theorem loaded_pass {gave : List (Event L E) → Root L → Prop} {why : List (Event L E) → Prop} {T : List (Event L E)}
     {p : Regula.Closed.Profile} {result : Except String Regula.Closed.Input} (hl : Loaded gave why T p result) (hv : (Regula.Closed.decision result).verdict = .pass) :
     ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), gave T root ∧ BuildRead T root f roots ∧
-      EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) := by
-  rcases hl with ⟨root, f, roots, hg, hb, rfl⟩ | ⟨-, m, rfl⟩
-  · obtain ⟨h1, -, -, h4, h5⟩ := pass_floor hv
-    exact ⟨root, f, roots, hg, hb, h4, h5, h1⟩
+      EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) ∧
+      ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ T := by
+  rcases hl with ⟨root, f, roots, hg, hb, hrp⟩ | ⟨-, m, rfl⟩
+  · obtain ⟨i, rfl, -⟩ := decision_pass hv
+    cases hin : f.input roots p with
+    | error m =>
+      rw [hin] at hrp
+      cases hrp
+    | ok i' =>
+      rw [hin] at hrp
+      obtain ⟨r, hm, (⟨rfl, hr⟩ | ⟨-, m, hr⟩)⟩ := hrp
+      · cases hr
+        have hv' : (Regula.Closed.decision (f.input roots p)).verdict = .pass := by rw [hin]; exact hv
+        obtain ⟨h1, -, -, h4, h5⟩ := pass_floor hv'
+        exact ⟨root, f, roots, hg, hb, h4, h5, h1, _, hin, hm⟩
+      · cases hr
   · cases hv
 
 theorem plain_exit_zero {t : List (Event L E)} {p : Regula.Closed.Profile} (h : PlainRun t p 0) :
     ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), PlainRoot t root ∧ BuildRead t root f roots ∧
-      EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) := by
+      EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) ∧
+      ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ t := by
   obtain ⟨result, -, hl, hc, -⟩ := h
   exact loaded_pass hl ((Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm)
 
@@ -39,10 +52,11 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
     ∃ (tree : FilePath) (sysroot : String) (tRead tBuild tRules : List (Event L E)) (r : Reading), Inside r ∧
       Evidence tRead dir tree (written tRead) r ∧ (∀ e ∈ tRead, ¬ e.failed) ∧
       (∃ program lakeLib,
-        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
-          ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist tBuild) ∧
+        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩] :
+          List (Event L E)).Sublist tBuild) ∧
       ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name),
-        TreeRoot sysroot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p := by
+        TreeRoot sysroot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p ∧
+        ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ tRules := by
   rcases h with ⟨e, rest, -, hc, -⟩ | ⟨tree, tRead, tGate, r, last, -, -, -, o, report, hdec, hnf, hn, ha, hc, -⟩
   · exact absurd hc (by decide)
   · have hrep : report = .full .pass := (Report.exitCode_eq_zero_iff report).mp hc.symm
@@ -56,9 +70,9 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
       obtain ⟨sysroot, tBuild, tRules, -, -, hb⟩ := ha rfl
       rcases hb.2.2.1 with ⟨program, lakeLib, result, -, hsub, hl, hrep⟩ | ⟨hrep, -⟩
       · have hv : (Regula.Closed.decision result).verdict = .pass := (Report.full.inj hrep).symm
-        obtain ⟨root, f, roots, hg, hbr, h1, h2, -⟩ := loaded_pass hl hv
+        obtain ⟨root, f, roots, hg, hbr, h1, h2, -, hrep'⟩ := loaded_pass hl hv
         exact ⟨tree, sysroot, tRead, tBuild, tRules, r', hi, hev, hnf rfl, ⟨program, lakeLib, hsub⟩, root, f,
-          roots, hg, hbr, h1, h2⟩
+          roots, hg, hbr, h1, h2, hrep'⟩
       · cases hrep
 
 /-- H3: what Lake's build compiles for the default targets. A hypothesis about what a function of Lake does, at v4.35.0:

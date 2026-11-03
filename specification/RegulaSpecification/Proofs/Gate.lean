@@ -350,7 +350,6 @@ theorem localSteps_eq (checker root : String) :
         ⟨["build", "--wfail", "Regula", "lint"], ".", none⟩,
         ⟨["lint"], ".", none⟩,
         ⟨["build", "--wfail"], "specification", none⟩,
-        ⟨["check", "--inadvisably-no-sandbox"], "specification", none⟩,
         ⟨["lint"], "specification", none⟩] := rfl
 
 theorem localSteps_full (checker root : String) :

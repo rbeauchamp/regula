@@ -37,7 +37,7 @@ public section
 
 namespace Regula.Load
 
-open Lean (ConstantInfo Environment Name findOLean isExtern)
+open Lean (ConstantInfo Environment Name TheoremVal findOLean isExtern)
 open System (FilePath)
 open Regula.Closed
 
@@ -75,20 +75,22 @@ def kindOf : ConstantInfo → Kind
 def dedup (all : Array Name) : Array Name :=
   all.foldl (fun acc n => if acc.contains n then acc else acc.push n) #[]
 
-/-- The constants a constant mentions, the fields that `Lean.collectAxioms` walks: the type and
-value of a definition, theorem or opaque constant, the type of an axiom, constructor or recursor,
-the type and constructors of an inductive type, and nothing of a quotient
-(`Lean/Util/CollectAxioms.lean`). -/
+/-- The constants a constant mentions: what Lean's kernel checks it against when Lean replays it. That is the type of each
+constant, the value of a definition, theorem or opaque constant, the constructors and the other types of an inductive type's
+block, the inductive type of a constructor, the types of a recursor's block, and `Eq` for a quotient. Lean's replay follows
+`ConstantInfo.getUsedConstantsAsSet` (`Lean/Util/FoldConsts.lean:67-74`), reads each type of a block and its constructors
+(`Lean/Replay.lean:105-111`), and adds `Eq` before a quotient, whose check reads it (`Lean/Replay.lean:129-133`,
+`src/kernel/quot.cpp:19-50`), at v4.35.0. -/
 def usesOf (info : ConstantInfo) : Array Name :=
   dedup <| match info with
     | .axiomInfo v => v.type.getUsedConstants
     | .defnInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
     | .thmInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
     | .opaqueInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
-    | .quotInfo _ => #[]
-    | .ctorInfo v => v.type.getUsedConstants
-    | .recInfo v => v.type.getUsedConstants
-    | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray
+    | .quotInfo v => v.type.getUsedConstants.push `Eq
+    | .ctorInfo v => v.type.getUsedConstants.push v.induct
+    | .recInfo v => v.type.getUsedConstants ++ v.all.toArray
+    | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray ++ v.all.toArray
 
 /-- What the input states a constant mentions: what the constant that the environment keeps mentions
 and what each constant in `stated`, those of its name that the loaded modules state, mentions. -/
@@ -322,6 +324,62 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
             replaced with another of that name, and this one is no theorem within the profile or \
             has a recursion helper's name"
         | none => .ok i
+
+/-- Whether Lean's replay is given a constant of the cone: each constant but the companions of `Quot`, `Quot.mk`,
+`Quot.lift` and `Quot.ind`, which the kernel adds with `Quot` and refuses to add again as names already taken
+(`src/kernel/quot.cpp:50-56`). `leanchecker` leaves them out of its replay for that reason (`src/LeanChecker.lean:68-71`). -/
+def replays : ConstantInfo → Bool
+  | .quotInfo v =>
+    match v.kind with
+    | .type => true
+    | _ => false
+  | _ => true
+
+/-- `m` with the constant `n` of `constants` when Lean's replay is given it (`replays`). -/
+def replayStep (constants m : Std.HashMap Name ConstantInfo) (n : Name) : Std.HashMap Name ConstantInfo :=
+  match constants[n]? with
+  | some info => if replays info then m.insert n info else m
+  | none => m
+
+/-- The number of components of a name. -/
+def depth : Name → Nat
+  | .anonymous => 0
+  | .str p _ => depth p + 1
+  | .num p _ => depth p + 1
+
+/-- A name of `d` components, each `0`. -/
+def zeros : Nat → Name
+  | 0 => .anonymous
+  | d + 1 => .num (zeros d) 0
+
+/-- A name deeper than each name of `constants`, so that no constant of theirs has a name that starts with it. -/
+def copyRoot (constants : Std.HashMap Name ConstantInfo) : Name :=
+  zeros (constants.keys.foldl (fun d n => max d (depth n)) 0 + 1)
+
+/-- Each theorem of a claimed module, as that module's `.olean` states it, that is not the constant of its name that the
+environment keeps. Lean's import keeps one of the theorems of a name and type that its modules state (`subsumesInfo` and
+`finalizeImport`, `Lean/Environment.lean:2269-2275` and `2336-2345` at v4.35.0), so the kernel can check the others only as
+copies. A theorem counts as kept when `==` (`Expr.eqv` on each expression, `Lean/Expr.lean:804-812`) relates the two. -/
+def Facts.copies (f : Facts) : List TheoremVal :=
+  f.claimedConstants.filterMap fun (_, n, info) =>
+    match info with
+    | .thmInfo v => if f.env.constants.map₁[n]? == some info then none else some v
+    | _ => none
+
+/-- The `k`-th copy under the name `root.k`, which no constant of the environment has (`copyRoot`). -/
+def copyAt (root : Name) (x : TheoremVal × Nat) : Name × ConstantInfo :=
+  (.num root x.2, .thmInfo { x.1 with name := .num root x.2, all := [.num root x.2] })
+
+/-- Where the cone of the claim starts beyond the constants of claimed modules that the environment keeps: each name that a
+claimed module's own data states, and `kernelNames`. -/
+def Facts.coneSeeds (f : Facts) : List Name :=
+  f.claimedConstants.map (·.2.1) ++ Input.kernelNames
+
+/-- What Lean's replay is given of the cone of `i`'s claim (`Regula.Closed.Input.cone`): each constant of the cone that
+`replays` admits, as the environment keeps it, and each of `copies` under a name of its own. -/
+def Facts.replayConstants (f : Facts) (i : Input) : Std.HashMap Name ConstantInfo :=
+  ((f.copies.zipIdx.map (copyAt (copyRoot f.env.constants.map₁))).foldl (fun m x => m.insert x.1 x.2)
+    ((i.cone f.coneSeeds).toList.foldl (replayStep f.env.constants.map₁) {}))
 
 /-- Whether `loaded`, the search path of the workspace that a load of the current directory gave, starts the search path that this program
 received. Lake gives a program the libraries of its workspace, then its own, then what it inherited (`Workspace.augmentedLeanPath`,

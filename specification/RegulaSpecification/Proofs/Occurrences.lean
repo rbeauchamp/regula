@@ -69,10 +69,10 @@ def InfoOccurs : ConstantInfo → Name → Prop
   | .defnInfo v, u => OccursIn u v.type ∨ OccursIn u v.value
   | .thmInfo v, u => OccursIn u v.type ∨ OccursIn u v.value
   | .opaqueInfo v, u => OccursIn u v.type ∨ OccursIn u v.value
-  | .quotInfo _, _ => False
-  | .ctorInfo v, u => OccursIn u v.type
-  | .recInfo v, u => OccursIn u v.type
-  | .inductInfo v, u => OccursIn u v.type ∨ u ∈ v.ctors
+  | .quotInfo v, u => OccursIn u v.type ∨ u = `Eq
+  | .ctorInfo v, u => OccursIn u v.type ∨ u = v.induct
+  | .recInfo v, u => OccursIn u v.type ∨ u ∈ v.all
+  | .inductInfo v, u => OccursIn u v.type ∨ u ∈ v.ctors ∨ u ∈ v.all
 
 /-- A constant occurs in the value of a {name}`ConstantInfo`. -/
 def ValueOccurs : ConstantInfo → Name → Prop
@@ -97,9 +97,9 @@ theorem mentions_of_occurs (hused : UsedConstantsComplete) {k : ConstantInfo} {u
   | defnInfo v => exact h.imp (hused _ _) (hused _ _)
   | thmInfo v => exact h.imp (hused _ _) (hused _ _)
   | opaqueInfo v => exact h.imp (hused _ _) (hused _ _)
-  | quotInfo v => exact h
-  | ctorInfo v => exact hused _ _ h
-  | recInfo v => exact hused _ _ h
+  | quotInfo v => exact h.imp_left (hused _ _)
+  | ctorInfo v => exact h.imp_left (hused _ _)
+  | recInfo v => exact h.imp_left (hused _ _)
   | inductInfo v => exact h.imp_left (hused _ _)
 
 theorem valueMentions_of_occurs (hused : UsedConstantsComplete) {k : ConstantInfo} {u : Name}

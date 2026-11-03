@@ -124,7 +124,7 @@ def Event.leaves (e : Event L E) (p : List String) (held : Option String) : Opti
   | .removeDirAll q => if (parts q).isPrefixOf p then none else held
   | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .createDirAll _ | .createTempDir | .println _ | .flush | .parseHeader _ | .parseCommand ..
-  | .findOLean .. | .importForRules .. | .importForParser .. | .parseToml _
+  | .findOLean .. | .importForRules .. | .importForParser .. | .kernelReplay _ | .parseToml _
   | .lakeInstall _ | .loadWorkspace .. | .loadRoot .. | .libModules _ | .runLake .. => held
 
 /-- What the acts of {name}`t` leave at the path with the components {name}`p`, from a tree that held nothing there: the
@@ -148,6 +148,7 @@ def Event.failed : Event L E → Prop
     ∃ e, r = (Except.error e : Except IO.Error (Syntax × ModuleParserState × MessageLog × Array Import))
   | ⟨.importForParser .., r⟩ => ∃ e, r = (Except.error e : Except IO.Error (E × List Name))
   | ⟨.importForRules .., r⟩ => ∃ e, r = (Except.error e : Except IO.Error Environment)
+  | ⟨.kernelReplay _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error Unit)
   | ⟨.parseToml _, r⟩ => ∃ e, r = (Except.error e : Except MessageLog Lake.Toml.Table)
   | ⟨.libModules _, r⟩ => ∃ e, r = (Except.error e : Except IO.Error (Array (Name × FilePath)))
   | ⟨.loadWorkspace .., r⟩ | ⟨.loadRoot .., r⟩ =>

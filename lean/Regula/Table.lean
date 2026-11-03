@@ -3,6 +3,7 @@ module
 public import Lean.Elab.Import
 public import Regula.Effect
 public import Lean.Util.Path
+public import Lean.Replay
 import Lean.Parser.Extension
 
 /-!
@@ -85,6 +86,8 @@ def table {L : Type} (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Env
       Lean.importModules (modules.map ({ module := · })) {} (loadExts := false) (level := .private) : IO Environment).toBaseIO
   | .importForParser path modules =>
     (do Lean.searchPathRef.set path; importParsers enable modules : IO (Environment × List Name)).toBaseIO
+  | .kernelReplay constants =>
+    (do let _ ← (← Lean.mkEmptyEnvironment).toKernelEnv.replay constants : IO Unit).toBaseIO
   | .parseToml input => lake.parseToml input
   | .lakeInstall sysroot => lake.lakeInstall sysroot
   | .loadWorkspace sysroot dir => lake.loadWorkspace sysroot dir

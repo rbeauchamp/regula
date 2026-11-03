@@ -306,7 +306,7 @@ theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile
                   · rintro ⟨y, hy⟩; cases hy
                   · rintro (⟨y, hy⟩ | ⟨y, hy⟩) <;> cases hy
                   · exact fun hn => by cases hn
-                simpa [List.append_assoc] using hc₁.append hcl
+                simpa [List.append_assoc] using hc₁.append (hcl i hi)
               · rw [hw] at hi; cases hi
           · rename_i hd
             obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₁₄
@@ -362,7 +362,7 @@ theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePa
             rcases hx with rfl | rfl
             · rintro ⟨y, hy⟩; cases hy
             · rintro (⟨y, hy⟩ | ⟨y, hy⟩) <;> cases hy
-          simpa [List.append_assoc] using hc₁.append hcl
+          simpa [List.append_assoc] using hc₁.append (hcl i rfl)
         · cases hw
 
 end RegulaSpecification.Effects
