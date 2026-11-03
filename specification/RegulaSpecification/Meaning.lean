@@ -109,6 +109,7 @@ structure Meaning : Prop where
   loaderHeld : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile},
     (Regula.Closed.decision (f.input roots p)).verdict = .pass → ∀ {m n : Name} {info : ConstantInfo},
       (m, n, info) ∈ f.claimedConstants →
+      ModuleUnreplaced f.env m n ∧
       (∀ v, info ≠ .axiomInfo v) ∧
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
         info.isPartial = true ∧ info.isUnsafe = false) ∧

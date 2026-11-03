@@ -225,21 +225,40 @@ def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? f.env b = none ∧ Lean.isExtern f.env b = false
 
-/-- What RG1001 to RG1006 state of each constant of a claimed module, in the terms of the
+/-- What RG1001 to RG1006 and RG1011 state of each constant of a claimed module, in the terms of the
 environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, or
 has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value
 mentions no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded
 module's own
 data states, is one that the profile admits (RG1005), which also excludes {name}`sorryAx` (RG1002), a
 native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_hole`,
-{name}`rg1005_of_compiler`, {name}`rg1005_of_unknown`. -/
+{name}`rg1005_of_compiler`, {name}`rg1005_of_unknown`. The environment gives it no constant by
+{attr}`@[implemented_by]` and does not mark it {attr}`@[extern]` (RG1011). -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
       EnvHelper f n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
-    ∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a
+    (∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a) ∧
+    Lean.Compiler.getImplementedBy? f.env n = none ∧ Lean.isExtern f.env n = false
+
+/-- The module's own attribute entries contain neither replacement attribute for this name,
+including when another module's constant has the same name. -/
+def ModuleUnreplaced (env : Lean.Environment) (m n : Name) : Prop :=
+  ∃ idx, env.getModuleIdx? m = some idx ∧
+    (∀ entry ∈ Lean.Compiler.implementedByAttr.ext.getModuleEntries env idx, entry.1 ≠ n) ∧
+    (∀ entry ∈ Lean.externAttr.ext.getModuleEntries env idx, entry.1 ≠ n)
+
+theorem unreplaced_iff (m n : Name) :
+    f.unreplaced m n = true ↔ ModuleUnreplaced f.env m n := by
+  unfold Regula.Load.Facts.unreplaced ModuleUnreplaced
+  cases f.env.getModuleIdx? m with
+  | none => simp
+  | some idx =>
+    simp only [Option.some.injEq, Bool.and_eq_true,
+      Array.all_eq_true_iff_forall_mem, bne_iff_ne]
+    exact ⟨fun h => ⟨idx, rfl, h⟩, fun ⟨_, rfl, h⟩ => h⟩
 
 theorem mem_modules_of_getElem {k : Nat} {m : Regula.Load.LoadedModule}
     (h : f.modules[k]? = some m) : m ∈ f.modules :=
@@ -358,13 +377,23 @@ theorem shown_true {x : Name × Name × ConstantInfo} (h : f.shown x = true) :
   split at h
   · rename_i k m h1 h2
     simp only [Bool.and_eq_true, decide_eq_true_eq] at h
-    exact ⟨k, m, h1, h.1, h2, h.2⟩
+    exact ⟨k, m, h1, h.1.1, h2, h.1.2⟩
+  · cases h
+  · cases h
+
+theorem shown_unreplaced {x : Name × Name × ConstantInfo} (h : f.shown x = true)
+    (hi : Lean.Compiler.getImplementedBy? f.env x.2.1 = none)
+    (he : Lean.isExtern f.env x.2.1 = false) : ModuleUnreplaced f.env x.1 x.2.1 := by
+  simp only [Regula.Load.Facts.shown] at h
+  split at h
+  · simp only [Bool.and_eq_true] at h
+    exact (unreplaced_iff _ _).mp (by simpa [hi, he] using h.2)
   · cases h
   · cases h
 
 theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i = none)
     (hx : x ∈ f.claimedConstants) :
-    f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true := by
+    f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true := by
   by_cases hs : f.shown x = true
   · exact .inl hs
   refine .inr ?_
@@ -430,7 +459,7 @@ theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
 
 theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantInfo}
     (hx : x ∈ f.claimedConstants) :
-    f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true := by
+    f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true := by
   simp only [Regula.Load.Facts.input] at h
   split at h
   · cases h
@@ -679,17 +708,19 @@ theorem flagged_iff {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
 environment. A rule added to the registry makes this false until {name}`EnvFloor` and this theorem state it too. -/
 theorem allHold_iff (i : Input) : AllHold i ↔
     (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
-      (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) := by
-  simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved]
+      (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) ∧
+      (∀ c, ¬ Violates1011 i c) := by
+  simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved,
+    rg1011Proved]
 
 theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor f p := by
   rw [allHold_iff]
   constructor
-  · rintro ⟨h1, -, -, -, h5, h6⟩ n info m hn hm hc
+  · rintro ⟨h1, -, -, -, h5, h6, h11⟩ n info m hn hm hc
     obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm
     have hx := to_mem hl hn hlm
     have hcm := (claimed_iff hl _).mpr hc
-    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun a hr hax => ?_⟩
+    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun a hr hax => ?_, ?_, ?_⟩
     · exact h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr hax⟩
     · refine Classical.byContradiction fun hno =>
         h6 n ⟨_, hx, rfl, hcm, .inl ⟨flagged_iff.mpr hflag, fun hh => ?_⟩⟩
@@ -699,6 +730,12 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       refine Classical.byContradiction fun hno => h5 n ⟨⟨_, hx, rfl, hcm⟩, a,
         ⟨(reaches_env hl n a).mpr hr, (isAxiom_env hl a).mpr hax⟩, fun hadm => ?_⟩
       exact hno ((admits_env hl ha).mp hadm)
+    · cases hi : Lean.Compiler.getImplementedBy? f.env n with
+      | none => rfl
+      | some impl => exact absurd ⟨_, hx, rfl, hcm, .inl ⟨impl, hi⟩⟩ (h11 n)
+    · cases he : Lean.isExtern f.env n with
+      | false => rfl
+      | true => exact absurd ⟨_, hx, rfl, hcm, .inr he⟩ (h11 n)
   · intro hf
     have hmod : ∀ {x : Decl} {info m}, f.info? x.name = some m → x = decl
         (f.declIn x.name m info (f.stated.getD x.name [])) → f.moduleOf? x.name = some x.module :=
@@ -709,10 +746,10 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       have hax' := (isAxiom_env hl a).mp hax
       obtain ⟨k, ha, -⟩ := id hax'
       exact hna ((admits_env hl ha).mpr
-        ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2 a
+        ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2.1 a
           ((reaches_env hl _ a).mp hr) hax'))
     refine ⟨?_, fun c h => no5 c (rg1005_of_hole h), fun c h => no5 c (rg1005_of_unknown h),
-      fun c h => no5 c (rg1005_of_compiler h), no5, ?_⟩
+      fun c h => no5 c (rg1005_of_compiler h), no5, ?_, ?_⟩
     · rintro c ⟨x, hx, rfl, hcm, hk⟩
       obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx
       have hmd := hmod hm hv
@@ -727,6 +764,13 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       rcases hv with ⟨hflag, hno⟩ | ⟨l, hl', hu⟩
       · exact hno ((helper_env hl _ m info).mpr (hmn ▸ h6 (flagged_iff.mp hflag)))
       · exact h7 l hl' ((mem_valueUsesOf info l).mp hu)
+    · rintro c ⟨x, hx, rfl, hcm, hr⟩
+      obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
+      obtain ⟨-, -, -, -, hi, he⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
+      rw [hd] at hr
+      rcases hr with ⟨impl, himpl⟩ | hext
+      · exact absurd (himpl.symm.trans hi) (by simp)
+      · exact absurd (hext.symm.trans he) (by simp)
 
 theorem input_form (h : f.input roots p = .ok i) : EnvForm f :=
   (wf_env (input_loaded h)).mp (wf_toSpec i)
@@ -772,6 +816,7 @@ theorem mem_claimedConstants {m n : Name} {info : ConstantInfo} :
 
 theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pass) {m n : Name}
     {info : ConstantInfo} (hx : (m, n, info) ∈ f.claimedConstants) :
+    ModuleUnreplaced f.env m n ∧
     (∀ v, info ≠ .axiomInfo v) ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
       info.isPartial = true ∧ info.isUnsafe = false) ∧
@@ -782,9 +827,9 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   rcases (input_kept hi hx).symm with hfits | hshown
   · simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
       List.all_eq_true, Array.all_eq_true_iff_forall_mem] at hfits
-    obtain ⟨⟨⟨⟨hkind, hsafety⟩, hname⟩, hloop⟩, huses⟩ := hfits
+    obtain ⟨hattrs, ⟨⟨⟨⟨hkind, hsafety⟩, hname⟩, hloop⟩, huses⟩⟩ := hfits
     obtain ⟨hunsafe, hpartial⟩ := (safetyOf_safe info).mp hsafety
-    refine ⟨?_, fun hflag => ?_, ?_, ?_⟩
+    refine ⟨(unreplaced_iff _ _).mp hattrs, ?_, fun hflag => ?_, ?_, ?_⟩
     · rintro v rfl
       simp [Regula.Load.kindOf] at hkind
     · rcases hflag with hf | hf | ⟨b, hb⟩
@@ -807,7 +852,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   have hmod : f.moduleOf? n = some lm.name := moduleOf?_eq_some.mpr ⟨lm, hinfo, rfl⟩
   have hcl : lm.name ∈ f.claimed :=
     (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
-  obtain ⟨h1, h2, h3, h4⟩ := ((pass_iff hi).mp hp).2 n k lm.name hk hmod hcl
+  obtain ⟨h1, h2, h3, h4, himpl, hext⟩ := ((pass_iff hi).mp hp).2 n k lm.name hk hmod hcl
   simp only [Regula.Load.readOf, Prod.mk.injEq] at hread
   obtain ⟨hkind, hsafety, huses, hvalue⟩ := hread
   have hsafe : k.isUnsafe = info.isUnsafe ∧ k.isPartial = info.isPartial := by
@@ -819,7 +864,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
       exact absurd (not_unsafe_of_partial c hq) (by simp [hu])
     rw [(hb k).1, (hb k).2, (hb info).1, (hb info).2, hsafety]
     exact ⟨rfl, rfl⟩
-  refine ⟨?_, ?_, ?_, ?_⟩
+  refine ⟨shown_unreplaced hshown himpl hext, ?_, ?_, ?_, ?_⟩
   · rintro v rfl
     have hax : AxiomInfo k := (kindOf_axiom k).mp (by simpa [Regula.Load.kindOf] using hkind)
     exact h1 ⟨k, hk, .inl hax⟩
@@ -888,11 +933,13 @@ theorem exactBelow_no_parent (dir path real : System.FilePath)
   exact hr hp
 
 /-- What the loader asks of each constant of a claimed module's own {lit}`.olean` that the environment does not show to the rules
-({name (full := Regula.Load.Facts.shown)}`Facts.shown`), in the terms of the environment: a safe theorem with no recursion helper's name, whose value mentions no
+({name (full := Regula.Load.Facts.shown)}`Facts.shown`), in the terms of the environment: a safe theorem with neither replacement attribute
+in its own module and no recursion helper's name, whose value mentions no
 loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. Lean's import
 replaces such a constant ({name (full := Regula.Load.Facts.stated)}`Facts.stated`), so no rule reads it as a subject. -/
 def EnvUnshown (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ x ∈ f.claimedConstants, f.shown x = false →
+    ModuleUnreplaced f.env x.1 x.2.1 ∧
     Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
     (∀ b, x.2.1 ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions x.2.2 l) ∧
     ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
@@ -914,7 +961,8 @@ structure LoadFloor (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Clos
   unshown : EnvUnshown f p
 
 theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantInfo) :
-    Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true ↔
+    Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true ↔
+      ModuleUnreplaced f.env x.1 x.2.1 ∧
       Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
       (∀ b, x.2.1 ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions x.2.2 l) ∧
       ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
@@ -937,7 +985,8 @@ theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantI
       rw [(i.tables.mem_index _ _).mpr ⟨hd, rfl⟩]
       rfl
   simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
-    List.all_eq_true, Array.all_eq_true_iff_forall_mem, and_assoc]
+    unreplaced_iff, List.all_eq_true, Array.all_eq_true_iff_forall_mem, and_assoc]
+  refine and_congr_right fun _ => ?_
   refine and_congr_right fun _ => and_congr_right fun _ => and_congr ?_ (and_congr ?_ ?_)
   · constructor
     · intro hname b hb
@@ -980,7 +1029,8 @@ theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantI
       exact ⟨(hheld u).mpr h1, (hadm u).mpr h2⟩
 
 theorem unread_none_of {i : Regula.Closed.Input}
-    (h : ∀ x ∈ f.claimedConstants, f.shown x = true ∨ Regula.Load.fitsUnshown i.tables x.2.1 x.2.2 = true) :
+    (h : ∀ x ∈ f.claimedConstants,
+      f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true) :
     f.unread? i = none := by
   simp only [Regula.Load.Facts.unread?]
   cases hu : f.claimedConstants.filter (!f.shown ·) with

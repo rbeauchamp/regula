@@ -122,7 +122,7 @@ theorem pass_occurs (hused : UsedConstantsComplete)
     (hm : f.moduleOf? n = some m) (hc : m ∈ f.claimed) :
     (∀ l ∈ loopConstructs, ¬ ValueOccurs info l) ∧
       ∀ a, OccursReaches f n a → EnvAxiom f a → EnvAdmits f p a := by
-  obtain ⟨-, h6, h7, h8⟩ := (pass_floor h).2.2.2.2 n info m hn hm hc
+  obtain ⟨-, h6, h7, h8, -⟩ := (pass_floor h).2.2.2.2 n info m hn hm hc
   exact ⟨fun l hl ho => h7 l hl (valueMentions_of_occurs hused ho),
     fun a hr hax => h8 a (envReaches_of_occurs hused hr) hax⟩
 
