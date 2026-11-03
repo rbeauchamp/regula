@@ -1,3 +1,4 @@
+import Regula.Rules
 import RegulaSpecification.EffectsRun
 
 /-!

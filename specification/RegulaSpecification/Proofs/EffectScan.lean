@@ -1,5 +1,5 @@
 import Regula.ProgramCheck.EffectScan
-import RegulaSpecification.Proofs.Foundation
+import RegulaSpecification.Rule
 
 /-!
 # What the check of effects decides

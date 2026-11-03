@@ -19,10 +19,13 @@ linter.missingDocs = true
 
 # The checker: the closed input, the rules, the verdict and the language decision, each proved against
 # `specification/RegulaSpecification/`, the closed operations and their one table, the language check's reader and
-# the shell: every function of the checker that does not itself call Lake.
+# the shell: every function of the checker that does not itself call Lake. Each rule's module below `Regula/Rules/`
+# is reached through the imports of `Regula.Rules`, the registry, and is part of this library by the root `Regula.Rules`
+# (`LeanLibConfig.isBuildableModule`, `Lake/Config/LeanLibConfig.lean:140-142` at v4.35.0), so adding a rule adds no line here.
 [[lean_lib]]
 name = "RegulaChecker"
-globs = ["Regula.Effect", "Regula.Table", "Regula.RuleId", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rules", "Regula.Load", "Regula.Shell", "Regula.LanguageSet", "Regula.Language", "Regula.Reader"]
+roots = ["Regula.Rules"]
+globs = ["Regula.Effect", "Regula.Table", "Regula.Verdict", "Regula.Input", "Regula.Reach", "Regula.Tables", "Regula.Rule", "Regula.Rules", "Regula.Load", "Regula.Shell", "Regula.LanguageSet", "Regula.Language", "Regula.Reader"]
 
 # A library that gives no verdict: `ExecutableContract` and `RegisteredDecision`, which another project of
 # the owner's imports until it moves them.

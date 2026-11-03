@@ -2,7 +2,7 @@ module
 
 public import Lean.Environment
 public import Regula.Input
-public import Regula.Rules
+public import Regula.Rule
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.ImplementedByAttr
 import Lean.Util.Path

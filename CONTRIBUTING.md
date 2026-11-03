@@ -91,6 +91,19 @@ This file holds every rule that binds a change to Regula, and the lessons of pas
 - Use Lean/Lake APIs where available. Distinguish pure proved behavior from trusted compiler/runtime, filesystem, and process effects.
 - Before writing an algorithm or a procedure, look for one in Regula, then in Lean's and Lake's own code, then in published work, and reuse it unless a stated reason, such as trust, fit or the constraint's "no frameworks", rules it out. Say in the pull request what was searched and what was decided.
 
+## Adding a rule
+
+A rule is a pair of modules and one line in each package's registry, because the checker's package cannot depend on lean-intent while each rule's formal statement is a lean-intent record ([the decision of 2026-11-03](specification/confirmation.md#2026-11-03-each-rule-a-module-of-its-own)). [The shape of a rule](specification/README.md#the-shape-of-a-rule) states what each part is.
+
+1. Its check: `lean/Regula/Rules/RGnnnn.lean`, a `module` file that imports `Regula.Rule` and no other rule, defines each table that only this rule reads, and gives `rule : Regula.Closed.Rule`, its spelling and its check. `rule` is `@[expose]` so that the registry reads its spelling, and the check stays unexposed.
+2. Its line in `Regula.Closed.registry`, in `lean/Regula/Rules.lean`, at the place its findings take in the output. `Regula.Closed.spellings_nodup` refuses a spelling that another rule, RG1010 or RG2001 has.
+3. Its statement and proofs: `specification/RegulaSpecification/Rules/RGnnnn.lean`, which imports `RegulaSpecification.Rule`, the rule's own check, and no other rule. It holds the violation predicate, written from the owner's intent first and in other terms than the check ([the specification first](#the-specification-first)), the intent record by `ruleRecord`, the cases (`Witnessed`) with `adequate` and `noisy_fails`, `rgN_exact`, which proves that the check reports exactly the violations, and the rule's value of `Proved`.
+4. Its line in `registry`, in `specification/RegulaSpecification/Rules.lean`, at the same place. `registry_rules` refuses two registries that differ.
+
+A table that another rule also reads goes in a core, `Regula.Rule` or `RegulaSpecification.Rule` and `RegulaSpecification.Foundation`, never in a rule's module. A rule that needs a field of the build that the closed input does not carry extends `Regula.Closed.Decl`, the loader and the specification's `Input`, which every rule reads, so its pull request says so. A rule also changes what a pass means: `allHold_iff` in `specification/RegulaSpecification/Proofs/Load.lean` stops the build until `EnvFloor` and `allHold_env` state the rule in the terms of Lean's environment, with the loader's `fitsUnshown` when the rule must hold of a constant that Lean's import replaced. Change the published text with them: the README's table of the checks and what a pass means, and the specification's section on the rule and its rows of what the owner's intent requires.
+
+No line of `lakefile.toml` or of `RegulaSpecification.lean` names a rule's module. The library `RegulaChecker` has the root `Regula.Rules`, and the specification's library has its own name as its root, so Lake builds each module below them that an import reaches. For a change confined to one rule's pair, Lake then rebuilds only that pair, the registries and what lies downstream of them. The gate still runs every check from a clean build; [issue 549](https://github.com/rbeauchamp/regula/issues/549) is to make it fast for such a change.
+
 ## Changes, the gate and delivery
 
 No package of this repository requires Mathlib. `lake build` builds the default targets, and `lake build Regula` the library that no default target imports. The specification is a package of its own: `lake build` in `specification/`, from a shell whose working directory is that directory.

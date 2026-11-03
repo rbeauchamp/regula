@@ -1,7 +1,7 @@
 import Lean.Elab.Command
 import RegulaSpecification.Proofs.Behaviour
 import RegulaSpecification.Proofs.Occurrences
-import RegulaSpecification.Safety
+import RegulaSpecification.Rules.RG1006
 
 /-!
 # The assumptions

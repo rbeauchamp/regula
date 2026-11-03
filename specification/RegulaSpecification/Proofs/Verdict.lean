@@ -1,4 +1,4 @@
-import RegulaSpecification.Proofs.Records
+import RegulaSpecification.CasesGate
 
 /-!
 # The verdict, against its statement
@@ -51,56 +51,6 @@ theorem admit_error_iff (d : Regula.Closed.Draft) :
   cases d.admit with
   | error why => simp
   | ok i => simp
-
-theorem nil_iff_no_subject (fs : List Regula.Closed.Finding) :
-    fs = [] ↔ ∀ s, s ∉ fs.map (·.subject) := by
-  cases fs with
-  | nil => simp
-  | cons f fs =>
-    constructor
-    · intro h
-      cases h
-    · intro h
-      exact absurd (List.mem_cons_self ..) (h f.subject)
-
-theorem findings_nil_iff (i : Regula.Closed.Input) :
-    i.findings = [] ↔ AllHold (toSpec i) := by
-  have hall : i.findings = [] ↔ ∀ r, i.tables.check r = [] := by
-    simp only [Regula.Closed.Input.findings, List.flatMap_eq_nil_iff]
-    exact ⟨fun h r => h r (Regula.RuleId.mem_all r), fun h r _ => h r⟩
-  rw [hall]
-  constructor
-  · intro hn
-    have at' : ∀ r s, s ∉ (i.tables.check r).map (·.subject) :=
-      fun r => (nil_iff_no_subject _).mp (hn r)
-    exact ⟨fun c hv => at' .projectAxiom c ((rg1001_exact i.tables c).mpr hv),
-      fun c hv => at' .proofHole c ((rg1002_exact i.tables c).mpr hv),
-      fun c hv => at' .unknownAxiom c ((rg1003_exact i.tables c).mpr hv),
-      fun c hv => at' .nativeProof c ((rg1004_exact i.tables c).mpr hv),
-      fun c hv => at' .profileExceeded c ((rg1005_exact i.tables c).mpr hv),
-      fun c hv => at' .escapeHatch c ((rg1006_exact i.tables c).mpr hv)⟩
-  · rintro ⟨h1, h2, h3, h4, h5, h6⟩ r
-    refine (nil_iff_no_subject _).mpr fun s hs => ?_
-    cases r
-    · exact h1 s ((rg1001_exact i.tables s).mp hs)
-    · exact h2 s ((rg1002_exact i.tables s).mp hs)
-    · exact h3 s ((rg1003_exact i.tables s).mp hs)
-    · exact h4 s ((rg1004_exact i.tables s).mp hs)
-    · exact h5 s ((rg1005_exact i.tables s).mp hs)
-    · exact h6 s ((rg1006_exact i.tables s).mp hs)
-    · simp [Regula.Closed.Tables.check] at hs
-    · simp [Regula.Closed.Tables.check] at hs
-
-theorem report_complete (i : Regula.Closed.Input) :
-    i.report.verdict ≠ .incomplete ∧
-      (i.report.verdict = .pass ↔ AllHold (toSpec i)) := by
-  rw [← findings_nil_iff]
-  simp only [Regula.Closed.Input.report]
-  cases i.findings <;> simp [Regula.Closed.Report.verdict]
-
-theorem report_findings (i : Regula.Closed.Input) : i.report.findings = i.findings := by
-  simp only [Regula.Closed.Input.report]
-  cases i.findings <;> rfl
 
 theorem run_refused {d : Regula.Closed.Draft} (h : ¬ (toSpecDraft d).WellFormed) :
     (run d).verdict = .incomplete := by
@@ -157,9 +107,5 @@ theorem run_meets : gateRecord.Meets runChecker := by
     · cases hv : (run (ofSpec s)).verdict <;> simp_all [verdict]
     · rw [← hp]
       cases (run (ofSpec s)).verdict <;> simp [verdict]
-
-theorem rule_spellings :
-    Regula.RuleId.all.map (·.spelling) =
-      ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1010", "RG2001"] := rfl
 
 end RegulaSpecification

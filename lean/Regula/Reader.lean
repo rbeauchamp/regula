@@ -3,7 +3,6 @@ module
 public import Regula.Effect
 public import Regula.Language
 public import Regula.Load
-import Regula.RuleId
 
 /-!
 # The reader of the language check
@@ -587,7 +586,7 @@ def describe : Syntax → String
 /-- The report of what the decision read: one line for each thing that made the reading other than
 admitted. At most `limit` lines of the positions. -/
 def findingLines (r : Reading) (sources : List (Name × Source)) (limit : Nat) : List String :=
-  let rule := Regula.RuleId.language.spelling
+  let rule := "RG1010"
   let toolchain :=
     if r.toolchainFile != some leanToolchain then
       [s!"{rule} lean-toolchain: it must say {leanToolchain}"]

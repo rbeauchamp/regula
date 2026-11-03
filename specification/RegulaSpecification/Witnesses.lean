@@ -1,10 +1,10 @@
-import RegulaSpecification.Gate
+import RegulaSpecification.Foundation
 
 /-!
-# The cases each rule must admit and must refuse
+# The compliant project that the cases of each rule extend
 
-For each rule, a small well-formed project that the rule must refuse, and a subject of a compliant project
-({lit}`base`) that it must admit. With them {name (full := RegulaSpecification.adequate)}`adequate` discharges lean-intent's obligations for the rule's
+For each rule, its module below {lit}`Rules/` gives a small well-formed project that the rule must refuse, built on
+the compliant project here ({lit}`base`), and a subject of {lit}`base` that it must admit. With them {name (full := RegulaSpecification.adequate)}`adequate` discharges lean-intent's obligations for the rule's
 record, and {name (full := RegulaSpecification.silent_fails)}`silent_fails` and {name (full := RegulaSpecification.noisy_fails)}`noisy_fails` prove that neither the checker that reports nothing nor the one
 that reports every candidate meets it. A statement that a do-nothing checker met, or that refused the
 compliant case, would fail here.
@@ -107,6 +107,42 @@ theorem uses_resolve {extra : List Decl} {hn : ((base.decls ++ extra).map (·.na
 theorem claimed_withDecls {extra : List Decl} {hn : ((base.decls ++ extra).map (·.name)).Nodup} :
     (withDecls extra hn).ClaimedModule `Good := by
   simp [withDecls, base, Input.ClaimedModule]
+
+theorem eq_of_mem_of_nodup_map {α β : Type} {f : α → β} :
+    ∀ {l : List α}, (l.map f).Nodup → ∀ {x y : α}, x ∈ l → y ∈ l → f x = f y → x = y
+  | [], _, _, _, hx, _, _ => absurd hx List.not_mem_nil
+  | a :: l, h, x, y, hx, hy, hxy => by
+    rw [List.map_cons, List.nodup_cons] at h
+    rcases List.mem_cons.mp hx with ex | hx' <;> rcases List.mem_cons.mp hy with ey | hy'
+    · rw [ex, ey]
+    · exact absurd (List.mem_map.mpr ⟨y, hy', by rw [← hxy, ex]⟩) h.1
+    · exact absurd (List.mem_map.mpr ⟨x, hx', by rw [hxy, ey]⟩) h.1
+    · exact eq_of_mem_of_nodup_map h.2 hx' hy' hxy
+
+theorem eq_of_name {i : Input} {d d' : Decl} (hd : d ∈ i.decls)
+    (hd' : d' ∈ i.decls) (h : d.name = d'.name) : d = d' :=
+  eq_of_mem_of_nodup_map i.unique hd hd' h
+
+theorem name_mem {i : Input} {c : Name} {P : Decl → Prop} (h : ∃ d ∈ i.decls, d.name = c ∧ P d) :
+    c ∈ i.decls.map (·.name) := by
+  obtain ⟨d, hd, rfl, -⟩ := h
+  exact List.mem_map_of_mem hd
+
+/-- The theorem `Good.t` of {name}`base`. -/
+def tDecl : Decl := plain `Good.t `Good .theorem [``propext]
+
+theorem t_mem : tDecl ∈ base.decls := by simp [tDecl, base, baseDecls]
+
+theorem t_of_name {d : Decl} (hd : d ∈ base.decls) (hn : d.name = `Good.t) : d = tDecl :=
+  eq_of_name hd t_mem (by simp [hn, tDecl, plain])
+
+theorem t_mem_support : `Good.t ∈ base.decls.map (·.name) := List.mem_map_of_mem t_mem
+
+theorem not_native_of_components {a : Name} (h : components a < 3) : ¬ NativeProofAxiom a :=
+  fun hn => absurd (components_of_native hn) (by omega)
+
+theorem not_known_of_not_logical {i : Input} {a : Name} (h : a ∉ logicalAxioms) : ¬ i.Known a :=
+  fun hk => h hk.1
 
 end Witnesses
 
