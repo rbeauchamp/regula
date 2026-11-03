@@ -69,7 +69,8 @@ inductive Assumption where
   /-- Lean's kernel accepts a constant only when it type-checks, at the safety of the constant. -/
   | kernel
   /-- H6: the kernel refuses a safe constant that mentions an unsafe or a partial one ({name}`SafeMentionsSafe`), and checking a
-  constant runs no compiled code. So it holds of the cone of the claim, which Lean's kernel accepted on a pass of a proof verdict. -/
+  constant runs no compiled code. So it holds of the cone of the claim, which Lean's kernel accepted on a run of
+  {name}`Regula.Shell.run` that passes. -/
   | h6
   /-- What Lean's replay answers. {name (full := Lean.Kernel.Environment.replay)}`Kernel.Environment.replay` of a map of constants into the kernel's environment of
   {name}`Lean.mkEmptyEnvironment`, which holds no constant, answers with success only when Lean's kernel accepted each constant of the map that
@@ -131,8 +132,11 @@ inductive Assumption where
   /-- How Lake starts the checker. {lit}`lake lint` builds the executable that {lit}`lintDriver` names and starts it with
   {lit}`lintDriverArgs` as its arguments, and {lit}`lake exe lint` starts the same program through the same call: in Lake's working
   directory, with the environment that Lake inherited and `Workspace.augmentedEnvVars` over it, which sets {lit}`LEAN_SYSROOT` and
-  {lit}`LEAN_PATH`, with the workspace's libraries first, and holds no {lit}`REGULA_FULL`. `lakefile.toml` has no key that sets a
-  variable. With no option of Lake's, Lake loads the workspace in {lit}`.` with the configuration {lit}`lakefile`. -/
+  {lit}`LEAN_PATH`, with the workspace's libraries first, sets {lit}`DYLD_LIBRARY_PATH` on macOS to the toolchain's two library
+  directories, then the library directory of each package of the workspace, its {lit}`buildDir` joined with its
+  {lit}`nativeLibDir`, which a package's configuration sets, then the value that Lake inherited, and holds no {lit}`REGULA_FULL`.
+  `lakefile.toml` has no key that sets a variable. With no option of Lake's, Lake loads the workspace in {lit}`.` with the
+  configuration {lit}`lakefile`. -/
   | lakeStart
   /-- H4: {name}`IO.FS.realPath` answers as {lit}`realpath(3)`. A path that crosses a link, or names a component in another case than
   the volume stores it, gets other components ({name (full := RegulaSpecification.Effects.RealPathBehaviour)}`RealPathBehaviour`); an absolute path with no {lit}`.`, `..` or empty component
@@ -148,7 +152,12 @@ inductive Assumption where
   /-- Processes. {name}`IO.getEnv` gives a variable as the process inherited it; {name}`IO.println` and a flush write to standard
   output; {name}`IO.Process.spawn` starts `/usr/bin/env` in the directory given, with standard input null, and waiting for the child gives
   its exit code; {lit}`env -i` starts the program with the variables given and no other; `/usr/bin:/bin` holds the programs
-  that Lake asks for by name; and the dynamic loader loads no library that a project placed below its own directory. -/
+  that Lake asks for by name; and the dynamic loader looks for each library that a program uses by its leaf name in each
+  directory that the program's {lit}`DYLD_LIBRARY_PATH` names, then at the path that the image using it records, then, when it
+  is not there, in each directory of {lit}`DYLD_FALLBACK_LIBRARY_PATH`, which by default names none for a binary built since
+  fall 2023 and {lit}`/usr/local/lib:/usr/lib` for an older one. So a program started with neither variable, as {lit}`env -i`
+  starts one, takes its libraries from the paths that its images record and those defaults, and a program whose
+  {lit}`DYLD_LIBRARY_PATH` names a directory takes from it any library placed there under a leaf name that it uses. -/
   | processes
   deriving DecidableEq, Repr
 
@@ -262,8 +271,10 @@ def sources : Assumption → List Source
   | h5 => [.file "src/lake/Lake/CLI/Main.lean" "48, 138", .file "src/lake/Lake/Load/Config.lean" "44",
       .file "src/lake/Lake/Load/Package.lean" "109-117", .file "src/lake/Lake/Util/IO.lean" "87-101"]
   | lakeCommands => [.file "src/lake/Lake/CLI/Main.lean" "307, 962-985", .file "src/lake/Lake/Build/Run.lean" "114-118"]
-  | lakeStart => [.file "src/lake/Lake/CLI/Actions.lean" "20-30, 88-100", .file "src/lake/Lake/Config/Workspace.lean" "417-431",
-      .file "src/lake/Lake/Config/Env.lean" "289-303", .file "src/lake/Lake/CLI/Main.lean" "47-48, 131-138"]
+  | lakeStart => [.file "src/lake/Lake/CLI/Actions.lean" "20-30, 88-100",
+      .file "src/lake/Lake/Config/Workspace.lean" "372-373, 409-410, 417-431", .file "src/lake/Lake/Config/Env.lean" "188, 289-303",
+      .file "src/lake/Lake/Config/InstallPath.lean" "160-164", .file "src/lake/Lake/Config/Package.lean" "228-229, 382-383",
+      .file "src/lake/Lake/Util/NativeLib.lean" "35-41", .file "src/lake/Lake/CLI/Main.lean" "47-48, 131-138"]
   | h4 => [.file "src/Init/System/IO.lean" "874-879", .manual "realpath(3)"]
   | files => [.file "src/Init/System/IO.lean" "943, 1058-1060, 1156, 1229-1233, 1316, 1335-1342", .manual "open(2)",
       .manual "stat(2)", .manual "mkdir(2)", .manual "mktemp(3)"]
@@ -428,7 +439,10 @@ namespace Route
 open Assumption
 
 /-- What each route relies on beyond its operations. Both rest on how Lake starts the checker, on the compiler and on the
-platform; a pass of the proof verdict also rests on the operator's {lit}`lake build --wfail` of the same build. -/
+platform. A pass of the proof verdict also rests on the operator's {lit}`lake build --wfail` of the same build, and on the
+project, which is no behaviour of Lean, Lake or the operating system and so no entry: its route starts the checker from the
+project's own Lake, so it holds only for a project that places no file or code aimed at the checker or the toolchain, as
+`README.md` in this directory states under "A project aimed at the checker". -/
 def relies : Route → List Assumption
   | proof => [lakeStart, compiler, platform, lakeCommands]
   | full => [lakeStart, compiler, platform]
