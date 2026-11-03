@@ -62,11 +62,11 @@ structure Decl where
   kind : Kind
   /-- Whether it is safe, unsafe or partial. -/
   safety : Safety
-  /-- The constants that the type and value mention, the fields that `Lean.collectAxioms` walks:
-  type and value of a definition, theorem or opaque constant, the type of an axiom, constructor or
-  recursor, and the type and constructors of an inductive type. It covers the constant Lean keeps
-  and each constant of this name that a loaded module's own data states, which Lean's import can
-  drop. -/
+  /-- The constants that it mentions: what Lean's kernel checks it against when Lean replays it, the type of
+  each constant, the value of a definition, theorem or opaque constant, the constructors and the other types of
+  an inductive type's block, the inductive type of a constructor, the types of a recursor's block, and {name}`Eq` for a
+  quotient. It covers the constant Lean keeps and each constant of this name that a loaded module's own data
+  states, which Lean's import can drop. -/
   uses : List Name
   /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
   for any other constant. RG1006 reads it for Lean's loop constructs. -/

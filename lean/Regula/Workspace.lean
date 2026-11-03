@@ -13,7 +13,7 @@ results is in `Regula.Reader` and `Regula.Shell`, which are in a default target.
 This module is in the library `Regula`, which is no default target. Lake declares each entry of its
 open families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Util/Family.lean`,
 `Lake/Config/Kinds.lean` at v4.35.0). So a constant that calls Lake's load depends on axioms that no
-profile admits, and an import of it puts them in the scope of `lake check`, which refuses them.
+profile admits, and the rules refuse a claimed constant that reaches them (RG1003, RG1005).
 Lake's load is trusted.
 -/
 

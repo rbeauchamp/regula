@@ -193,7 +193,7 @@ theorem full_gate_lines :
     Report.label (.full .fail) = "regula: full verdict: fail" ∧
     Report.label (.full .incomplete) = "regula: full verdict: incomplete" ∧
     Report.label .proofOnly =
-      "regula: only a proof verdict is possible for this project, and nothing was built, so no full verdict: `lake build --wfail`, `lake check` and `lake lint` in the project give it, and they run the project's code and its dependencies'" ∧
+      "regula: only a proof verdict is possible for this project, and nothing was built, so no full verdict: `lake build --wfail` and `lake lint` in the project give it, and they run the project's code and its dependencies'" ∧
     Report.label .refused = "regula: refused before compiling (RG1010), so no build ran and no verdict is given" ∧
     Report.label .incomplete = "regula: incomplete (RG2001): the check could not read the project, so no build ran" := by
   decide +kernel

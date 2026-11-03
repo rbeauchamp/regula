@@ -123,6 +123,7 @@ def answers (w : WitnessPaths) (env : Lean.Environment) : (o : Op Unit Unit) →
   | .findOLean .. => .ok w.olean
   | .importForRules .. => .ok env
   | .importForParser .. => .ok ((), [])
+  | .kernelReplay _ => .ok ()
   | .parseToml _ => .ok Lake.Toml.Table.empty
   | .lakeInstall _ => (w.tree, w.lakeLib)
   | .loadWorkspace .. => .ok (some (witnessRoot w), [])

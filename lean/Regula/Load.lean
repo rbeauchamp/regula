@@ -75,20 +75,22 @@ def kindOf : ConstantInfo → Kind
 def dedup (all : Array Name) : Array Name :=
   all.foldl (fun acc n => if acc.contains n then acc else acc.push n) #[]
 
-/-- The constants a constant mentions, the fields that `Lean.collectAxioms` walks: the type and
-value of a definition, theorem or opaque constant, the type of an axiom, constructor or recursor,
-the type and constructors of an inductive type, and nothing of a quotient
-(`Lean/Util/CollectAxioms.lean`). -/
+/-- The constants a constant mentions: what Lean's kernel checks it against when Lean replays it. That is the type of each
+constant, the value of a definition, theorem or opaque constant, the constructors and the other types of an inductive type's
+block, the inductive type of a constructor, the types of a recursor's block, and `Eq` for a quotient. Lean's replay follows
+`ConstantInfo.getUsedConstantsAsSet` (`Lean/Util/FoldConsts.lean:67-74`), reads each type of a block and its constructors
+(`Lean/Replay.lean:105-111`), and adds `Eq` before a quotient, whose check reads it (`Lean/Replay.lean:129-133`,
+`src/kernel/quot.cpp:19-50`), at v4.35.0. -/
 def usesOf (info : ConstantInfo) : Array Name :=
   dedup <| match info with
     | .axiomInfo v => v.type.getUsedConstants
     | .defnInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
     | .thmInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
     | .opaqueInfo v => v.type.getUsedConstants ++ v.value.getUsedConstants
-    | .quotInfo _ => #[]
-    | .ctorInfo v => v.type.getUsedConstants
-    | .recInfo v => v.type.getUsedConstants
-    | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray
+    | .quotInfo v => v.type.getUsedConstants.push `Eq
+    | .ctorInfo v => v.type.getUsedConstants.push v.induct
+    | .recInfo v => v.type.getUsedConstants ++ v.all.toArray
+    | .inductInfo v => v.type.getUsedConstants ++ v.ctors.toArray ++ v.all.toArray
 
 /-- What the input states a constant mentions: what the constant that the environment keeps mentions
 and what each constant in `stated`, those of its name that the loaded modules state, mentions. -/
@@ -322,6 +324,27 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
             replaced with another of that name, and this one is no theorem within the profile or \
             has a recursion helper's name"
         | none => .ok i
+
+/-- Whether Lean's replay is given a constant of the cone: each constant but the companions of `Quot`, `Quot.mk`,
+`Quot.lift` and `Quot.ind`, which the kernel adds with `Quot` and refuses to add again as names already taken
+(`src/kernel/quot.cpp:50-56`). `leanchecker` leaves them out of its replay for that reason (`src/LeanChecker.lean:68-71`). -/
+def replays : ConstantInfo → Bool
+  | .quotInfo v =>
+    match v.kind with
+    | .type => true
+    | _ => false
+  | _ => true
+
+/-- `m` with the constant `n` of `constants` when Lean's replay is given it (`replays`). -/
+def replayStep (constants m : Std.HashMap Name ConstantInfo) (n : Name) : Std.HashMap Name ConstantInfo :=
+  match constants[n]? with
+  | some info => if replays info then m.insert n info else m
+  | none => m
+
+/-- What Lean's replay is given of the cone of `i`'s claim (`Regula.Closed.Input.cone`): each constant of the cone that
+`replays` admits, as the environment keeps it. -/
+def Facts.replayConstants (f : Facts) (i : Input) : Std.HashMap Name ConstantInfo :=
+  i.cone.toList.foldl (replayStep f.env.constants.map₁) {}
 
 /-- Whether `loaded`, the search path of the workspace that a load of the current directory gave, starts the search path that this program
 received. Lake gives a program the libraries of its workspace, then its own, then what it inherited (`Workspace.augmentedLeanPath`,

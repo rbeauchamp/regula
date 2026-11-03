@@ -44,17 +44,17 @@ def BuildAnswered (t : List (Event L E)) (root : Root L) (a : BuildAnswer) (root
     a.places.map (·.1) = a.env.header.moduleNames.toList ∧
     ∀ x ∈ a.places, (⟨.findOLean root.leanPath x.1, .ok x.2⟩ : Event L E) ∈ t
 
-/-- What the rules read of a constant by its names: those that its type and value mention, each once in the order of their first
-occurrence, the fields that {name}`Lean.collectAxioms` walks. -/
+/-- What the rules read of a constant by its names: those that {name}`Mentions` reads, each once in the order of their first
+occurrence. -/
 def namesOf : ConstantInfo → List Name
   | .axiomInfo v => v.type.getUsedConstants.toList.eraseDups
   | .defnInfo v => (v.type.getUsedConstants.toList ++ v.value.getUsedConstants.toList).eraseDups
   | .thmInfo v => (v.type.getUsedConstants.toList ++ v.value.getUsedConstants.toList).eraseDups
   | .opaqueInfo v => (v.type.getUsedConstants.toList ++ v.value.getUsedConstants.toList).eraseDups
-  | .quotInfo _ => []
-  | .ctorInfo v => v.type.getUsedConstants.toList.eraseDups
-  | .recInfo v => v.type.getUsedConstants.toList.eraseDups
-  | .inductInfo v => (v.type.getUsedConstants.toList ++ v.ctors).eraseDups
+  | .quotInfo v => (v.type.getUsedConstants.toList ++ [`Eq]).eraseDups
+  | .ctorInfo v => (v.type.getUsedConstants.toList ++ [v.induct]).eraseDups
+  | .recInfo v => (v.type.getUsedConstants.toList ++ v.all).eraseDups
+  | .inductInfo v => (v.type.getUsedConstants.toList ++ v.ctors ++ v.all).eraseDups
 
 /-- What the value of a constant mentions, and nothing of a constant that has no value. -/
 def valueNamesOf : ConstantInfo → List Name

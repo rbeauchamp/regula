@@ -69,9 +69,9 @@ structure Decl where
   kind : Kind
   /-- Whether it is safe, unsafe or partial. -/
   safety : Safety
-  /-- The constants that the type and value mention, the fields that `Lean.collectAxioms` walks, of
-  the constant Lean keeps and of each constant of this name that a loaded module's own data states
-  (Lean's import can drop those). -/
+  /-- The constants that it mentions, what Lean's kernel checks it against when Lean replays it
+  (`Regula.Load.usesOf`), of the constant Lean keeps and of each constant of this name that a loaded
+  module's own data states (Lean's import can drop those). -/
   uses : List Name
   /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
   for any other constant. -/

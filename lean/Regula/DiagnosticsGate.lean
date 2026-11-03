@@ -12,8 +12,7 @@ lean --run lean/Regula/DiagnosticsGate.lean local
 It sets no time limit, so a slow or sleeping machine does not fail it; a step killed by a signal ends with a
 code other than 0.
 
-`lake build --wfail` and `lake check` are Lean's own commands, and the gate adds no claim of its own about
-what they decide.
+`lake build --wfail` is Lean's own command, and the gate adds no claim of its own about what it decides.
 
 `runSteps` is the decision the program executes, and its theorems are checked by the kernel each time
 `lean --run` elaborates this file. `specification/RegulaSpecification/Proofs/Gate.lean` proves, at `IO`,
@@ -54,8 +53,8 @@ structure Step where
   `Lake/CLI/Main.lean:1160-1172` at v4.35.0), so that no step reads an output of an earlier build: a module of
   a library that the configuration no longer names would still satisfy an import.
 - The checker, built in a separate copy of the program at `checker`.
-- The specification, with warnings as errors, Lean's replay of it, and Regula's checker on it, the path that
-  a project that requires Regula takes. So each theorem of the specification depends on no axiom beyond
+- The specification, with warnings as errors, and Regula's checker on it, which replays it in Lean's kernel, the
+  path that a project that requires Regula takes. So each theorem of the specification depends on no axiom beyond
   `propext`, `Quot.sound` and `Classical.choice`, on the run of the checker. -/
 def localSteps (checker root : String) : List Step :=
   [⟨["clean"], "specification", none⟩,
@@ -65,7 +64,6 @@ def localSteps (checker root : String) : List Step :=
     ⟨["build", "--wfail", "Regula", "lint"], ".", none⟩,
     ⟨["lint"], ".", none⟩,
     ⟨["build", "--wfail"], "specification", none⟩,
-    ⟨["check", "--inadvisably-no-sandbox"], "specification", none⟩,
     ⟨["lint"], "specification", none⟩]
 
 /-- Run `steps` in order with `run`, which runs a step and gives its exit code, and stop at the

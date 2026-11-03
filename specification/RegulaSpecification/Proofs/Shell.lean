@@ -121,25 +121,15 @@ theorem lake_spec {program tree : FilePath} {args : List String} {t : List (Even
     obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₈
     exact ⟨by simpa using say_spec h₇, by simp⟩
 
-theorem buildAndReplay_protocol {sysroot : String} {tree : FilePath} {t : List (Event L E)} {b : Bool}
-    (h : Runs (buildAndReplay sysroot tree : Prog L E Bool) t b) : BuildProtocol sysroot tree t := by
-  unfold buildAndReplay at h
+theorem build_protocol {sysroot : String} {tree : FilePath} {t : List (Event L E)} {b : Bool}
+    (h : Runs (build sysroot tree : Prog L E Bool) t b) : BuildProtocol sysroot tree t := by
+  unfold build at h
   obtain ⟨t₁, t₂, x, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
   obtain rfl := runs_call_iff.mp h₁
   obtain ⟨program, lakeLib⟩ := x
   dsimp only at h₂
-  obtain ⟨first, rest, c, rfl, hfirst, hrest⟩ := runs_seq_iff.mp h₂
-  obtain ⟨pre, r, post, ht, hpre, hpost, hc⟩ := lake_spec hfirst
-  refine ⟨program, lakeLib, first, rest, r, rfl, ⟨pre, post, ht, hpre.1, hpost.1⟩, ?_⟩
-  cases c with
-  | false =>
-    obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp hrest
-    exact .inl ⟨fun hr => by simpa using hc.mpr hr, rfl⟩
-  | true =>
-    rw [ite_eq_left rfl] at hrest
-    have hr : Runs (lake program tree replayArguments : Prog L E Bool) rest b := hrest
-    obtain ⟨pre', r', post', ht', hpre', hpost', -⟩ := lake_spec hr
-    exact .inr ⟨hc.mp rfl, r', pre', post', ht', hpre'.1, hpost'.1⟩
+  obtain ⟨pre, r, post, ht, hpre, hpost, -⟩ := lake_spec h₂
+  exact ⟨program, lakeLib, t₂, r, rfl, ⟨pre, post, ht, hpre.1, hpost.1⟩⟩
 
 /-- What the events of a build are. -/
 def BuildEvents (t : List (Event L E)) (tree : FilePath) : Prop :=
@@ -189,20 +179,19 @@ theorem buildEvents_lake {program tree : FilePath} {args : List String} {r}
 theorem details_not_failed {t : List (Event L E)} (h : Details t) : ∀ e ∈ t, ¬ e.failed :=
   fun e he => not_failed_of_saying (h.1 e he)
 
-theorem buildAndReplay_spec {sysroot : String} {tree : FilePath} {t : List (Event L E)} {b : Bool}
-    (h : Runs (buildAndReplay sysroot tree : Prog L E Bool) t b) :
+theorem build_spec {sysroot : String} {tree : FilePath} {t : List (Event L E)} {b : Bool}
+    (h : Runs (build sysroot tree : Prog L E Bool) t b) :
     BuildEvents t tree ∧
       (b = true → (∃ program lakeLib,
-        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
-          ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist t) ∧ ∀ e ∈ t, ¬ e.failed) ∧
+        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩] :
+          List (Event L E)).Sublist t) ∧ ∀ e ∈ t, ¬ e.failed) ∧
       (b = false → BuildRejected sysroot tree t) := by
-  unfold buildAndReplay at h
+  unfold build at h
   obtain ⟨t₁, t₂, x, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
   obtain rfl := runs_call_iff.mp h₁
   obtain ⟨program, lakeLib⟩ := x
   dsimp only at h₂
-  obtain ⟨t₃, t₄, c, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-  obtain ⟨pre, r, post, rfl, d1, d2, hc⟩ := lake_spec h₃
+  obtain ⟨pre, r, post, rfl, d1, d2, hc⟩ := lake_spec h₂
   have hinstall : BuildEvents ([⟨.lakeInstall sysroot, (program, lakeLib)⟩] : List (Event L E)) tree := by
     refine ⟨fun e he => ?_, fun l hl => ?_, fun e he p hp => ?_⟩
     · have : e = _ := List.mem_singleton.mp he
@@ -213,48 +202,27 @@ theorem buildAndReplay_spec {sysroot : String} {tree : FilePath} {t : List (Even
       subst this
       cases hp
   have hfirst := buildEvents_lake (program := program) (tree := tree) (args := ["build", "--wfail"]) (r := r) d1 d2
-  cases c with
-  | false =>
-    obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₄
-    refine ⟨by simpa using buildEvents_append hinstall hfirst, fun he => (by cases he), fun _ => ?_⟩
-    exact .build (program := program) (lakeLib := lakeLib) (r := r) (by simp) (by simp)
-      (fun he => by simpa using hc.mpr he)
-  | true =>
-    have hr : r = .ok 0 := hc.mp rfl
+  refine ⟨by simpa using buildEvents_append hinstall hfirst, fun he => ⟨?_, ?_⟩, fun he => ?_⟩
+  · have hr := hc.mp he
     subst hr
-    rw [ite_eq_left rfl] at h₄
-    have h₄' : Runs (lake program tree replayArguments : Prog L E Bool) t₄ b := h₄
-    obtain ⟨pre₂, r₂, post₂, rfl, d3, d4, hc₂⟩ := lake_spec h₄'
-    have hevents := buildEvents_lake (program := program) (tree := tree) (args := replayArguments) (r := r₂) d3 d4
-    refine ⟨?_, fun he => ⟨?_, ?_⟩, fun he => ?_⟩
-    · have := buildEvents_append (buildEvents_append hinstall hfirst) hevents
-      simpa using this
-    · have hr₂ := hc₂.mp he
-      subst hr₂
-      refine ⟨program, lakeLib, ?_⟩
-      simp only [List.cons_append, List.nil_append, List.append_assoc]
-      refine List.Sublist.cons_cons _ ?_
-      refine List.Sublist.trans ?_ (List.sublist_append_right pre _)
-      refine List.Sublist.cons_cons _ ?_
-      refine List.Sublist.trans ?_ (List.sublist_append_right post _)
-      refine List.Sublist.trans ?_ (List.sublist_append_right pre₂ _)
-      exact List.Sublist.cons_cons _ (List.nil_sublist _)
-    · have hr₂ := hc₂.mp he
-      subst hr₂
-      intro e hm
-      simp only [List.cons_append, List.nil_append, List.append_assoc, List.mem_cons, List.mem_append] at hm
-      rcases hm with rfl | hm | rfl | hm | hm | rfl | hm
-      · exact id
-      · exact details_not_failed d1 _ hm
-      · exact fun hn => hn rfl
-      · exact details_not_failed d2 _ hm
-      · exact details_not_failed d3 _ hm
-      · exact fun hn => hn rfl
-      · exact details_not_failed d4 _ hm
-    · refine .replay (program := program) (lakeLib := lakeLib) (r := r₂) (by simp) (by simp) (by simp) fun hr₂ => ?_
-      have := hc₂.mpr hr₂
-      rw [he] at this
-      cases this
+    refine ⟨program, lakeLib, ?_⟩
+    simp only [List.cons_append, List.nil_append]
+    refine List.Sublist.cons_cons _ ?_
+    refine List.Sublist.trans ?_ (List.sublist_append_right pre _)
+    exact List.Sublist.cons_cons _ (List.nil_sublist _)
+  · have hr := hc.mp he
+    subst hr
+    intro e hm
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.mem_append] at hm
+    rcases hm with rfl | hm | rfl | hm
+    · exact id
+    · exact details_not_failed d1 _ hm
+    · exact fun hn => hn rfl
+    · exact details_not_failed d2 _ hm
+  · refine .build (program := program) (lakeLib := lakeLib) (r := r) (by simp) (by simp) fun hr => ?_
+    have := hc.mpr hr
+    rw [he] at this
+    cases this
 
 /-- An operation that the loads may ask: none prints, builds, makes or removes anything. -/
 def LoadOp : Op L E → Prop
@@ -280,9 +248,12 @@ theorem only_inputOf (root : Root L) (p : Regula.Closed.Profile) :
       rw [readModules]
       exact onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => onlyA_seq ih fun _ => onlyA_pure _
   rw [inputOf]
-  refine onlyA_seq (hdefault _) fun modules => onlyA_seq (onlyA_attempt (only_call trivial)) fun env => onlyA_seq ?_ fun f => only_pure _
-  rw [factsOf]
-  exact onlyA_seq (hmodules _) fun _ => onlyA_pure _
+  refine onlyA_seq (hdefault _) fun modules => onlyA_seq (onlyA_attempt (only_call trivial)) fun env =>
+    onlyA_seq ?_ fun f => onlyA_seq (only_pure _) fun i => ?_
+  · rw [factsOf]
+    exact onlyA_seq (hmodules _) fun _ => onlyA_pure _
+  · rw [replayed]
+    exact only_seq (only_call trivial) fun r => by cases r <;> exact only_pure _
 
 theorem only_loadTree (sysroot : String) (tree : FilePath) (p : Regula.Closed.Profile) :
     OnlyAIn LoadOp (loadTree sysroot tree p : Attempt L E _) := by
@@ -443,8 +414,8 @@ theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List 
           ∀ e ∈ ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩] : List (Event L E)) ++ t₃, ¬ e.failed :=
         fun _ => (clean_one (fun hn => by cases hn)).append (c3 rfl)
       obtain ⟨t₅, t₆, c, rfl, h₅, h₆⟩ := runs_seq_iff.mp h₄
-      obtain ⟨b1, b2, b3⟩ := buildAndReplay_spec h₅
-      have protocol := buildAndReplay_protocol h₅
+      obtain ⟨b1, b2, b3⟩ := build_spec h₅
+      have protocol := build_protocol h₅
       cases c with
       | false =>
         obtain ⟨rfl, rfl⟩ := runs_pure_iff.mp h₆

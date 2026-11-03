@@ -13,14 +13,15 @@ what a response holds, so that `specification/RegulaSpecification/Proofs/Shell.l
 every response.
 
 A run with one profile gives the proof verdict, that of `Regula.Closed.decision`: `pass` (exit 0) when the
-input has the closed form and no rule reports a subject, `fail` (exit 1) when a rule reports one, and
-`incomplete` (exit 2) when the build cannot be loaded or the input does not have the closed form (RG2001).
-It promises nothing about what ran during the build.
+input has the closed form, Lean's kernel accepts the replay of the cone of its claim and no rule reports a subject,
+`fail` (exit 1) when a rule reports one, and `incomplete` (exit 2) when the build cannot be loaded, the input does not
+have the closed form or the kernel does not accept that replay (RG2001). It promises nothing about what ran during the
+build.
 
 A run with one profile and the variable `REGULA_FULL` set (`fullVariable`) is the full gate
 (`Regula.Language.gate`) on the project at the directory the variable names: the language check, which
 writes the configuration to a tree of the checker's own and, once it has admitted the project, what it
-judged of each file, then, for an admitted project, the build and its replay in that tree and the same rules
+judged of each file, then, for an admitted project, the build in that tree and the same replay and rules
 on it. Only that run can print a full verdict, because only there the check came first. Starting the checker
 from its own package is a precondition of that verdict, which it does not test. A project with a dependency
 or with Mathlib in its imports gets no build from it: it says that only a proof verdict is possible and
@@ -113,13 +114,23 @@ def factsOf (env : Lean.Environment) (path : List FilePath) (toolchainDir rootDi
   pure { env, toolchainDir, rootDir, modules := ms.toArray, names := by simpa using hn,
          placed := by simpa using hp }
 
-/-- The closed input of the finished build that the load `root` describes. -/
+/-- The input `i` of the facts `f`, once Lean's kernel has accepted, into an empty environment, the replay of the cone of
+its claim (`Regula.Load.Facts.replayConstants`). Any other answer is why the run is `incomplete`. -/
+def replayed (f : Regula.Load.Facts) (i : Input) : Attempt L E Input :=
+  ExceptT.mk do
+    match ← (Prog.call (.kernelReplay (f.replayConstants i)) : Prog L E (Except IO.Error Unit)) with
+    | .ok _ => pure (.ok i)
+    | .error e => pure (.error s!"Lean's kernel did not accept the replay of the claim's cone: {e}")
+
+/-- The closed input of the finished build that the load `root` describes, once Lean's kernel has accepted the cone of its
+claim. -/
 def inputOf (root : Root L) (profile : Profile) : Attempt L E Input := do
   let modules ← defaultModules root root.defaultTargets
   let roots := modules.map (·.1)
   let env ← attempt (Prog.call (.importForRules root.leanPath roots.toArray))
   let f ← factsOf env root.leanPath root.leanLib root.rootLib
-  ExceptT.mk (pure (f.input roots profile))
+  let i ← ExceptT.mk (pure (f.input roots profile))
+  replayed f i
 
 /-- The closed input of the finished build of the workspace in the current directory, with that directory. The search path's test
 refuses a run whose search path does not start with that workspace's, and it says no more of what Lake selected (`Regula.Load.startsSearchPath`).
@@ -184,15 +195,11 @@ def lake (program tree : FilePath) (args : List String) : Prog L E Bool := do
     say s!"regula: lake could not start: {e}"
     pure false
 
-/-- `lake build --wfail` and `lake check` in the checker's tree, with the Lake installed beside this Lean, so
-that no `lean-toolchain` chooses anything. -/
-def buildAndReplay (sysroot : String) (tree : FilePath) : Prog L E Bool := do
+/-- `lake build --wfail` in the checker's tree, with the Lake installed beside this Lean, so that no `lean-toolchain`
+chooses anything. The rules' load replays the build in Lean's kernel (`replayed`). -/
+def build (sysroot : String) (tree : FilePath) : Prog L E Bool := do
   let (program, _) ← (Prog.call (.lakeInstall sysroot) : Prog L E (FilePath × FilePath))
-  if ← lake program tree ["build", "--wfail"] then
-    lake program tree
-      (if System.Platform.isOSX then ["check", "--inadvisably-no-sandbox"] else ["check"])
-  else
-    pure false
+  lake program tree ["build", "--wfail"]
 
 /-- The full gate in the tree, up to its report. -/
 def gateIn (profile : Profile) (dir tree : FilePath) : Prog L E Language.Report := do
@@ -201,7 +208,7 @@ def gateIn (profile : Profile) (dir tree : FilePath) : Prog L E Language.Report 
     say "RG2001: LEAN_SYSROOT is not set, so the toolchain is not known"
     pure .incomplete
   | some sysroot =>
-    Language.gate (check sysroot dir tree) (buildAndReplay sysroot tree)
+    Language.gate (check sysroot dir tree) (build sysroot tree)
       (rules (loadTree sysroot tree profile))
 
 /-- The last line of a run, and its exit code. -/

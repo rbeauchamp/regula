@@ -85,9 +85,24 @@ theorem factsOf_spec {env : Environment} {root : Root L} {toolchainDir rootDir :
     obtain ⟨g1, g2⟩ := m1 ⟨ms, hn, hp⟩ rfl
     exact ⟨rfl, rfl, rfl, fun m hm => by simpa using g1 m (by simpa using hm), by simpa using g2⟩
 
+theorem replayed_spec {f : Regula.Load.Facts} {i : Regula.Closed.Input} {t : List (Event L E)}
+    {b : Except String Regula.Closed.Input} (h : Runs (replayed f i : Attempt L E Regula.Closed.Input).run t b) :
+    ∃ r, t = [⟨.kernelReplay (f.replayConstants i), r⟩] ∧
+      ((r = .ok () ∧ b = .ok i) ∨ ((∃ e, r = .error e) ∧ ∃ message, b = .error message)) := by
+  rw [replayed] at h
+  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_bind_iff.mp h
+  obtain rfl := runs_call_iff.mp h₁
+  cases r with
+  | ok u =>
+    obtain ⟨rfl, rfl⟩ := runs_done_iff.mp h₂
+    exact ⟨.ok u, rfl, .inl ⟨rfl, rfl⟩⟩
+  | error e =>
+    obtain ⟨rfl, rfl⟩ := runs_done_iff.mp h₂
+    exact ⟨.error e, rfl, .inr ⟨⟨e, rfl⟩, _, rfl⟩⟩
+
 theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Input}
     (hT : t.Sublist T) (h : Runs (inputOf root p : Attempt L E Regula.Closed.Input).run t b) :
-    ((∃ f roots, BuildRead T root f roots ∧ b = f.input roots p ∧ Clean t) ∨
+    ((∃ f roots, BuildRead T root f roots ∧ Replayed T f (f.input roots p) b ∧ ∀ i, b = .ok i → Clean t) ∨
       (BuildFailed T root ∧ ∃ why, b = .error why)) ∧ InputPreparation root t := by
   rw [inputOf] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
@@ -132,17 +147,42 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
           (⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩ : Event L E) ∈ T) hm hf, why, rfl⟩,
           by simpa using hprep⟩
       | ok f =>
-        have hres : t₈ = [] := (runs_done_iff.mp h₁₀).1
-        have hb : b = f.input (modules.map (·.1)) p := (runs_done_iff.mp h₁₀).2
-        subst hres
+        obtain ⟨t₉, t₁₀, r₉, rfl, h₁₁, h₁₂⟩ := runs_attempt_bind_iff.mp h₁₀
+        obtain ⟨rfl, rfl⟩ := runs_done_iff.mp h₁₁
         obtain ⟨he, ht, hr, hm, hcl₇⟩ := f1 f rfl
         have hcl₆ : Clean ([⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩] : List (Event L E)) :=
           clean_one (by rintro ⟨y, hy⟩; cases hy)
-        refine ⟨.inl ⟨f, modules.map (·.1), ⟨modules, hmods, rfl, ?_, ht, hr, fun m hm' => ?_⟩, hb,
-          by simpa [List.append_assoc] using hcl.append (hcl₆.append hcl₇)⟩, by simpa using hprep⟩
-        · rw [he]
-          exact hT₂.subset (by simp)
-        · refine hT₂.subset ?_
-          simp [hm m hm']
+        have hread : BuildRead T root f (modules.map (·.1)) := by
+          refine ⟨modules, hmods, rfl, ?_, ht, hr, fun m hm' => ?_⟩
+          · rw [he]
+            exact hT₂.subset (by simp)
+          · refine hT₂.subset ?_
+            simp [hm m hm']
+        have hcl₈ : Clean (t₁ ++ ([⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩] ++ t₇)) :=
+          by simpa [List.append_assoc] using hcl.append (hcl₆.append hcl₇)
+        cases hin : f.input (modules.map (·.1)) p with
+        | error why =>
+          rw [hin] at h₁₂
+          obtain ⟨rfl, rfl⟩ := h₁₂
+          exact ⟨.inl ⟨f, modules.map (·.1), hread, by rw [hin]; simp [Replayed], fun _ he' => (by cases he')⟩, by simpa using hprep⟩
+        | ok i =>
+          rw [hin] at h₁₂
+          obtain ⟨r, rfl, hr'⟩ := replayed_spec h₁₂
+          have hmemR : (⟨.kernelReplay (f.replayConstants i), r⟩ : Event L E) ∈ T := hT₂.subset (by simp)
+          have hprepR : InputPreparation root (t₁ ++ ([⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩] ++
+              (t₇ ++ ([] ++ [⟨.kernelReplay (f.replayConstants i), r⟩])))) := by
+            refine InputPreparation.prepend m3 fun x hx => ?_
+            simp only [List.nil_append, List.mem_append, List.mem_singleton] at hx
+            rcases hx with hx | hx | rfl
+            · exact himport x (List.mem_singleton.mpr hx)
+            · exact f3 x hx
+            · exact .inl trivial
+          refine ⟨.inl ⟨f, modules.map (·.1), hread, by rw [hin]; simp only [Replayed]; exact ⟨r, hmemR, hr'⟩, fun j hj => ?_⟩, by simpa [List.append_assoc] using hprepR⟩
+          rcases hr' with ⟨rfl, -⟩ | ⟨-, message, hm'⟩
+          · have hcl₉ : Clean ([⟨.kernelReplay (f.replayConstants i), .ok ()⟩] : List (Event L E)) :=
+              clean_one (by rintro ⟨y, hy⟩; cases hy)
+            simpa [List.append_assoc] using hcl₈.append hcl₉
+          · rw [hm'] at hj
+            cases hj
 
 end RegulaSpecification.Effects

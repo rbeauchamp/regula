@@ -76,7 +76,7 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
     | «import» _ h => cases resp_eq (hrulesT.subset h)
     | search _ _ _ h => cases resp_eq (hrulesT.subset h)
   refine ⟨fun e he => ?_, fun tree rest o he => ?_, fun tree rest s he _ hr => ?_, fun tree rest s he _ hr => ?_,
-    fun tree rest s root a roots he _ hg hb => ?_⟩
+    fun m e he => ?_, fun tree rest s root a roots he _ hg hb => ?_⟩
   · cases resp_eq he
   · obtain rfl := htree he
     exact fun hr => no_reason w env q o (Reason.mono hreadT hr)
@@ -84,7 +84,6 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
         (⟨.runLake a c b, r⟩ : Event Unit Unit) ∈ traceWith (answers w env) q → r = .ok 0 := fun h => resp_eq h
     cases hr with
     | build _ h1 h2 => exact h2 (hok h1)
-    | replay _ _ h1 h2 => exact h2 (hok h1)
   · cases hr with
     | noTree h => cases resp_eq (hrulesT.subset h)
     | load _ h hf =>
@@ -95,6 +94,7 @@ theorem fullOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula
       · rw [hx] at hv
         cases hv
     | build _ hf => exact hbuild hf
+  · cases resp_eq (hrulesT.subset he)
   · obtain rfl := hrootOf hg
     exact floor_of_read hm hrulesT hb
 
@@ -184,7 +184,7 @@ theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regul
     have := Except.ok.inj he
     simp only [Prod.mk.injEq, Option.some.injEq] at this
     exact this.1
-  refine ⟨fun hr => ?_, fun root a roots hg hb => ?_⟩
+  refine ⟨fun hr => ?_, fun m e he => ?_, fun root a roots hg hb => ?_⟩
   · cases hr with
     | noSysroot h => cases resp_eq h
     | noDirectory h => cases resp_eq h
@@ -208,6 +208,7 @@ theorem plainOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regul
       | library _ _ h => cases resp_eq h
       | «import» _ h => cases resp_eq h
       | search _ _ _ h => cases resp_eq h
+  · cases resp_eq he
   · obtain rfl := hroot hg
     exact floor_of_read hm (List.Sublist.refl _) hb
 

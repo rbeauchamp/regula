@@ -66,20 +66,29 @@ structure Meaning : Prop where
     ∃ subject : FilePath, EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
       (⟨.realPath ".", .ok subject⟩ : Event L E) ∈ t ∧
       ∃ sysroot root log, (⟨.loadWorkspace sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ PlainRoot t root
-  /-- {name}`plain_exit_zero`: exit 0 of the proof verdict gives the closed form and the floor of what Lean and Lake returned. -/
+  /-- {name}`plain_exit_zero`: exit 0 of the proof verdict gives the closed form and the floor of what Lean and Lake returned, and
+  that Lean's replay of the cone of the claim answered with success. -/
   plainExit : ∀ {L E : Type} {t : List (Event L E)} {p : Regula.Closed.Profile}, PlainRun t p 0 →
     ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), PlainRoot t root ∧ BuildRead t root f roots ∧
-      EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed)
-  /-- {name}`full_exit_zero`: exit 0 of the full gate gives an admitted reading on {name}`Evidence`, both Lake commands ending with 0,
-  and the floor of the build. -/
+      EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) ∧
+      ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ t
+  /-- {name}`full_exit_zero`: exit 0 of the full gate gives an admitted reading on {name}`Evidence`, the build ending with 0, the
+  floor of the build, and that Lean's replay of the cone of its claim answered with success. -/
   fullExit : ∀ {L E : Type} {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile}, FullRun t dir p 0 →
     ∃ (tree : FilePath) (sysroot : String) (tRead tBuild tRules : List (Event L E)) (r : Reading), Inside r ∧
       Evidence tRead dir tree (written tRead) r ∧ (∀ e ∈ tRead, ¬ e.failed) ∧
       (∃ program lakeLib,
-        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
-          ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist tBuild) ∧
+        ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩] :
+          List (Event L E)).Sublist tBuild) ∧
       ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name),
-        TreeRoot sysroot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p
+        TreeRoot sysroot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p ∧
+        ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ tRules
+  /-- {name}`Loader.replayConstants_env`: what Lean's replay is given is exactly the cone of the claim, each constant as the environment
+  keeps it, but the companions of {lit}`Quot`. -/
+  cone : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile} {i : Regula.Closed.Input},
+    f.input roots p = .ok i → ∀ (n : Name) (info : ConstantInfo),
+      (f.replayConstants i)[n]? = some info ↔
+        f.env.constants.map₁[n]? = some info ∧ InCone f n ∧ ∀ v, info = .quotInfo v → v.kind = .type
   /-- {name}`Loader.pass_iff`: the rules pass on the loader's input exactly when the environment has {name}`EnvForm` and {name}`EnvFloor`. -/
   loaderPass : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile} {i : Regula.Closed.Input},
     f.input roots p = .ok i → (i.report.verdict = .pass ↔ EnvForm f ∧ EnvFloor f p)
@@ -168,6 +177,7 @@ theorem meaning : Meaning where
   plainPass := plainRun_pass
   plainExit := plain_exit_zero
   fullExit := full_exit_zero
+  cone := fun h => replayConstants_env (input_loaded h)
   loaderPass := pass_iff
   loaderFloor := pass_floor
   loaderHeld := pass_held

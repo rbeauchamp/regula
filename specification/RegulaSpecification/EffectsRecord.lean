@@ -89,7 +89,7 @@ The closed operation type makes a new operation a new specification obligation. 
 def QuietOp : Op L E → Prop
   | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .println _ | .flush | .parseHeader _ | .parseCommand .. | .parseToml _ | .lakeInstall _
-  | .libModules _ => True
+  | .libModules _ | .kernelReplay _ => True
   | .writeFile .. | .createDirAll _ | .createTempDir | .removeDirAll _ | .runLake ..
   | .findOLean .. | .importForRules .. | .importForParser ..
   | .loadRoot .. | .loadWorkspace .. => False
@@ -533,12 +533,22 @@ inductive TreeReason (sysroot : String) (tree : FilePath) (t : List (Event L E))
   /-- The load of the finished build failed. -/
   | build {root} : TreeRoot sysroot tree t root → BuildFailed t root → TreeReason sysroot tree t
 
-/-- The load's result is what the proved pure function gives on what Lean and Lake returned for the requested build, or an
-error for a reason {name}`why` gives, which {name}`PlainReason` and {name}`TreeReason` close. {name}`Regula.Load.Facts.input` is that function,
-and {name}`gave` says which of Lake's loads gave the root. -/
+/-- What the run made of the loader's result on the facts {name}`f`: an error stays, and an input stands exactly when Lean's
+replay of the cone of its claim ({name}`Regula.Load.Facts.replayConstants`) answered with success. Any other answer of that replay is
+an error, the reason being what Lean's kernel answered about the build's own constants. -/
+def Replayed (t : List (Event L E)) (f : Regula.Load.Facts) :
+    Except String Regula.Closed.Input → Except String Regula.Closed.Input → Prop
+  | .error message, result => result = .error message
+  | .ok i, result => ∃ r, (⟨.kernelReplay (f.replayConstants i), r⟩ : Event L E) ∈ t ∧
+      ((r = .ok () ∧ result = .ok i) ∨ ((∃ e, r = .error e) ∧ ∃ message, result = .error message))
+
+/-- The load's result is what the proved pure function gives on what Lean and Lake returned for the requested build, once
+Lean's kernel has accepted the replay of the cone of its claim ({name}`Replayed`), or an error for a reason {name}`why` gives, which
+{name}`PlainReason` and {name}`TreeReason` close. {name}`Regula.Load.Facts.input` is that function, and {name}`gave` says which of Lake's loads
+gave the root. -/
 def Loaded (gave : List (Event L E) → Root L → Prop) (why : List (Event L E) → Prop) (t : List (Event L E))
     (p : Regula.Closed.Profile) (result : Except String Regula.Closed.Input) : Prop :=
-  (∃ root f roots, gave t root ∧ BuildRead t root f roots ∧ result = f.input roots p) ∨
+  (∃ root f roots, gave t root ∧ BuildRead t root f roots ∧ Replayed t f (f.input roots p) result) ∨
     (why t ∧ ∃ message, result = .error message)
 
 /-- A line that is no verdict: two spaces start it. -/
@@ -572,25 +582,18 @@ def Confined (t : List (Event L E)) (dir tree : FilePath) : Prop :=
       (⟨.realPath tree, .ok real⟩ : Event L E) ∈ t ∧ Apart project real ∧
       ∀ e ∈ t, ∀ path, e.acted? = some path → path = tree ∨ AtOrBelow real path
 
-/-- The arguments of Lean's replay of a build, as this platform needs them ({lit}`lake check`). -/
-def replayArguments : List String :=
-  if System.Platform.isOSX then ["check", "--inadvisably-no-sandbox"] else ["check"]
-
 /-- One requested Lake command, with only reporting before and after its occurrence. -/
 def LakeInvocation (program tree : FilePath) (args : List String) (response : Except IO.Error UInt32)
     (t : List (Event L E)) : Prop :=
   ∃ pre post, t = pre ++ ⟨.runLake program tree args, response⟩ :: post ∧
     (∀ e ∈ pre, e.isOnlySaying = true) ∧ ∀ e ∈ post, e.isOnlySaying = true
 
-/-- The complete build phase: obtain this toolchain's Lake, build once, and replay once exactly when the build
-succeeded. This constrains Regula's requests, and leaves the filesystem effects of the trusted Lake commands
-outside it. -/
+/-- The complete build phase: obtain this toolchain's Lake and build once. This constrains Regula's requests, and leaves
+the filesystem effects of the trusted Lake command outside it. -/
 def BuildProtocol (sysroot : String) (tree : FilePath) (t : List (Event L E)) : Prop :=
-  ∃ program lakeLib first rest response,
-    t = ⟨.lakeInstall sysroot, (program, lakeLib)⟩ :: (first ++ rest) ∧
-    LakeInvocation program tree ["build", "--wfail"] response first ∧
-    ((response ≠ .ok 0 ∧ rest = []) ∨
-      (response = .ok 0 ∧ ∃ replay, LakeInvocation program tree replayArguments replay rest))
+  ∃ program lakeLib first response,
+    t = ⟨.lakeInstall sysroot, (program, lakeLib)⟩ :: first ∧
+    LakeInvocation program tree ["build", "--wfail"] response first
 
 /-- The reload and rule phase issues no explicit write, directory creation, allocation, removal or command
 request. {name}`RulesPreparation` also orders its load and fixes the search path of each lookup and import;
@@ -598,24 +601,19 @@ effects inside trusted calls remain outside the trace. -/
 def ReloadOp : Op L E → Prop
   | .leanVersion | .getEnv _ | .realPath _ | .readFile _ | .symlinkMetadata _
   | .println _ | .flush | .parseHeader _ | .parseCommand .. | .findOLean ..
-  | .importForRules .. | .importForParser .. | .parseToml _ | .lakeInstall _ | .loadWorkspace ..
+  | .importForRules .. | .importForParser .. | .kernelReplay _ | .parseToml _ | .lakeInstall _ | .loadWorkspace ..
   | .loadRoot .. | .libModules _ => True
   | .writeFile .. | .createDirAll _ | .createTempDir | .removeDirAll _ | .runLake .. => False
 
-/-- The build or its replay in the tree {name}`tree` ended with other than 0, with the Lake that lies beside the run's toolchain:
-each is an operation that the requested build needs, and what the response says of it justifies a failure. -/
+/-- The build in the tree {name}`tree` ended with other than 0, with the Lake that lies beside the run's toolchain: an
+operation that the requested build needs, and what the response says of it justifies a failure. -/
 inductive BuildRejected (sysroot : String) (tree : FilePath) (t : List (Event L E)) : Prop where
   /-- The build. -/
   | build {program lakeLib r} : (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t →
       (⟨.runLake program tree ["build", "--wfail"], r⟩ : Event L E) ∈ t → r ≠ .ok 0 →
       BuildRejected sysroot tree t
-  /-- The replay, of a build that ended with 0. -/
-  | replay {program lakeLib r} : (⟨.lakeInstall sysroot, (program, lakeLib)⟩ : Event L E) ∈ t →
-      (⟨.runLake program tree ["build", "--wfail"], .ok 0⟩ : Event L E) ∈ t →
-      (⟨.runLake program tree replayArguments, r⟩ : Event L E) ∈ t → r ≠ .ok 0 →
-      BuildRejected sysroot tree t
 
-/-- The exact build/replay protocol and the report justified by their responses or the rules. Neither phase may
+/-- The exact build protocol and the report justified by its response or the rules. Neither phase may
 explicitly alter the copied inputs. {name}`RulesPreparation` directs the reload by the tree's real-path response,
 and each rules import or lookup names the loaded root's search path, failed attempts included. These are
 guarantees about requests, and assume nothing about effects inside Lake. -/
@@ -624,8 +622,8 @@ def BuildAndRules (sysroot : String) (tBuild tRules : List (Event L E)) (tree : 
   BuildProtocol sysroot tree tBuild ∧ (∀ e ∈ tRules, ReloadOp e.op) ∧
   ((∃ (program lakeLib : FilePath) (result : Except String Regula.Closed.Input),
     (∀ e ∈ tRules, e.isBuild = false) ∧
-    ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩,
-      ⟨.runLake program tree replayArguments, .ok 0⟩] : List (Event L E)).Sublist tBuild ∧
+    ([⟨.lakeInstall sysroot, (program, lakeLib)⟩, ⟨.runLake program tree ["build", "--wfail"], .ok 0⟩] :
+      List (Event L E)).Sublist tBuild ∧
     Loaded (TreeRoot sysroot tree) (TreeReason sysroot tree) tRules p result ∧
     report = .full (Regula.Closed.decision result).verdict) ∨
   (report = .full .fail ∧ (∀ e ∈ tRules, e.isImportForRules = false) ∧ BuildRejected sysroot tree tBuild)) ∧
