@@ -28,14 +28,14 @@ Where `lake check` also refuses, as on `sorry` or an axiom in use, `lake lint` r
 
 - Regula reads one Lean release, `leanprover/lean4:v4.35.0`.
 - Its claim holds only for named configurations: that release, one published way to run each verdict (`lake lint` from the project's own directory with no option of Lake's for the proof verdict, and `REGULA_FULL=DIR lake exe lint PROFILE` from a checkout of Regula built apart from the project, with no option of Lake's, for the full verdict), and macOS 27.2 on Apple silicon, the platform on which its assumptions about the operating system were observed. Anything else, Linux and Windows included, is outside the contract, as [the trusted base](specification/README.md#the-named-configurations) says, and not a defect.
-- The release `v0.12.0` has this form, and a project requires it by that tag. Earlier releases have another form.
+- The cone replay described here is unreleased. The instructions below use the checkout containing this README for both verdicts. For `v0.12.0`, follow [that release's README](https://github.com/rbeauchamp/regula/blob/v0.12.0/README.md), whose command sequence includes `lake check`; its checker does not replay the cone.
 - A project with a dependency, or with Mathlib in its imports, can have only the proof verdict, and its two commands run the project's code and its dependencies'.
 - The replay of the proof verdict holds in memory every constant that the claim depends on. A project whose claim depends on far more than the one [measured](specification/README.md#what-a-pass-means), which imports Mathlib and took 4.3 GiB and two minutes, may exceed a machine's memory: that is a limit of the named configuration, not a defect.
 - The full gate refuses anything outside a closed table, `macro`, `syntax`, `notation` and `lakefile.lean` among them, and a harmless construct that the table does not hold. It also refuses a default executable. [The full gate](#the-full-gate) gives what a project needs.
 
 ## Use it
 
-Add this to `lakefile.toml`, and put `leanprover/lean4:v4.35.0` in `lean-toolchain`:
+Add this to `lakefile.toml`, replacing `/path/to/regula-checkout` with the absolute path to the checkout containing this README, and put `leanprover/lean4:v4.35.0` in `lean-toolchain`:
 
 ```toml
 name = "demo"
@@ -45,14 +45,13 @@ lintDriverArgs = ["standard-logical"]
 
 [[require]]
 name = "regula"
-git = "https://github.com/rbeauchamp/regula"
-rev = "v0.12.0"
+path = "/path/to/regula-checkout"
 
 [[lean_lib]]
 name = "Demo"
 ```
 
-Then run the two commands in order, on one build:
+Run `lake update regula` after setting the dependency, so the manifest selects that checkout. Then run the two commands in order, on one build:
 
 ```sh
 lake build --wfail
@@ -100,11 +99,10 @@ The profiles are `kernel-only` (no axiom), `choice-free` (`propext` and `Quot.so
 
 ## The full gate
 
-Start the checker from its own package: that is a precondition of the full verdict, beside the `PATH` you run it with. The checker does not test who started it, and a start from a project's Lake is outside the contract, because Lake runs a project's `lakefile.lean` when it loads it, and code that runs first can change what any later step sees. So build Regula in a checkout of its own, and from that checkout's directory name the project in the variable `REGULA_FULL`:
+Start the checker from its own package: that is a precondition of the full verdict, beside the `PATH` you run it with. The checker does not test who started it, and a start from a project's Lake is outside the contract, because Lake runs a project's `lakefile.lean` when it loads it, and code that runs first can change what any later step sees. So build Regula in the checkout containing this README, apart from the project, and from that checkout's directory name the project in the variable `REGULA_FULL`:
 
 ```sh
-git clone --branch v0.12.0 https://github.com/rbeauchamp/regula
-cd regula
+cd /path/to/regula-checkout
 lake build lint
 REGULA_FULL=/path/to/project lake exe lint standard-logical
 ```
