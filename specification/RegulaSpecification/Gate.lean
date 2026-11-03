@@ -1,4 +1,4 @@
-import RegulaSpecification.Safety
+import RegulaSpecification.Rules
 
 /-!
 # The verdict of a run, and RG2001
@@ -10,11 +10,6 @@ admission refuses, is {lit}`incomplete` (RG2001), never read as absent; a claim 
 namespace RegulaSpecification
 
 open LeanIntent
-
-/-- Every rule that reads the input holds of it. -/
-def AllHold (i : Input) : Prop :=
-  (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
-    (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c)
 
 /-- The verdict of a run. -/
 inductive Verdict where

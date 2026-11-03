@@ -55,7 +55,7 @@ def supportsLean (version commit : String) : Bool :=
 /-- The line of one finding. -/
 def line (f : Finding) : String :=
   let place := if f.module == f.subject then "" else s!" (module {f.module})"
-  s!"{f.rule.spelling} {f.subject}{place}: {f.detail}"
+  s!"{f.rule} {f.subject}{place}: {f.detail}"
 
 /-- What a report says beside its verdict: each finding, and how many there are or why it is incomplete. -/
 def details : Report → List String

@@ -1,4 +1,4 @@
-import RegulaSpecification.CasesFoundation
+import RegulaSpecification.Gate
 
 /-!
 # Lean-intent's obligations for the verdict

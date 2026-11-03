@@ -1,6 +1,7 @@
 import Regula.Load
 import Regula.Shell
 import RegulaSpecification.Proofs.Verdict
+import RegulaSpecification.Refinement
 
 /-!
 # The loader, against the environment
@@ -674,7 +675,15 @@ theorem flagged_iff {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
   rw [hs, or_assoc]
   rfl
 
+/-- What every rule of the registry states, rule by rule: the statement that {name}`EnvFloor` restates in the terms of the
+environment. A rule added to the registry makes this false until {name}`EnvFloor` and this theorem state it too. -/
+theorem allHold_iff (i : Input) : AllHold i ↔
+    (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
+      (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) := by
+  simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved]
+
 theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor f p := by
+  rw [allHold_iff]
   constructor
   · rintro ⟨h1, -, -, -, h5, h6⟩ n info m hn hm hc
     obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm

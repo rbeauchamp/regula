@@ -1,3 +1,4 @@
+import Regula.Tables
 import RegulaSpecification.Proofs.Link
 
 /-!

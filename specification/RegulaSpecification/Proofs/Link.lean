@@ -1,5 +1,5 @@
-import Regula.Rules
-import RegulaSpecification.CasesGate
+import Regula.Input
+import RegulaSpecification.RuleRecord
 
 /-!
 # The link from the implementation's input to the specification's
