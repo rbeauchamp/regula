@@ -102,7 +102,11 @@ inductive Assumption where
   {lit}`.olean` files of the build, runs no initializer, and gives each constant of a {lit}`module` file with its body;
   `Environment.constants.map₁` holds the constants that the import keeps; `header.moduleData` holds each module's own
   constants as its {lit}`.olean` states them, built from the same array as `header.moduleNames` ({lit}`ModuleDataComplete`); and
-  {name (full := Lean.Environment.find?)}`find?`, {name (full := Lean.Environment.getModuleIdxFor?)}`getModuleIdxFor?`, {name (full := Lean.Compiler.getImplementedBy?)}`getImplementedBy?` and {name (full := Lean.isExtern)}`isExtern` report what their names say. Lean refuses an {lit}`.olean` of
+  {name (full := Lean.Environment.find?)}`find?`, {name (full := Lean.Environment.getModuleIdxFor?)}`getModuleIdxFor?`, {name (full := Lean.Compiler.getImplementedBy?)}`getImplementedBy?` and {name (full := Lean.isExtern)}`isExtern` report what their names say.
+  {name (full := Lean.Environment.getModuleIdx?)}`getModuleIdx?` gives the index of the named module, and
+  {name (full := Lean.PersistentEnvExtension.getModuleEntries)}`getModuleEntries` gives that module's own exported attribute entries,
+  including its private entries at the imported level {lean (type := "Lean.OLeanLevel")}`.private`, even with
+  {lit}`loadExts := false`. Lean refuses an {lit}`.olean` of
   another release. {name}`Lean.findOLean` finds the {lit}`.olean` of a module on the search path that its row sets, and finds the
   toolchain's library only below the toolchain's {lit}`lib/lean`. The import for the parser, with {lit}`loadExts := true` at the level
   {lean (type := "Lean.OLeanLevel")}`.exported`, runs the toolchain's initializers and gives its parser extension's state. -/
@@ -261,7 +265,7 @@ def sources : Assumption → List Source
       .file "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean" "648", .file "src/Lean/Compiler/LCNF/PassManager.lean" "217",
       .file "src/Lean/Compiler/IR/Meta.lean" "52, 56-59", .file "src/Lean/Environment.lean" "2537, 2618, 2620, 2627"]
   | usedConstants => [.file "src/Lean/Util/FoldConsts.lean" "51-56"]
-  | leanImport => [.file "src/Lean/Environment.lean" "1871, 2032, 2079-2080, 2094-2095, 2183, 2313-2317, 2367-2370, 2377",
+  | leanImport => [.file "src/Lean/Environment.lean" "155-167, 1211-1212, 1666-1678, 1871, 2032, 2079-2080, 2094-2095, 2183, 2313-2317, 2367-2370, 2377",
       .file "src/Lean/Compiler/ImplementedByAttr.lean" "67-68", .file "src/Lean/Compiler/ExternAttr.lean" "75-76, 119-120",
       .file "src/Lean/Attributes.lean" "257-261, 272-279, 289-292, 306-318",
       .file "src/Lean/Util/Path.lean" "117-125", .file "src/Lean/Elab/Import.lean" "141-149",

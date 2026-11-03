@@ -23,7 +23,8 @@ What it reads, and through what:
   so no extension state is built and no initializer of a loaded module runs, and at the level `.private`, so a
   `module` file gives each constant with its body, exposed or not (`Lean/Environment.lean:1871` and `:2183` at
   v4.35.0). `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
-  which `importModules` sets whatever `loadExts` is, and no extension's built state.
+  which `importModules` sets whatever `loadExts` is, and no extension's built state. `Facts.unreplaced`
+  also reads each claimed module's own entries, so merging names cannot hide an attribute.
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
@@ -267,6 +268,16 @@ def Facts.claimedConstants (f : Facts) : List (Name × Name × ConstantInfo) :=
   ((f.modules.zip f.env.header.moduleData).toList.filter (·.1.claimed)).flatMap fun (m, data) =>
     (data.constNames.zip data.constants).toList.map fun (n, info) => (m.name, n, info)
 
+/-- Whether the module's own entries give `n` neither replacement attribute. A missing module
+index is not an empty set of attributes. Lean's name-based queries select only one module when
+theorem names merge (`Lean/Attributes.lean:306-318` at v4.35.0). -/
+def Facts.unreplaced (f : Facts) (m n : Name) : Bool :=
+  match f.env.getModuleIdx? m with
+  | none => false
+  | some idx =>
+    (Lean.Compiler.implementedByAttr.ext.getModuleEntries f.env idx).all (·.1 != n) &&
+      (Lean.externAttr.ext.getModuleEntries f.env idx).all (·.1 != n)
+
 /-- Whether the environment shows a constant of a claimed module to the rules: it holds a constant
 of that name of which the rules read the same, in a claimed module. Lean's import merges two
 theorems of one name and type, and a theorem with an axiom of that name and type: it keeps one, and
@@ -274,22 +285,26 @@ gives the name the first module that holds it (`subsumesInfo` and `finalizeImpor
 `Lean/Environment.lean:2269` and `2336-2345`). So a module's own constant can be one that no rule
 reads as a subject. What a dropped constant mentions, and whether it is an axiom, the input still
 states of its name (`Facts.stated`), in every loaded module; this check decides whether the rules
-read a claimed module's own constant as a subject. -/
+read a claimed module's own constant as a subject. Its own replacement attributes must be absent
+or the represented constant must already carry a replacement that RG1011 refuses. -/
 def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
   match f.env.constants.map₁[x.2.1]?, f.info? x.2.1 with
-  | some kept, some m => decide (readOf kept = readOf x.2.2) && m.claimed
+  | some kept, some m => decide (readOf kept = readOf x.2.2) && m.claimed &&
+      (f.unreplaced x.1 x.2.1 || (Lean.Compiler.getImplementedBy? f.env x.2.1).isSome ||
+        isExtern f.env x.2.1)
   | none, _ | some _, none => false
 
 /-- Whether a constant `n` that the environment does not show is what the rules would admit: a
-theorem, safe, with no name that the compiler reads as a recursion helper's, whose value mentions no
+theorem, safe, with neither replacement attribute in its own module and no name that the compiler
+reads as a recursion helper's, whose value mentions no
 loop construct, and each constant it mentions is held and reaches only axioms that the profile
 admits. Lean regenerates a definition's equation lemmas in each module that needs them, so such a
 constant can be conforming. -/
-def fitsUnshown {i : Input} (t : Tables i) (n : Name) (info : ConstantInfo) : Bool :=
-  kindOf info == .theorem && safetyOf info == .safe &&
+def fitsUnshown (f : Facts) {i : Input} (t : Tables i) (m n : Name) (info : ConstantInfo) : Bool :=
+  f.unreplaced m n && (kindOf info == .theorem && safetyOf info == .safe &&
     (Lean.Compiler.isUnsafeRecName? n).isNone &&
     loopConstructs.all (!(valueUsesOf info).contains ·) &&
-    (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits i.profile ·)
+    (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits i.profile ·))
 
 /-- The first constant of a claimed module that the environment does not show and that
 `fitsUnshown` does not admit, with its module. -/
@@ -298,7 +313,7 @@ def Facts.unread? (f : Facts) (i : Input) : Option (Name × Name) :=
   | [] => none
   | unshown =>
     let t := i.tables
-    (unshown.find? fun x => !fitsUnshown t x.2.1 x.2.2).map fun x => (x.1, x.2.1)
+    (unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
 
 /-- The closed input of the environment that `f` describes, under the profile `profile`. It refuses
 a module of `roots`, the default targets, that `f` does not claim, a constant with no module, a
@@ -320,9 +335,9 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
       | .error why => .error why
       | .ok i =>
         match f.unread? i with
-        | some (m, n) => .error s!"the module {m} holds the constant {n}, which Lean's import \
-            replaced with another of that name, and this one is no theorem within the profile or \
-            has a recursion helper's name"
+        | some (m, n) => .error s!"the module {m} holds the constant {n}, which the merged environment \
+            does not show to the rules, and this one is no theorem within the profile or \
+            has a recursion helper's name or unread or forbidden compiled-code attributes"
         | none => .ok i
 
 /-- Whether Lean's replay is given a constant of the cone: each constant but the companions of `Quot`, `Quot.mk`,

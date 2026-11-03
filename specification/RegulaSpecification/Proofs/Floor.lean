@@ -125,10 +125,12 @@ def Own (m n : Name) (info : ConstantInfo) : Prop :=
   ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧ StrictlyBelow a.rootDir olean ∧
     a.env.header.moduleData[k]? = some data ∧ (n, info) ∈ data.constNames.zip data.constants
 
-/-- A claimed module's own constant that the environment shows to the rules: it keeps a constant of that name, in a claimed module, of
-which the rules read the same. -/
-def Shown (n : Name) (info : ConstantInfo) : Prop :=
-  ∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead k info ∧ StrictlyBelow a.rootDir x.2
+/-- A claimed module's own constant represented by the rules, including the absence of its own
+replacement attributes or a represented replacement that RG1011 refuses. -/
+def Shown (m n : Name) (info : ConstantInfo) : Prop :=
+  (∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead k info ∧ StrictlyBelow a.rootDir x.2) ∧
+    (ModuleUnreplaced a.env m n ∨ (∃ impl, Lean.Compiler.getImplementedBy? a.env n = some impl) ∨
+      Lean.isExtern a.env n = true)
 
 /-- What the rules ask of a finished build, by what Lean and Lake answered and with none of the checker's
 functions. -/
@@ -149,9 +151,11 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     (∀ e, a.Reaches n e → a.Axiom e → a.Admits p e) ∧
     Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false
-  /-- A claimed module's own constant that the environment does not show is a safe theorem with no helper's name, whose value mentions no
+  /-- A claimed module's own constant that the environment does not show has neither replacement attribute in its own module,
+  is a safe theorem with no helper's name, whose value mentions no
   loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. -/
-  unshown : ∀ m n info, a.Own m n info → ¬ a.Shown n info →
+  unshown : ∀ m n info, a.Own m n info → ¬ a.Shown m n info →
+    ModuleUnreplaced a.env m n ∧
     (∃ t, info = .thmInfo t) ∧ info.isUnsafe = false ∧ info.isPartial = false ∧
     (∀ b, n ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ∀ u, Mentions info u → (∃ k, a.env.constants.map₁[u]? = some k) ∧ ∀ e, a.Reaches u e → a.Axiom e → a.Admits p e
@@ -293,10 +297,11 @@ theorem readOf_eq_iff (k v : ConstantInfo) : Regula.Load.readOf k = Regula.Load.
     and_assoc]
 
 theorem shown_ofFacts (f : Regula.Load.Facts) (m n : Name) (info : ConstantInfo) :
-    (BuildAnswer.ofFacts f).Shown n info ↔ f.shown (m, n, info) = true := by
+    (BuildAnswer.ofFacts f).Shown m n info ↔ f.shown (m, n, info) = true := by
   simp only [BuildAnswer.Shown, BuildAnswer.place_ofFacts, Regula.Load.Facts.shown, Option.map_eq_some_iff]
   show _ ↔ (match f.env.constants.map₁[n]?, f.info? n with
-    | some kept, some m => decide (Regula.Load.readOf kept = Regula.Load.readOf info) && m.claimed
+    | some kept, some lm => decide (Regula.Load.readOf kept = Regula.Load.readOf info) && lm.claimed &&
+        (f.unreplaced m n || (Lean.Compiler.getImplementedBy? f.env n).isSome || Lean.isExtern f.env n)
     | none, _ | some _, none => false) = true
   simp only [BuildAnswer.ofFacts]
   cases h1 : f.env.constants.map₁[n]? with
@@ -313,12 +318,13 @@ theorem shown_ofFacts (f : Regula.Load.Facts) (m n : Name) (info : ConstantInfo)
         have hq := f.placed lm hm
         rw [hq]
         rfl
-      simp only [Option.some.injEq, Bool.and_eq_true, decide_eq_true_eq, hp, below_eq_true_iff, readOf_eq_iff]
+      simp only [Option.some.injEq, Bool.and_eq_true, decide_eq_true_eq, hp, below_eq_true_iff, readOf_eq_iff,
+        Bool.or_eq_true, unreplaced_iff, Option.isSome_iff_exists, or_assoc]
       constructor
-      · rintro ⟨k, x, rfl, ⟨y, rfl, rfl⟩, h3, h4⟩
-        exact ⟨h3, h4⟩
-      · rintro ⟨h3, h4⟩
-        exact ⟨kept, (lm.name, lm.olean), rfl, ⟨lm, rfl, rfl⟩, h3, h4⟩
+      · rintro ⟨⟨k, x, rfl, ⟨y, rfl, rfl⟩, h3, h4⟩, ha⟩
+        exact ⟨⟨h3, h4⟩, ha⟩
+      · rintro ⟨⟨h3, h4⟩, ha⟩
+        exact ⟨⟨kept, (lm.name, lm.olean), rfl, ⟨lm, rfl, rfl⟩, h3, h4⟩, ha⟩
 
 theorem kindOf_theorem_iff (info : ConstantInfo) : Regula.Load.kindOf info = .theorem ↔ ∃ t, info = .thmInfo t := by
   cases info <;> simp [Regula.Load.kindOf]
@@ -353,7 +359,8 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
     simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts, BuildAnswer.helper_ofFacts,
       BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts]
     rfl
-  have hunshown : (∀ m n info, (BuildAnswer.ofFacts f).Own m n info → ¬ (BuildAnswer.ofFacts f).Shown n info →
+  have hunshown : (∀ m n info, (BuildAnswer.ofFacts f).Own m n info → ¬ (BuildAnswer.ofFacts f).Shown m n info →
+      ModuleUnreplaced (BuildAnswer.ofFacts f).env m n ∧
       (∃ t, info = .thmInfo t) ∧ info.isUnsafe = false ∧ info.isPartial = false ∧
       (∀ b, n ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
       ∀ u, Mentions info u → (∃ k, (BuildAnswer.ofFacts f).env.constants.map₁[u]? = some k) ∧
@@ -362,19 +369,19 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
     constructor
     · intro h x hx hs
       obtain ⟨m, n, info⟩ := x
-      have hn : ¬ (BuildAnswer.ofFacts f).Shown n info := fun hh => by
+      have hn : ¬ (BuildAnswer.ofFacts f).Shown m n info := fun hh => by
         rw [(shown_ofFacts f m n info).mp hh] at hs
         cases hs
-      obtain ⟨h1, h2, h3, h4, h5, h6⟩ := h m n info hx hn
-      exact ⟨(kindOf_theorem_iff _).mpr h1, (safetyOf_safe _).mpr ⟨h2, h3⟩, h4, h5, h6⟩
+      obtain ⟨ha, h1, h2, h3, h4, h5, h6⟩ := h m n info hx hn
+      exact ⟨ha, (kindOf_theorem_iff _).mpr h1, (safetyOf_safe _).mpr ⟨h2, h3⟩, h4, h5, h6⟩
     · intro h m n info hx hn
       have hs : f.shown (m, n, info) = false := by
         cases hv : f.shown (m, n, info) with
         | false => rfl
         | true => exact absurd ((shown_ofFacts f m n info).mpr hv) hn
-      obtain ⟨h1, h2, h3⟩ := h _ hx hs
+      obtain ⟨ha, h1, h2, h3⟩ := h _ hx hs
       obtain ⟨h4, h5⟩ := (safetyOf_safe _).mp h2
-      exact ⟨(kindOf_theorem_iff _).mp h1, h4, h5, h3⟩
+      exact ⟨ha, (kindOf_theorem_iff _).mp h1, h4, h5, h3⟩
   constructor
   · intro h
     refine ⟨fun r hr => (BuildAnswer.claimed_ofFacts f r).mpr (h.roots r hr), fun n info hn => (hq n).mpr (h.placed n info hn),
