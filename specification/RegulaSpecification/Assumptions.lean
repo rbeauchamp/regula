@@ -77,7 +77,8 @@ inductive Assumption where
   equal to what the kernel made of its inductive type; a constant that one of them mentions and that the map does not hold is unknown
   to the kernel, which refuses what mentions it; and the kernel adds the companions of {lit}`Quot` with it. To check a constant, the kernel
   looks up no constant but those that {name}`Regula.Load.usesOf` reads of it and those that {name (full := Regula.Closed.Input.kernelNames)}`Input.kernelNames` lists, so a replay of a
-  set closed under those mentions is given each constant that the kernel needs. -/
+  set closed under those mentions is given each constant that the kernel needs. Two constants that {lit}`==` relates, {lit}`Expr.eqv` on each
+  expression, which ignores binder annotations, are accepted by the kernel together. -/
   | replay
   /-- Lean's compiler and runtime run the checker as its definitions say: {name (full := Regula.Effect.Prog.interpret)}`Prog.interpret` asks each operation once, in
   order, through {name}`Regula.Effect.table`, each function with {attr}`@[extern]` or {attr}`@[implemented_by]` computes what its definition
@@ -218,7 +219,7 @@ def sources : Assumption → List Source
   | replay => [.file "src/Lean/Replay.lean" "59-63, 74-140, 148-190", .file "src/Lean/Environment.lean" "1531-1543",
       .file "src/Lean/Util/FoldConsts.lean" "16-56, 67-74", .file "src/kernel/type_checker.cpp" "416-430, 1104-1110, 1280-1304",
       .file "src/kernel/inductive.cpp" "1359-1401", .file "src/kernel/quot.cpp" "19-56", .file "src/library/constants.cpp" "147-150",
-      .file "src/Lean/Expr.lean" "622-624"]
+      .file "src/Lean/Expr.lean" "622-624, 804-812"]
   | compiler => [.component "src/Lean/Compiler/", .component "src/runtime/", .file "src/Init/System/IO.lean" "39"]
   | h1 => [.file "src/Lean/Language/Lean.lean" "595-601", .file "src/Lean/Parser/Extension.lean" "607-612, 765",
       .file "src/Lean/Parser/Module.lean" "124, 135, 146", .file "src/Lean/Elab/Open.lean" "83, 89, 101",

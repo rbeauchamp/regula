@@ -84,11 +84,19 @@ structure Meaning : Prop where
         TreeRoot sysroot tree tRules root ∧ BuildRead tRules root f roots ∧ EnvForm f ∧ EnvFloor f p ∧
         ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ tRules
   /-- {name}`Loader.replayConstants_env`: what Lean's replay is given is exactly the cone of the claim, each constant as the environment
-  keeps it, but the companions of {lit}`Quot`. -/
+  keeps it, but the companions of {lit}`Quot`, and the copies, each under a name of its own. -/
   cone : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile} {i : Regula.Closed.Input},
     f.input roots p = .ok i → ∀ (n : Name) (info : ConstantInfo),
       (f.replayConstants i)[n]? = some info ↔
-        f.env.constants.map₁[n]? = some info ∧ InCone f n ∧ ∀ v, info = .quotInfo v → v.kind = .type
+        (f.env.constants.map₁[n]? = some info ∧ InCone f n ∧ ∀ v, info = .quotInfo v → v.kind = .type) ∨
+          (n, info) ∈ copyEntries f
+  /-- {name}`Loader.claimed_theorem_replayed`: each theorem of a claimed module, as its own module states it, is the kept constant by
+  {lit}`==` or is given to the replay under a name of its own. -/
+  claimedReplayed : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile} {i : Regula.Closed.Input},
+    f.input roots p = .ok i → ∀ {m n : Name} {v : Lean.TheoremVal}, (m, n, .thmInfo v) ∈ f.claimedConstants →
+      (f.env.constants.map₁[n]? == some (.thmInfo v)) = true ∨
+        ∃ k, (f.replayConstants i)[(Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) (v, k)).1]? =
+          some (Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) (v, k)).2
   /-- {name}`Loader.pass_iff`: the rules pass on the loader's input exactly when the environment has {name}`EnvForm` and {name}`EnvFloor`. -/
   loaderPass : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile} {i : Regula.Closed.Input},
     f.input roots p = .ok i → (i.report.verdict = .pass ↔ EnvForm f ∧ EnvFloor f p)
@@ -178,6 +186,7 @@ theorem meaning : Meaning where
   plainExit := plain_exit_zero
   fullExit := full_exit_zero
   cone := fun h => replayConstants_env (input_loaded h)
+  claimedReplayed := fun h => claimed_theorem_replayed (input_loaded h)
   loaderPass := pass_iff
   loaderFloor := pass_floor
   loaderHeld := pass_held

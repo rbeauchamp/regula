@@ -1084,13 +1084,13 @@ theorem kernelNames_eq : Regula.Closed.Input.kernelNames = KernelNames := rfl
 def inputMentions (i : Regula.Closed.Input) (n : Name) : List Name :=
   ((i.index[n]?).map (·.uses)).getD []
 
-/-- Where the checker's cone starts: each constant of a claimed module, and each of the kernel's names that the input holds. -/
-def inputSeeds (i : Regula.Closed.Input) : List Name :=
-  i.claimedDecls.map (·.name) ++ Regula.Closed.Input.kernelNames.filter (i.index.contains ·)
+/-- Where the checker's cone starts: each constant of a claimed module, and each of {name}`seeds`. -/
+def inputSeeds (i : Regula.Closed.Input) (seeds : List Name) : List Name :=
+  i.claimedDecls.map (·.name) ++ seeds
 
 /-- The checker's cone is the search over what each constant of the input mentions, from those seeds. -/
-theorem cone_eq (i : Regula.Closed.Input) :
-    i.cone = Regula.Closed.reach (inputMentions i) (i.decls.map (·.uses.length)).sum (inputSeeds i) := rfl
+theorem cone_eq (i : Regula.Closed.Input) (seeds : List Name) :
+    i.cone seeds = Regula.Closed.reach (inputMentions i) (i.decls.map (·.uses.length)).sum (inputSeeds i seeds) := rfl
 
 theorem inputMentions_name (i : Regula.Closed.Input) {d : Regula.Closed.Decl} (hd : d ∈ i.decls) :
     inputMentions i d.name = d.uses := by
@@ -1129,9 +1129,9 @@ theorem reach_inputMentions_iff (i : Regula.Closed.Input) {s x : Name} :
       exact reach_cons ih ((inputMentions_name i hd).symm ▸ hu)
 
 /-- **The checker's search gives exactly what its seeds reach** through what each constant of the input mentions. -/
-theorem mem_cone (i : Regula.Closed.Input) (x : Name) :
-    i.cone.contains x = true ↔ ∃ s ∈ inputSeeds i, i.Reaches s x := by
-  rw [cone_eq, Regula.Closed.mem_reach (i.decls.map (·.name)) (inputSeeds i) ?_ ?_]
+theorem mem_cone (i : Regula.Closed.Input) (seeds : List Name) (x : Name) :
+    (i.cone seeds).contains x = true ↔ ∃ s ∈ inputSeeds i seeds, i.Reaches s x := by
+  rw [cone_eq, Regula.Closed.mem_reach (i.decls.map (·.name)) (inputSeeds i seeds) ?_ ?_]
   · simp only [reach_inputMentions_iff]
   · intro n hn
     unfold inputMentions at hn
@@ -1144,11 +1144,11 @@ theorem mem_cone (i : Regula.Closed.Input) (x : Name) :
     refine Nat.le_of_eq (congrArg List.sum (List.map_congr_left fun d hd => ?_))
     simp [inputMentions_name i hd]
 
-/-- Where the cone of a claim starts, in the terms of the environment: a constant of a claimed module, or one of
-{name}`KernelNames` that the environment holds. -/
+/-- Where the cone of a claim starts, in the terms of the environment: a constant of a claimed module, a name that a claimed
+module's own data states ({name}`mem_claimedConstants`), or one of {name}`KernelNames`. -/
 def ConeSeed (f : Regula.Load.Facts) (s : Name) : Prop :=
   (∃ info m, f.env.constants.map₁[s]? = some info ∧ f.moduleOf? s = some m ∧ m ∈ f.claimed) ∨
-    (s ∈ KernelNames ∧ ∃ info, f.env.constants.map₁[s]? = some info)
+    (∃ m info, (m, s, info) ∈ f.claimedConstants) ∨ s ∈ KernelNames
 
 /-- The cone of the claim, in the terms of the environment: each name that a seed reaches through what the names of the
 environment mention ({name}`EnvMentions`). -/
@@ -1175,11 +1175,11 @@ theorem index_contains (i : Regula.Closed.Input) (n : Name) :
     cases h
   | some d => exact ⟨fun _ => ⟨d, (i.index_eq_some n d).mp h⟩, fun _ => rfl⟩
 
-theorem mem_inputSeeds (hl : Loaded f roots p i) (s : Name) : s ∈ inputSeeds i ↔ ConeSeed f s := by
-  simp only [inputSeeds, List.mem_append, List.mem_map, List.mem_filter,
-    Regula.Closed.Input.mem_claimedDecls, index_contains, ConeSeed]
+theorem mem_inputSeeds (hl : Loaded f roots p i) (s : Name) : s ∈ inputSeeds i f.coneSeeds ↔ ConeSeed f s := by
+  simp only [inputSeeds, Regula.Load.Facts.coneSeeds, List.mem_append, List.mem_map,
+    Regula.Closed.Input.mem_claimedDecls, ConeSeed]
   rw [kernelNames_eq]
-  refine or_congr ⟨?_, ?_⟩ (and_congr_right fun _ => ⟨?_, ?_⟩)
+  refine or_congr ⟨?_, ?_⟩ (or_congr ⟨?_, ?_⟩ Iff.rfl)
   · rintro ⟨d, ⟨hd, hmod⟩, rfl⟩
     obtain ⟨info, m, hn, hm, hv⟩ := hl.sound d hd
     have hdm : d.module = m.name := by rw [hv]; rfl
@@ -1192,15 +1192,13 @@ theorem mem_inputSeeds (hl : Loaded f roots p i) (s : Name) : s ∈ inputSeeds i
     rw [hlm] at hlm'
     cases hlm'
     exact ⟨_, ⟨hmem, by rw [hl.modules]; exact hc⟩, rfl⟩
-  · rintro ⟨d, hd, rfl⟩
-    obtain ⟨info, -, hn, -, -⟩ := hl.sound d hd
-    exact ⟨info, hn⟩
-  · rintro ⟨info, hn⟩
-    obtain ⟨m, hm, hmem⟩ := hl.whole s info hn
-    exact ⟨_, hmem, rfl⟩
+  · rintro ⟨⟨m, n, info⟩, hx, rfl⟩
+    exact ⟨m, info, hx⟩
+  · rintro ⟨m, info, hx⟩
+    exact ⟨(m, s, info), hx, rfl⟩
 
 /-- **The cone that the checker computes is the cone of the claim**, in the terms of the environment. -/
-theorem mem_cone_env (hl : Loaded f roots p i) (n : Name) : i.cone.contains n = true ↔ InCone f n := by
+theorem mem_cone_env (hl : Loaded f roots p i) (n : Name) : (i.cone f.coneSeeds).contains n = true ↔ InCone f n := by
   rw [mem_cone]
   constructor
   · rintro ⟨s, hs, hr⟩
@@ -1279,19 +1277,129 @@ theorem replayFold_get (M : Std.HashMap Name ConstantInfo) (n : Name) (info : Co
       · exact .inl ⟨hl, h1, h2⟩
       · exact .inr (.inr h)
 
-theorem mem_replayConstants (f : Regula.Load.Facts) (i : Regula.Closed.Input) (n : Name) (info : ConstantInfo) :
-    (f.replayConstants i)[n]? = some info ↔
-      i.cone.contains n = true ∧ f.env.constants.map₁[n]? = some info ∧ Regula.Load.replays info = true := by
-  rw [Regula.Load.Facts.replayConstants, replayFold_get _ n info _ {} (by simp)]
+/-- The part of the replay's map that the cone gives. -/
+def coneConstants (f : Regula.Load.Facts) (i : Regula.Closed.Input) : Std.HashMap Name ConstantInfo :=
+  (i.cone f.coneSeeds).toList.foldl (Regula.Load.replayStep f.env.constants.map₁) {}
+
+theorem mem_coneConstants (f : Regula.Load.Facts) (i : Regula.Closed.Input) (n : Name) (info : ConstantInfo) :
+    (coneConstants f i)[n]? = some info ↔
+      (i.cone f.coneSeeds).contains n = true ∧ f.env.constants.map₁[n]? = some info ∧
+        Regula.Load.replays info = true := by
+  rw [coneConstants, replayFold_get _ n info _ {} (by simp)]
   simp [Std.HashSet.mem_toList, Std.HashSet.contains_iff_mem]
 
-/-- **What Lean's replay is given**, in the terms of the environment: exactly the constants of the cone of the claim, each
-as the environment keeps it, but the companions of {lit}`Quot`, which the kernel adds with it. -/
+/-- The entries of the copies, each under its name. -/
+def copyEntries (f : Regula.Load.Facts) : List (Name × ConstantInfo) :=
+  f.copies.zipIdx.map (Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁))
+
+theorem replayConstants_eq (f : Regula.Load.Facts) (i : Regula.Closed.Input) :
+    f.replayConstants i = (copyEntries f).foldl (fun m x => m.insert x.1 x.2) (coneConstants f i) := rfl
+
+theorem mem_insertFold (L : List (Name × ConstantInfo)) (hL : (L.map (·.1)).Nodup)
+    (base : Std.HashMap Name ConstantInfo) (n : Name) (info : ConstantInfo) :
+    (L.foldl (fun m x => m.insert x.1 x.2) base)[n]? = some info ↔
+      (n, info) ∈ L ∨ (n ∉ L.map (·.1) ∧ base[n]? = some info) := by
+  induction L generalizing base with
+  | nil => simp
+  | cons a L ih =>
+    obtain ⟨a1, a2⟩ := a
+    simp only [List.map_cons, List.nodup_cons] at hL
+    rw [List.foldl_cons, ih hL.2, Std.HashMap.getElem?_insert]
+    by_cases han : a1 = n
+    · subst han
+      have hnot : a1 ∉ L.map (·.1) := hL.1
+      have hnotL : ∀ x, (a1, x) ∉ L := fun x hx => hnot (List.mem_map.mpr ⟨_, hx, rfl⟩)
+      simp only [BEq.rfl, ↓reduceIte, List.mem_cons, Prod.mk.injEq, true_and, List.map_cons, not_or,
+        not_true_eq_false, false_and, or_false]
+      constructor
+      · rintro (h | ⟨-, h⟩)
+        · exact absurd h (hnotL info)
+        · exact .inl (Option.some.inj h).symm
+      · rintro (rfl | h)
+        · exact .inr ⟨hnot, rfl⟩
+        · exact absurd h (hnotL info)
+    · have hb : (a1 == n) = false := by simpa using han
+      have hne : n ≠ a1 := fun h => han h.symm
+      simp only [hb, Bool.false_eq_true, ↓reduceIte, List.mem_cons, Prod.mk.injEq, List.map_cons, not_or]
+      constructor
+      · rintro (h | ⟨h1, h2⟩)
+        · exact .inl (.inr h)
+        · exact .inr ⟨⟨hne, h1⟩, h2⟩
+      · rintro ((⟨h, -⟩ | h) | ⟨⟨-, h1⟩, h2⟩)
+        · exact absurd h hne
+        · exact .inl h
+        · exact .inr ⟨h1, h2⟩
+
+theorem depth_zeros (d : Nat) : Regula.Load.depth (Regula.Load.zeros d) = d := by
+  induction d with
+  | zero => rfl
+  | succ d ih => simp [Regula.Load.zeros, Regula.Load.depth, ih]
+
+theorem depth_le_fold (l : List Name) (init : Nat) :
+    init ≤ l.foldl (fun d n => max d (Regula.Load.depth n)) init ∧
+      ∀ x ∈ l, Regula.Load.depth x ≤ l.foldl (fun d n => max d (Regula.Load.depth n)) init := by
+  induction l generalizing init with
+  | nil => simp
+  | cons a l ih =>
+    obtain ⟨h1, h2⟩ := ih (max init (Regula.Load.depth a))
+    refine ⟨Nat.le_trans (Nat.le_max_left _ _) h1, fun x hx => ?_⟩
+    rcases List.mem_cons.mp hx with rfl | hx
+    · exact Nat.le_trans (Nat.le_max_right _ _) h1
+    · exact h2 x hx
+
+/-- **No constant of the environment has the name of a copy**: the root of those names is deeper than each of its names. -/
+theorem copy_name_fresh (f : Regula.Load.Facts) (k : Nat) :
+    Name.num (Regula.Load.copyRoot f.env.constants.map₁) k ∉ f.env.constants.map₁ := by
+  intro hmem
+  have hk := (depth_le_fold f.env.constants.map₁.keys 0).2 _ (Std.HashMap.mem_keys.mpr hmem)
+  simp only [Regula.Load.copyRoot, Regula.Load.depth, depth_zeros] at hk
+  omega
+
+/-- The copies have distinct names. -/
+theorem copyEntries_nodup (f : Regula.Load.Facts) : ((copyEntries f).map (·.1)).Nodup := by
+  have heq : (copyEntries f).map (·.1) =
+      (List.range' 0 f.copies.length).map (Name.num (Regula.Load.copyRoot f.env.constants.map₁)) := by
+    rw [← List.zipIdx_map_snd 0 f.copies, List.map_map]
+    simp [copyEntries, List.map_map, Function.comp_def, Regula.Load.copyAt]
+  rw [heq]
+  exact List.Pairwise.map _ (fun a b hab heq => hab (Name.num.inj heq).2) List.nodup_range'
+
+/-- **What Lean's replay is given**, in the terms of the environment: the constants of the cone of the claim, each as the
+environment keeps it, but the companions of {lit}`Quot`, which the kernel adds with it, and the copies, each under a name of its own. -/
 theorem replayConstants_env (hl : Loaded f roots p i) (n : Name) (info : ConstantInfo) :
     (f.replayConstants i)[n]? = some info ↔
-      f.env.constants.map₁[n]? = some info ∧ InCone f n ∧ ∀ v, info = .quotInfo v → v.kind = .type := by
-  rw [mem_replayConstants, mem_cone_env hl, replays_iff]
-  exact ⟨fun ⟨h1, h2, h3⟩ => ⟨h2, h1, h3⟩, fun ⟨h1, h2, h3⟩ => ⟨h2, h1, h3⟩⟩
+      (f.env.constants.map₁[n]? = some info ∧ InCone f n ∧ ∀ v, info = .quotInfo v → v.kind = .type) ∨
+        (n, info) ∈ copyEntries f := by
+  rw [replayConstants_eq, mem_insertFold _ (copyEntries_nodup f), mem_coneConstants, mem_cone_env hl, replays_iff]
+  constructor
+  · rintro (h | ⟨-, h1, h2, h3⟩)
+    · exact .inr h
+    · exact .inl ⟨h2, h1, h3⟩
+  · rintro (⟨h2, h1, h3⟩ | h)
+    · refine .inr ⟨fun hn => ?_, h1, h2, h3⟩
+      obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hn
+      obtain ⟨y, -, rfl⟩ := List.mem_map.mp hx
+      exact copy_name_fresh f y.2 (Std.HashMap.mem_iff_isSome_getElem?.mpr (by
+        show (f.env.constants.map₁[(Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) y).1]?).isSome = true
+        rw [h2]; rfl))
+    · exact .inl h
+
+/-- **Each theorem of a claimed module is checked**: as its own module's data states it, it is, by {lit}`==`, the constant of its
+name that the environment keeps, or the replay is given it under a name of its own, with its type and its value. -/
+theorem claimed_theorem_replayed (hl : Loaded f roots p i) {m n : Name} {v : Lean.TheoremVal}
+    (hx : (m, n, .thmInfo v) ∈ f.claimedConstants) :
+    (f.env.constants.map₁[n]? == some (.thmInfo v)) = true ∨
+      ∃ k, (f.replayConstants i)[(Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) (v, k)).1]? =
+        some (Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) (v, k)).2 := by
+  by_cases hk : (f.env.constants.map₁[n]? == some (.thmInfo v)) = true
+  · exact .inl hk
+  · refine .inr ?_
+    have hv : v ∈ f.copies := by
+      simp only [Regula.Load.Facts.copies, List.mem_filterMap]
+      exact ⟨(m, n, .thmInfo v), hx, by simp [hk]⟩
+    obtain ⟨k, hk'⟩ := List.mem_iff_getElem?.mp hv
+    refine ⟨k, (replayConstants_env hl _ _).mpr (.inr ?_)⟩
+    exact List.mem_map.mpr ⟨(v, k), List.mem_zipIdx_iff_getElem?.mpr hk', rfl⟩
 
 /-- Each constant of a claimed module is in the cone, so the replay is given it unless it is a quotient's companion. -/
 theorem claimed_inCone {n m : Name} {info : ConstantInfo} (hn : f.env.constants.map₁[n]? = some info)

@@ -204,13 +204,13 @@ def kernelNames : List Name :=
   [`Nat, `String, `Nat.zero, `Nat.succ, `String.ofList, `List.cons, `List.nil, `Char, `Char.ofNat, `Bool.true,
     `Bool.false]
 
-/-- The cone of the claim: each constant that a constant of a claimed module, or one of `kernelNames` that the input holds,
-reaches through what each constant mentions. The index is built once, and each lookup of the search reads it,
-so the search costs what the cone's mentions cost. -/
-def cone : Std.HashSet Name :=
+/-- The cone of the claim from `seeds`: each constant of a claimed module, each of `seeds`, and each constant that one of them
+reaches through what each constant mentions. The index is built once, and each lookup of the search reads it, so the search
+costs what the cone's mentions cost. -/
+def cone (seeds : List Name) : Std.HashSet Name :=
   let index := i.index
   reach (fun n => ((index[n]?).map (·.uses)).getD []) (i.decls.map (·.uses.length)).sum
-    (i.claimedDecls.map (·.name) ++ kernelNames.filter (index.contains ·))
+    (i.claimedDecls.map (·.name) ++ seeds)
 
 /-- The tables of the input. -/
 def tables : Tables i where

@@ -37,7 +37,7 @@ public section
 
 namespace Regula.Load
 
-open Lean (ConstantInfo Environment Name findOLean isExtern)
+open Lean (ConstantInfo Environment Name TheoremVal findOLean isExtern)
 open System (FilePath)
 open Regula.Closed
 
@@ -341,10 +341,45 @@ def replayStep (constants m : Std.HashMap Name ConstantInfo) (n : Name) : Std.Ha
   | some info => if replays info then m.insert n info else m
   | none => m
 
+/-- The number of components of a name. -/
+def depth : Name → Nat
+  | .anonymous => 0
+  | .str p _ => depth p + 1
+  | .num p _ => depth p + 1
+
+/-- A name of `d` components, each `0`. -/
+def zeros : Nat → Name
+  | 0 => .anonymous
+  | d + 1 => .num (zeros d) 0
+
+/-- A name deeper than each name of `constants`, so that no constant of theirs has a name that starts with it. -/
+def copyRoot (constants : Std.HashMap Name ConstantInfo) : Name :=
+  zeros (constants.keys.foldl (fun d n => max d (depth n)) 0 + 1)
+
+/-- Each theorem of a claimed module, as that module's `.olean` states it, that is not the constant of its name that the
+environment keeps. Lean's import keeps one of the theorems of a name and type that its modules state (`subsumesInfo` and
+`finalizeImport`, `Lean/Environment.lean:2269-2275` and `2336-2345` at v4.35.0), so the kernel can check the others only as
+copies. A theorem counts as kept when `==` (`Expr.eqv` on each expression, `Lean/Expr.lean:804-812`) relates the two. -/
+def Facts.copies (f : Facts) : List TheoremVal :=
+  f.claimedConstants.filterMap fun (_, n, info) =>
+    match info with
+    | .thmInfo v => if f.env.constants.map₁[n]? == some info then none else some v
+    | _ => none
+
+/-- The `k`-th copy under the name `root.k`, which no constant of the environment has (`copyRoot`). -/
+def copyAt (root : Name) (x : TheoremVal × Nat) : Name × ConstantInfo :=
+  (.num root x.2, .thmInfo { x.1 with name := .num root x.2, all := [.num root x.2] })
+
+/-- Where the cone of the claim starts beyond the constants of claimed modules that the environment keeps: each name that a
+claimed module's own data states, and `kernelNames`. -/
+def Facts.coneSeeds (f : Facts) : List Name :=
+  f.claimedConstants.map (·.2.1) ++ Input.kernelNames
+
 /-- What Lean's replay is given of the cone of `i`'s claim (`Regula.Closed.Input.cone`): each constant of the cone that
-`replays` admits, as the environment keeps it. -/
+`replays` admits, as the environment keeps it, and each of `copies` under a name of its own. -/
 def Facts.replayConstants (f : Facts) (i : Input) : Std.HashMap Name ConstantInfo :=
-  i.cone.toList.foldl (replayStep f.env.constants.map₁) {}
+  ((f.copies.zipIdx.map (copyAt (copyRoot f.env.constants.map₁))).foldl (fun m x => m.insert x.1 x.2)
+    ((i.cone f.coneSeeds).toList.foldl (replayStep f.env.constants.map₁) {}))
 
 /-- Whether `loaded`, the search path of the workspace that a load of the current directory gave, starts the search path that this program
 received. Lake gives a program the libraries of its workspace, then its own, then what it inherited (`Workspace.augmentedLeanPath`,
