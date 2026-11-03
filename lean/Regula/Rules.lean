@@ -6,6 +6,7 @@ public import Regula.Rules.RG1003
 public import Regula.Rules.RG1004
 public import Regula.Rules.RG1005
 public import Regula.Rules.RG1006
+public import Regula.Rules.RG1011
 
 /-!
 # The registry of the rules
@@ -27,7 +28,7 @@ namespace Regula.Closed
 /-- The rules that a run applies, in the order of their findings. -/
 def registry : List Rule :=
   [Regula.Rules.RG1001.rule, Regula.Rules.RG1002.rule, Regula.Rules.RG1003.rule, Regula.Rules.RG1004.rule,
-    Regula.Rules.RG1005.rule, Regula.Rules.RG1006.rule]
+    Regula.Rules.RG1005.rule, Regula.Rules.RG1006.rule, Regula.Rules.RG1011.rule]
 
 /-- The codes that no rule of the registry may take: the language check's and the environment's. -/
 def reservedSpellings : List String := ["RG1010", "RG2001"]
@@ -37,7 +38,8 @@ theorem spellings_nodup : (registry.map (·.spelling) ++ reservedSpellings).Nodu
 
 /-- Every finding of the input: the findings of each registered rule, in the order of the registry. -/
 def Input.findings (i : Input) : List Finding :=
-  registry.flatMap fun r => (r.check i.tables).map (Finding.of r)
+  let t := i.tables
+  registry.flatMap fun r => (r.check t).map (Finding.of r)
 
 theorem mem_findings {i : Input} {f : Finding} :
     f ∈ i.findings ↔ ∃ r ∈ registry, ∃ v ∈ r.check i.tables, Finding.of r v = f := by

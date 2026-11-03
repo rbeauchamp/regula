@@ -71,10 +71,11 @@ structure Decl where
   /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
   for any other constant. RG1006 reads it for Lean's loop constructs. -/
   valueUses : List Name
-  /-- The constant {attr}`@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). Only the
-  form of a recursion helper (RG1006) reads it. -/
+  /-- The constant {attr}`@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). RG1011 reads
+  it, and so does the form of a recursion helper (RG1006). -/
   implementedBy : Option Name
-  /-- Whether it is {attr}`@[extern]` (`Lean.isExtern`). Only the form of a recursion helper reads it. -/
+  /-- Whether it is {attr}`@[extern]` (`Lean.isExtern`). RG1011 reads it, and so does the form of a recursion
+  helper (RG1006). -/
   isExtern : Bool
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool

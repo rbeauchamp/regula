@@ -225,21 +225,23 @@ def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? f.env b = none ∧ Lean.isExtern f.env b = false
 
-/-- What RG1001 to RG1006 state of each constant of a claimed module, in the terms of the
+/-- What RG1001 to RG1006 and RG1011 state of each constant of a claimed module, in the terms of the
 environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, or
 has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value
 mentions no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded
 module's own
 data states, is one that the profile admits (RG1005), which also excludes {name}`sorryAx` (RG1002), a
 native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_hole`,
-{name}`rg1005_of_compiler`, {name}`rg1005_of_unknown`. -/
+{name}`rg1005_of_compiler`, {name}`rg1005_of_unknown`. The environment gives it no constant by
+{attr}`@[implemented_by]` and does not mark it {attr}`@[extern]` (RG1011). -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
       EnvHelper f n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
-    ∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a
+    (∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a) ∧
+    Lean.Compiler.getImplementedBy? f.env n = none ∧ Lean.isExtern f.env n = false
 
 theorem mem_modules_of_getElem {k : Nat} {m : Regula.Load.LoadedModule}
     (h : f.modules[k]? = some m) : m ∈ f.modules :=
@@ -679,17 +681,19 @@ theorem flagged_iff {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
 environment. A rule added to the registry makes this false until {name}`EnvFloor` and this theorem state it too. -/
 theorem allHold_iff (i : Input) : AllHold i ↔
     (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
-      (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) := by
-  simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved]
+      (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) ∧
+      (∀ c, ¬ Violates1011 i c) := by
+  simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved,
+    rg1011Proved]
 
 theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor f p := by
   rw [allHold_iff]
   constructor
-  · rintro ⟨h1, -, -, -, h5, h6⟩ n info m hn hm hc
+  · rintro ⟨h1, -, -, -, h5, h6, h11⟩ n info m hn hm hc
     obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm
     have hx := to_mem hl hn hlm
     have hcm := (claimed_iff hl _).mpr hc
-    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun a hr hax => ?_⟩
+    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun a hr hax => ?_, ?_, ?_⟩
     · exact h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr hax⟩
     · refine Classical.byContradiction fun hno =>
         h6 n ⟨_, hx, rfl, hcm, .inl ⟨flagged_iff.mpr hflag, fun hh => ?_⟩⟩
@@ -699,6 +703,12 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       refine Classical.byContradiction fun hno => h5 n ⟨⟨_, hx, rfl, hcm⟩, a,
         ⟨(reaches_env hl n a).mpr hr, (isAxiom_env hl a).mpr hax⟩, fun hadm => ?_⟩
       exact hno ((admits_env hl ha).mp hadm)
+    · cases hi : Lean.Compiler.getImplementedBy? f.env n with
+      | none => rfl
+      | some impl => exact absurd ⟨_, hx, rfl, hcm, .inl ⟨impl, hi⟩⟩ (h11 n)
+    · cases he : Lean.isExtern f.env n with
+      | false => rfl
+      | true => exact absurd ⟨_, hx, rfl, hcm, .inr he⟩ (h11 n)
   · intro hf
     have hmod : ∀ {x : Decl} {info m}, f.info? x.name = some m → x = decl
         (f.declIn x.name m info (f.stated.getD x.name [])) → f.moduleOf? x.name = some x.module :=
@@ -709,10 +719,10 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       have hax' := (isAxiom_env hl a).mp hax
       obtain ⟨k, ha, -⟩ := id hax'
       exact hna ((admits_env hl ha).mpr
-        ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2 a
+        ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2.1 a
           ((reaches_env hl _ a).mp hr) hax'))
     refine ⟨?_, fun c h => no5 c (rg1005_of_hole h), fun c h => no5 c (rg1005_of_unknown h),
-      fun c h => no5 c (rg1005_of_compiler h), no5, ?_⟩
+      fun c h => no5 c (rg1005_of_compiler h), no5, ?_, ?_⟩
     · rintro c ⟨x, hx, rfl, hcm, hk⟩
       obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx
       have hmd := hmod hm hv
@@ -727,6 +737,13 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       rcases hv with ⟨hflag, hno⟩ | ⟨l, hl', hu⟩
       · exact hno ((helper_env hl _ m info).mpr (hmn ▸ h6 (flagged_iff.mp hflag)))
       · exact h7 l hl' ((mem_valueUsesOf info l).mp hu)
+    · rintro c ⟨x, hx, rfl, hcm, hr⟩
+      obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
+      obtain ⟨-, -, -, -, hi, he⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
+      rw [hd] at hr
+      rcases hr with ⟨impl, himpl⟩ | hext
+      · exact absurd (himpl.symm.trans hi) (by simp)
+      · exact absurd (hext.symm.trans he) (by simp)
 
 theorem input_form (h : f.input roots p = .ok i) : EnvForm f :=
   (wf_env (input_loaded h)).mp (wf_toSpec i)
@@ -807,7 +824,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   have hmod : f.moduleOf? n = some lm.name := moduleOf?_eq_some.mpr ⟨lm, hinfo, rfl⟩
   have hcl : lm.name ∈ f.claimed :=
     (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
-  obtain ⟨h1, h2, h3, h4⟩ := ((pass_iff hi).mp hp).2 n k lm.name hk hmod hcl
+  obtain ⟨h1, h2, h3, h4, -⟩ := ((pass_iff hi).mp hp).2 n k lm.name hk hmod hcl
   simp only [Regula.Load.readOf, Prod.mk.injEq] at hread
   obtain ⟨hkind, hsafety, huses, hvalue⟩ := hread
   have hsafe : k.isUnsafe = info.isUnsafe ∧ k.isPartial = info.isPartial := by

@@ -141,12 +141,14 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   closed : ∀ n u, a.Mention n u → ∃ info', a.env.constants.map₁[u]? = some info'
   /-- At least one module is claimed. -/
   claims : ∃ m, a.Claimed m
-  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct and reaches only axioms that the profile admits. -/
+  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, reaches only axioms that the profile admits,
+  and has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`. -/
   floor : ∀ n info m, a.env.constants.map₁[n]? = some info → (a.place? n).map (·.1) = some m → a.Claimed m →
     ¬ a.Axiom n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → a.Helper n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
-    ∀ e, a.Reaches n e → a.Axiom e → a.Admits p e
+    (∀ e, a.Reaches n e → a.Axiom e → a.Admits p e) ∧
+    Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false
   /-- A claimed module's own constant that the environment does not show is a safe theorem with no helper's name, whose value mentions no
   loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. -/
   unshown : ∀ m n info, a.Own m n info → ¬ a.Shown n info →
@@ -345,7 +347,9 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       ¬ (BuildAnswer.ofFacts f).Axiom n ∧
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → (BuildAnswer.ofFacts f).Helper n info m) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
-      ∀ e, (BuildAnswer.ofFacts f).Reaches n e → (BuildAnswer.ofFacts f).Axiom e → (BuildAnswer.ofFacts f).Admits p e) ↔ EnvFloor f p := by
+      (∀ e, (BuildAnswer.ofFacts f).Reaches n e → (BuildAnswer.ofFacts f).Axiom e → (BuildAnswer.ofFacts f).Admits p e) ∧
+      Lean.Compiler.getImplementedBy? (BuildAnswer.ofFacts f).env n = none ∧ Lean.isExtern (BuildAnswer.ofFacts f).env n = false) ↔
+      EnvFloor f p := by
     simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts, BuildAnswer.helper_ofFacts,
       BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts]
     rfl
