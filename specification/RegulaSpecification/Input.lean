@@ -69,7 +69,7 @@ structure Decl where
   states, which Lean's import can drop. -/
   uses : List Name
   /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
-  for any other constant. RG1006 reads it for Lean's loop constructs. -/
+  for any other constant. RG1006 reads it for Lean's loop constructs, and RG1012 for panic forms. -/
   valueUses : List Name
   /-- The constant {attr}`@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). RG1011 reads
   it, and so does the form of a recursion helper (RG1006). -/
