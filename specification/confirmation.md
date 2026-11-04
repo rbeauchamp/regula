@@ -2,6 +2,36 @@
 
 This file records each decision of the owner's about Regula, the confirmations of its specification among them, in the owner's words.
 
+## 2026-11-04: the rule on hidden panics
+
+On 2026-11-03, when the owner asked for the next, single most important rule, the owner's delegated agent named the rule on replaced compiled code ([the record below](#2026-11-03-the-rule-on-replaced-compiled-code)) and, as the runner-up, a rule against hidden panics. Lean's total functions can still reach a panic, through `xs[i]!`, `Option.get!`, `List.head!`, `String.toNat!` or `unreachable!`, and a panic gives the type's default value, in Lean's logic and in the running program, so a proved function can go on with a value that nothing proved. Coding agents reach for these forms often. The owner's direction of the same day ([the record below](#2026-11-03-regulas-direction-and-the-readme)) invites new proved checks on the foundation of `v0.13.0`, and the owner's delegated agent decided on the owner's behalf to take this rule next, as [issue 552](https://github.com/rbeauchamp/regula/issues/552). The owner was asked nothing about this rule and has not picked it, so this entry quotes no answer of the owner's.
+
+Issue 552 first framed the rule as refusing a claimed constant whose value depends on Lean's panic primitive, `panicCore`. Measurement on the pinned toolchain showed that this cannot serve the aim: 46,999 constants of Init and Std reach `panicCore` through what each mentions, among them `Std.HashMap.insert` and `List.mergeSort` through the proof terms of `omega`, and 117 of Regula's own claimed constants reach it through the values of Lean's functions that Regula must call, so the rule would refuse nearly all Lean code and Regula itself; and `xs[i]!` on an array never reaches `panicCore`, because its panic is in C code behind `@[extern]`. So on 2026-11-04 the owner's delegated agent narrowed the rule on the owner's behalf: it refuses each definition or opaque constant of a claimed module whose value mentions a panic form, one of Lean's four panic functions or a constant that is no theorem and whose name's last string component contains `!`, Lean's naming for an operation that panics when it fails, to which each listed form elaborates. Theorems are not checked, because a proof is never run. The owner has not confirmed this narrowing.
+
+**Follows** means that the owner's words settle it. **Decided** means that the owner's delegated agents decided it on the owner's behalf, and it is no confirmation of the owner's.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| A rule against hidden panics is the next rule, RG1012. | [RG1012](README.md#rg1012-hidden-panics) | Decided by the owner's delegated agent, under the owner's direction of 2026-11-03 that invites new proved checks. |
+| It refuses each definition or opaque constant of a claimed module whose value directly mentions a panic form, one of `panicCore`, `panic`, `panicWithPos` and `panicWithPosWithDecl` or a constant that is no theorem and whose name's last string component, with its macro scopes erased, contains `!`, and nothing else. | [RG1012](README.md#rg1012-hidden-panics), `RegulaSpecification/Rules/RG1012.lean` | Decided by the owner's delegated agent on 2026-11-04, from the measurements above. |
+| `rg1012_exact` proves its check exact in both directions, and it is a check module and a specification module with one line in each registry that extends the statement of what a pass means in the terms of Lean's environment (`EnvFloor`, `allHold_iff`, `pass_held`). | [Adding a rule](../CONTRIBUTING.md#adding-a-rule) | Follows from the owner's decision of 2026-10-31 that a rule stays only if it is proved, and, for the layout, from [the record below](#2026-11-03-each-rule-a-module-of-its-own). |
+| A panic inside the code of a dependency or of the toolchain, reached through a constant whose name has no `!`, and one in C code behind `@[extern]` of such a constant, stay outside the rule, and the published text says so. | [RG1012](README.md#rg1012-hidden-panics), [`README.md`](../README.md#what-a-pass-means) | Decided by the owner's delegated agent, as the limit of the narrowing. |
+| The README marks RG1012 as on `main` and in no release, and keeps `v0.13.0`'s eight checks as what ships today. | [`README.md`](../README.md) | Follows from the owner's direction of 2026-11-03 that public text keeps what ships today apart from what is planned. |
+
+## 2026-11-03: the local gate
+
+On 2026-11-03, after a design study for [issue 549](https://github.com/rbeauchamp/regula/issues/549), which asked for the local gate to re-check only what a one-rule change touches, the owner was asked whether to keep the gate as it is: every run re-checks every rule's proofs, and the gate starts clean and does not rely on Lake's input hash, because reusing build outputs would save only about 14 s of the gate's 146 s on a change to one rule. The owner answered "Keep it, close 549".
+
+In substance: the local gate stays a clean build that runs every check and re-checks every rule's proofs on each run, and issue 549 is closed as not planned. This replaces the part of [the record below](#2026-11-03-each-rule-a-module-of-its-own) that left a fast gate for a one-rule change to issue 549.
+
+**Follows** means that the owner's words settle it. **Decided** means that the owner's delegated agents decided it on the owner's behalf, and it is no confirmation of the owner's.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| The gate keeps its clean step and runs every check from a clean build, without reusing build outputs through Lake's input hash. | `localSteps` in [`lean/Regula/DiagnosticsGate.lean`](../lean/Regula/DiagnosticsGate.lean) | Follows. |
+| Issue 549 is closed as not planned. | [Issue 549](https://github.com/rbeauchamp/regula/issues/549) | Follows. |
+| The sentences of `CONTRIBUTING.md` and the specification that gave issue 549 the work of a fast gate now say that the gate stays as it is. | [Adding a rule](../CONTRIBUTING.md#adding-a-rule), [The shape of a rule](README.md#the-shape-of-a-rule) | Decided by the owner's delegated agent, as the correction of text that the decision made false. |
+
 ## 2026-11-03: the rule on replaced compiled code
 
 On 2026-11-03 the owner asked what the next, single most important rule for Regula is, across Lean 4 as a theorem prover and as a functional programming language. The owner's delegated agent answered that a pass of either verdict says that the proofs of the claimed modules are sound, while nothing says that the compiled program runs the definitions those proofs are about: a claimed module can give a definition `@[implemented_by]` or `@[extern]`, so that its proofs reason about one definition while the program runs other code that nothing proves, and a module with each of them was measured passing on 2026-10-31. For Lean 4 used to write programs, that is where a proved function and the code that runs can differ with no signal. The owner took that answer forward by having Regula restructured first, as [the record below](#2026-11-03-each-rule-a-module-of-its-own) states, so that this rule is the first one added in the new way ([issue 548](https://github.com/rbeauchamp/regula/issues/548)). The owner's words reached this record only through the delegated agent's account, so this entry states the decision in that account's substance and quotes none.
@@ -21,6 +51,19 @@ The owner's delegated agent decided on the owner's behalf, the same day, that th
 | Its code is RG1011, which no check has had in any release, because releases before `v0.12.0` gave RG1007 to RG1009 to checks that no longer exist. | [Decisions of this specification](README.md#decisions-of-this-specification), [Adding a rule](../CONTRIBUTING.md#adding-a-rule) | Decided by the owner's delegated agent while building the change. |
 | A constant of a claimed module that Lean's import replaced is checked against that module's own replacement-attribute entries as well as the merged environment. | [RG1011](README.md#rg1011-replaced-compiled-code) | Follows from the refusal of each attributed claimed constant. This corrects the earlier delegated decision to read only the kept constant: proof erasure does not exempt a theorem from that requirement. |
 | The README marks RG1011 as on `main` and in no release, and keeps `v0.13.0`'s eight checks as what ships today. | [`README.md`](../README.md) | Follows from the owner's direction of 2026-11-03 that public text keeps what ships today apart from what is planned. |
+
+## 2026-11-03: the aim of a module for each rule
+
+On 2026-11-03, after deciding to keep the local gate as it is ([the record above](#2026-11-03-the-local-gate)), the owner clarified what the owner had asked for in [the record below](#2026-11-03-each-rule-a-module-of-its-own): "to be clear, my intent was not necessarily to make the CI or build faster, but rather to ensure that our architecture is modular such that adding or updating a rule does not break other rules. we and other contributors should be able to easily and safely add new rules and fix existing ones (if needed)."
+
+In substance: the aim of giving each rule a module of its own is that adding or updating a rule cannot break another rule, so that the owner and other contributors can add new rules and fix existing ones easily and safely. Faster verification was not the aim. So keeping the gate a clean build that re-checks every rule leaves the aim met: the layout keeps rules apart, and the gate's speed was never what it was for. The record below keeps its account of what the owner asked then.
+
+**Follows** means that the owner's words settle it. **Decided** means that the owner's delegated agents decided it on the owner's behalf, and it is no confirmation of the owner's.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| The purpose of the layout of a rule as a pair of modules, with one line in each registry, is that a rule is added or fixed without breaking another, not a faster build or gate. | [Adding a rule](../CONTRIBUTING.md#adding-a-rule) | Follows. |
+| Keeping the gate as it is leaves that purpose met. | [The local gate](#2026-11-03-the-local-gate) | Follows. |
 
 ## 2026-11-03: each rule a module of its own
 

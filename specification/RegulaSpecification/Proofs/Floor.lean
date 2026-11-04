@@ -120,6 +120,16 @@ def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? a.env b = none ∧ Lean.isExtern a.env b = false
 
+/-- A name that the environment holds as a theorem: the constant that it keeps is one, and no module states an
+axiom of that name. -/
+def Theorem (n : Name) : Prop :=
+  ∃ v, a.env.constants.map₁[n]? = some (.thmInfo v) ∧ ∀ w, a.Stated n w → ¬ AxiomInfo w
+
+/-- A panic form: one of Lean's four panic functions, or a name that {name}`BangNamed` admits and that the
+environment does not hold as a theorem. -/
+def Panic (n : Name) : Prop :=
+  n ∈ panicFunctions ∨ (BangNamed n ∧ ¬ a.Theorem n)
+
 /-- A constant that a claimed module's own {lit}`.olean` holds. -/
 def Own (m n : Name) (info : ConstantInfo) : Prop :=
   ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧ StrictlyBelow a.rootDir olean ∧
@@ -144,13 +154,14 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   /-- At least one module is claimed. -/
   claims : ∃ m, a.Claimed m
   /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, reaches only axioms that the profile admits,
-  and has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`. -/
+  has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, and, when it is a definition or an opaque constant, has a value that mentions no panic form. -/
   floor : ∀ n info m, a.env.constants.map₁[n]? = some info → (a.place? n).map (·.1) = some m → a.Claimed m →
     ¬ a.Axiom n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → a.Helper n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     (∀ e, a.Reaches n e → a.Axiom e → a.Admits p e) ∧
-    Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false
+    Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
+    ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ a.Panic u)
   /-- A claimed module's own constant that the environment does not show has neither replacement attribute in its own module,
   is a safe theorem with no helper's name, whose value mentions no
   loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. -/
@@ -226,6 +237,10 @@ theorem admits_ofFacts (p : Regula.Closed.Profile) (n : Name) : (ofFacts f).Admi
 
 theorem helper_ofFacts (n : Name) (info : ConstantInfo) (m : Name) : (ofFacts f).Helper n info m ↔ EnvHelper f n info m := by
   simp only [Helper, EnvHelper, stated_ofFacts, placeName_ofFacts]
+  rfl
+
+theorem panic_ofFacts (n : Name) : (ofFacts f).Panic n ↔ EnvPanic f n := by
+  simp only [Panic, EnvPanic, Theorem, EnvTheorem, stated_ofFacts]
   rfl
 
 theorem own_ofFacts (m n : Name) (info : ConstantInfo) : (ofFacts f).Own m n info ↔ (m, n, info) ∈ f.claimedConstants := by
@@ -354,10 +369,11 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → (BuildAnswer.ofFacts f).Helper n info m) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
       (∀ e, (BuildAnswer.ofFacts f).Reaches n e → (BuildAnswer.ofFacts f).Axiom e → (BuildAnswer.ofFacts f).Admits p e) ∧
-      Lean.Compiler.getImplementedBy? (BuildAnswer.ofFacts f).env n = none ∧ Lean.isExtern (BuildAnswer.ofFacts f).env n = false) ↔
+      Lean.Compiler.getImplementedBy? (BuildAnswer.ofFacts f).env n = none ∧ Lean.isExtern (BuildAnswer.ofFacts f).env n = false ∧
+      ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ (BuildAnswer.ofFacts f).Panic u)) ↔
       EnvFloor f p := by
     simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts, BuildAnswer.helper_ofFacts,
-      BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts]
+      BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts, BuildAnswer.panic_ofFacts]
     rfl
   have hunshown : (∀ m n info, (BuildAnswer.ofFacts f).Own m n info → ¬ (BuildAnswer.ofFacts f).Shown m n info →
       ModuleUnreplaced (BuildAnswer.ofFacts f).env m n ∧

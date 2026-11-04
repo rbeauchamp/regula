@@ -7,6 +7,7 @@ public import Regula.Rules.RG1004
 public import Regula.Rules.RG1005
 public import Regula.Rules.RG1006
 public import Regula.Rules.RG1011
+public import Regula.Rules.RG1012
 
 /-!
 # The registry of the rules
@@ -28,7 +29,8 @@ namespace Regula.Closed
 /-- The rules that a run applies, in the order of their findings. -/
 def registry : List Rule :=
   [Regula.Rules.RG1001.rule, Regula.Rules.RG1002.rule, Regula.Rules.RG1003.rule, Regula.Rules.RG1004.rule,
-    Regula.Rules.RG1005.rule, Regula.Rules.RG1006.rule, Regula.Rules.RG1011.rule]
+    Regula.Rules.RG1005.rule, Regula.Rules.RG1006.rule, Regula.Rules.RG1011.rule,
+    Regula.Rules.RG1012.rule]
 
 /-- The codes that no rule of the registry may take: the language check's and the environment's. -/
 def reservedSpellings : List String := ["RG1010", "RG2001"]

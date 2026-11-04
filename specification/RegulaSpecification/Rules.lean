@@ -5,6 +5,7 @@ import RegulaSpecification.Rules.RG1004
 import RegulaSpecification.Rules.RG1005
 import RegulaSpecification.Rules.RG1006
 import RegulaSpecification.Rules.RG1011
+import RegulaSpecification.Rules.RG1012
 import Regula.Rules
 
 /-!
@@ -28,7 +29,8 @@ open Lean (Name)
 
 /-- The rules' statements, in the order of the checker's registry. -/
 def registry : List Proved :=
-  [rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved, rg1011Proved]
+  [rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved, rg1011Proved,
+    rg1012Proved]
 
 /-- The specification's registry and the checker's are one list of rules, in one order. -/
 theorem registry_rules : registry.map (·.rule) = Regula.Closed.registry := rfl
@@ -67,6 +69,6 @@ theorem registered_found (p : Proved) (hp : p ∈ registry) :
 and the refusal of a build that the checker cannot read print them ({lit}`proof_verdict_lines`, {lit}`full_gate_lines`). -/
 theorem rule_spellings :
     Regula.Closed.registry.map (·.spelling) =
-      ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1011"] := rfl
+      ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1011", "RG1012"] := rfl
 
 end RegulaSpecification

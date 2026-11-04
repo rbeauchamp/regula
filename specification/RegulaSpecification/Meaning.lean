@@ -114,6 +114,7 @@ structure Meaning : Prop where
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
         info.isPartial = true ∧ info.isUnsafe = false) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
+      ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u) ∧
       ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a
   /-- {name}`Loader.pass_occurs`, under {name}`UsedConstantsComplete`: the floor over the constants that occur. -/
   occurs : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile}, UsedConstantsComplete →
