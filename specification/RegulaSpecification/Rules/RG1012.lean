@@ -236,23 +236,22 @@ theorem hasRunValue_iff (d : Regula.Closed.Decl) :
 
 theorem rg1012_exact (s : Name) :
     s ∈ (Regula.Rules.RG1012.check t).map (·.subject) ↔ Violates1012 (toSpec i) s := by
-  have hc : ∀ d : Regula.Closed.Decl,
-      (Regula.Rules.RG1012.hasRunValue d && d.valueUses.any (Regula.Rules.RG1012.panicForm t)) = true ↔
-        ((decl d).kind = .definition ∨ (decl d).kind = .opaque) ∧
-          ∃ u ∈ (decl d).valueUses, (toSpec i).PanicForm u := by
-    intro d
-    rw [Bool.and_eq_true, hasRunValue_iff, List.any_eq_true]
-    exact and_congr_right fun _ => exists_congr fun u => and_congr_right fun _ => panicForm_iff t u
   unfold Regula.Rules.RG1012.check
-  rw [mem_report (sub := (·.name)) (fun _ => rfl)]
+  simp only [List.mem_map, List.mem_filterMap]
   constructor
-  · rintro ⟨d, hd, hcd, rfl⟩
-    obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
-    obtain ⟨hk, hu⟩ := (hc d).mp hcd
-    exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, hk, hu⟩
-  · rintro ⟨x, hx, rfl, hm, hk, hu⟩
+  · rintro ⟨v, ⟨d, hd, hv⟩, rfl⟩
+    split at hv
+    · rename_i hr
+      obtain ⟨u, hu, rfl⟩ := Option.map_eq_some_iff.mp hv
+      obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
+      exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, (hasRunValue_iff d).mp hr, u,
+        List.mem_of_find?_eq_some hu, (panicForm_iff t u).mp (List.find?_some hu)⟩
+    · cases hv
+  · rintro ⟨x, hx, rfl, hm, hk, u, hu, hp⟩
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
-    exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, (hc d).mpr ⟨hk, hu⟩, rfl⟩
+    obtain ⟨w, hw⟩ : ∃ w, d.valueUses.find? (Regula.Rules.RG1012.panicForm t) = some w :=
+      Option.isSome_iff_exists.mp (List.find?_isSome.mpr ⟨u, hu, (panicForm_iff t u).mpr hp⟩)
+    exact ⟨_, ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, by rw [ite_eq_left ((hasRunValue_iff d).mpr hk), hw]; rfl⟩, rfl⟩
 
 end Link
 

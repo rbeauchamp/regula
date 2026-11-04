@@ -47,16 +47,15 @@ def panicForm (u : Name) : Bool :=
 /-- Whether `d` is a definition or an opaque constant. -/
 def hasRunValue (d : Decl) : Bool := d.kind == .definition || d.kind == .opaque
 
-/-- What RG1012 prints of a constant that it reports: the first panic form that its value mentions. -/
-def panicDetail (d : Decl) : String :=
-  match d.valueUses.find? (panicForm t) with
-  | some u => s!"its value mentions {u}, which can panic and then returns a default value"
-  | none => "its value mentions a panic form"
-
-/-- The definitions and opaque constants of claimed modules whose value mentions a panic form. -/
+/-- The definitions and opaque constants of claimed modules whose value mentions a panic form, each with the
+first panic form that its value mentions. -/
 def check : List Violation :=
   t.claimed.filterMap fun d =>
-    if hasRunValue d && d.valueUses.any (panicForm t) then some (violation d (panicDetail t d))
+    if hasRunValue d then
+      (d.valueUses.find? (panicForm t)).map fun u =>
+        violation d s!"its value mentions {u}, a panic form: one of Lean's four panic functions, or a \
+          constant that is no theorem and whose name's last string component, with its macro scopes erased, \
+          contains `!`, Lean's naming for an operation that panics when it fails"
     else none
 
 /-- RG1012, for the registry. Its body is exposed so that the registry reads its spelling (`Regula.Closed.spellings_nodup`). -/
