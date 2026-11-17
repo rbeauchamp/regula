@@ -19,6 +19,12 @@ import all Regula.Rules.RG1011
 import all Regula.Rules.RG1012
 import all Regula.Tables
 import all Regula.Verdict
+import all Init.Data.String.Search
+import all Init.System.FilePath
+import all Init.Data.Iterators.Consumers.Loop
+import all Init.Data.String.Slice
+import all Init.Data.String.Pattern.Pred
+import all Init.Data.String.Pattern.Basic
 
 /-!
 # Consequences of ordered preparation

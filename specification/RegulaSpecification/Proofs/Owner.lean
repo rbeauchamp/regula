@@ -16,6 +16,9 @@ import all Init.System.FilePath
 import all Lean.Data.Name
 import all Init.Data.Slice.List.Basic
 import all Init.Data.String.Defs
+import all Init.Data.String.Slice
+import all Init.Data.String.Pattern.String
+import all Init.Data.String.Pattern.Basic
 
 /-!
 # What the owner confirmed, stated apart from the code's own values
@@ -115,17 +118,23 @@ theorem refuses_plugin_key (r : Reading) {k : Name} (hk : k ∈ pluginKeys) (h :
   · exact hn hm
   · exact ho o hm he
 
+/-- A node of the kind {name}`k` with the children {name}`xs`, for the examples below. -/
 abbrev n (k : Name) (xs : List Syntax) : Syntax := .node .none k ⟨xs⟩
 
+/-- The token {name}`v`. -/
 abbrev a (v : String) : Syntax := .atom .none v
 
+/-- The identifier {name}`m`. -/
 abbrev i (m : Name) : Syntax := .ident .none default m []
 
+/-- The empty node that the parser gives for an absent optional part. -/
 abbrev e : Syntax := n `null []
 
+/-- The modifiers of a declaration whose attributes are {name}`attrs`, with every other part absent. -/
 abbrev mods (attrs : Syntax) : Syntax :=
   n `Lean.Parser.Command.declModifiers [e, attrs, e, e, e, e, e]
 
+/-- The command {lit}`example : True := by tac`, for the tactic {name}`tac`. -/
 abbrev byExample (tac : Syntax) : Syntax :=
   n `Lean.Parser.Command.declaration [mods e,
     n `Lean.Parser.Command.example [a "example",
@@ -135,6 +144,7 @@ abbrev byExample (tac : Syntax) : Syntax :=
           n `Lean.Parser.Tactic.tacticSeq [n `Lean.Parser.Tactic.tacticSeq1Indented [n `null [tac]]]],
         n `Lean.Parser.Termination.suffix [e, e], e]]]
 
+/-- A tactic's configuration with the one item {lit}`+item`. -/
 abbrev plusItem (item : Name) : Syntax :=
   n `Lean.Parser.Tactic.optConfig [n `null [n `Lean.Parser.Tactic.configItem [n `Lean.Parser.Tactic.posConfigItem [a "+", i item]]]]
 

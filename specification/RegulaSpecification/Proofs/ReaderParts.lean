@@ -23,6 +23,7 @@ import all Regula.Rules.RG1012
 import all Regula.Table
 import all Regula.Tables
 import all Regula.Verdict
+import all Lean.Data.Name
 
 /-!
 # What the parts of the reader give

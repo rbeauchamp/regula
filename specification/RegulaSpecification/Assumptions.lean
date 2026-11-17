@@ -1,6 +1,8 @@
 module
 
 public import Lean.Elab.Command
+public meta import Lean.Elab.Command
+meta import Regula.Verdict
 public import RegulaSpecification.Proofs.Behaviour
 public import RegulaSpecification.Proofs.Occurrences
 public import RegulaSpecification.Rules.RG1006
@@ -25,6 +27,7 @@ import all Regula.Shell
 import all Regula.Table
 import all Regula.Tables
 import all Regula.Verdict
+import all Init.Prelude
 
 /-!
 # The assumptions
@@ -121,7 +124,7 @@ inductive Assumption where
   what the compiler runs for a definition ({name (full := RegulaSpecification.Language.LeanBehaviour.h2)}`LeanBehaviour.h2`). -/
   | h2
   /-- {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each constant that occurs in an expression ({name (full := RegulaSpecification.Loader.UsedConstantsComplete)}`UsedConstantsComplete`). Its body is an
-  `opaque` that {attr}`@[implemented_by]` replaces. -/
+  {lit}`opaque` that {attr}`@[implemented_by]` replaces. -/
   | usedConstants
   /-- What Lean's import and search give. {name}`Lean.importModules` with {lit}`loadExts := false` at the level {lean (type := "Lean.OLeanLevel")}`.private` loads the
   {lit}`.olean` files of the build, runs no initializer, and gives each constant of a {lit}`module` file with its body;
