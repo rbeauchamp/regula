@@ -3,9 +3,7 @@ module
 public import RegulaSpecification.Proofs.Behaviour
 public import RegulaSpecification.Proofs.Occurrences
 public import RegulaSpecification.Rules.RG1006
-import Lean.Elab.Command
 meta import Lean.Elab.Command
-meta import Regula.Verdict
 import all Init.Prelude
 import all Regula.LanguageSet
 import all Regula.Verdict
