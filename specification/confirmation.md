@@ -17,7 +17,7 @@ In substance: the workflow installs no elan. It downloads the archive of the Lea
 | `no_ci` is removed from `.no-mistakes.yaml`, in this change. | `.no-mistakes.yaml` | Follows. That its condition is met is the agent's observation: the one pull request that was open had a run of the workflow after the workflow reached `main`. |
 | The archive is the `.zip` of the release, unpacked with `unzip`. The release also has a `.tar.zst`, which the agent could not unpack where it built this change. | [`.github/workflows/gate.yml`](../.github/workflows/gate.yml) | Decided by the owner's delegated agent. |
 | The digest is that of the archive as the agent downloaded it on 2026-11-17: 925,899,528 bytes, whose Lean reports the release 4.35.0 and the commit that the checker reads. A run of the workflow checks that the archive that GitHub's machine receives has the same digest. | [`.github/workflows/gate.yml`](../.github/workflows/gate.yml), `Regula.Closed.pinnedLean` | Decided by the owner's delegated agent. |
-| A change of `lean-toolchain` fails the workflow's job until the digest is that of the new release's archive, and the list of what an upgrade of Lean asks for names the digest. | [H1 and H2](README.md#h1-and-h2) | Decided by the owner's delegated agent. |
+| A change of the release that `lean-toolchain` names fails the workflow's job until the digest is that of the new release's archive, and the list of what an upgrade of Lean asks for names the digest. | [H1 and H2](README.md#h1-and-h2) | Decided by the owner's delegated agent. |
 
 ## 2026-11-17: the gate on GitHub
 

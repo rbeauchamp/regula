@@ -14,7 +14,7 @@
 #
 # `no_ci` is not set. It declares that no workflow file reports a check on a pull request, so that a
 # pull request with no checks can count as ready, and `.github/workflows/gate.yml` reports a check on
-# each pull request.
+# a pull request on which it runs.
 #
 # `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional Commits header.
 #
