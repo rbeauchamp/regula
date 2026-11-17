@@ -19,7 +19,7 @@ namespace Witnesses
 /-- A safe constant with nothing marked, outside the toolchain. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
   { name, module, kind, safety := .safe, uses, valueUses := [], implementedBy := none,
-    isExtern := false, inToolchain := false }
+    isExtern := false, initFn := none, inToolchain := false }
 
 /-- A constant of the toolchain's own library. -/
 def toolchain (name : Name) (kind : Kind) : Decl :=
