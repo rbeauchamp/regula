@@ -11,13 +11,13 @@ lintDriverArgs = ["standard-logical"]
 # statements. Nothing of the root package imports it. `lake build` here checks every statement and every
 # theorem.
 
-# lean-intent, at commit 30fe70d on its `main`, after its umbrella modules were removed. The
+# lean-intent, at commit 3db11da on its `main`, where each of its Lean files is a `module` file. The
 # specification imports three of its modules: `LeanIntent.Record`, `LeanIntent.Obligations` and
 # `LeanIntent.Progress`. It requires no package.
 [[require]]
 name = "lean-intent"
 git = "https://github.com/rbeauchamp/lean-intent"
-rev = "30fe70d3bdeec8875eab718f38374a76a1df63c4"
+rev = "3db11dac6120394051c48adf5c0a5467b2be7ab6"
 
 # The root package, whose functions the proofs of `RegulaSpecification.Proofs` are
 # about, and whose `lint` executable checks this package.
