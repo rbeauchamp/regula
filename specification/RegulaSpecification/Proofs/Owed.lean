@@ -1,7 +1,12 @@
-import RegulaSpecification.EffectsRecord
-import RegulaSpecification.Proofs.Load
-import RegulaSpecification.Proofs.Paths
-import RegulaSpecification.Proofs.Floor
+module
+
+public import RegulaSpecification.EffectsRecord
+public import RegulaSpecification.Proofs.Load
+public import RegulaSpecification.Proofs.Paths
+public import RegulaSpecification.Proofs.Floor
+import all Regula.Input
+import all Regula.Language
+import all Regula.Verdict
 
 /-!
 # A pass is owed
@@ -16,6 +21,8 @@ absent: their exact phase relations constrain every copy, load, command, lookup 
 attempts. The premises concern responses and content, never a branch of a program. No consistency of
 responses is needed for either implication to a pass.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

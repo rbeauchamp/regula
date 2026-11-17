@@ -1,11 +1,17 @@
-import RegulaSpecification.Proofs.Witness
-import Regula.Table
+module
+
+public import RegulaSpecification.Proofs.Witness
+public import Regula.Table
+import all Regula.Input
+import all Regula.Table
 
 /-!
 # The program against its record, and what the executable runs
 
 Each row of the one table is a straight line of calls ({lit}`table_rows`), so the table makes no decision.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 
@@ -207,7 +213,7 @@ theorem spawnLake_eq (program cwd : FilePath) (args : List String) :
       let child ← IO.Process.spawn
         { cmd := "/usr/bin/env", args := #["-i", "PATH=/usr/bin:/bin", "LAKE_ARTIFACT_CACHE=false", program.toString] ++ args.toArray,
           cwd := some cwd, stdin := .null }
-      child.wait) := rfl
+      child.wait) := by rfl
 
 /-- {name}`importParsers` enables Lean's initializers and imports: two calls, with no test, and what it gives as the
 namespaces that hold a scoped parser is what Lean's own state of the parser extension holds, the keys of its
@@ -217,6 +223,6 @@ theorem importParsers_eq (enable : BaseIO Unit) (modules : List Name) :
       enable
       let env ← Lean.importModules (modules.toArray.map ({ module := · })) {} (loadExts := true)
         (level := .exported)
-      return (env, (Lean.Parser.parserExtension.ext.getState env).scopedEntries.map.toList.map (·.1))) := rfl
+      return (env, (Lean.Parser.parserExtension.ext.getState env).scopedEntries.map.toList.map (·.1))) := by rfl
 
 end RegulaSpecification.Effects

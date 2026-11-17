@@ -1,12 +1,16 @@
-import RegulaSpecification.Rules.RG1001
-import RegulaSpecification.Rules.RG1002
-import RegulaSpecification.Rules.RG1003
-import RegulaSpecification.Rules.RG1004
-import RegulaSpecification.Rules.RG1005
-import RegulaSpecification.Rules.RG1006
-import RegulaSpecification.Rules.RG1011
-import RegulaSpecification.Rules.RG1012
-import Regula.Rules
+module
+
+public import RegulaSpecification.Rules.RG1001
+public import RegulaSpecification.Rules.RG1002
+public import RegulaSpecification.Rules.RG1003
+public import RegulaSpecification.Rules.RG1004
+public import RegulaSpecification.Rules.RG1005
+public import RegulaSpecification.Rules.RG1006
+public import RegulaSpecification.Rules.RG1011
+public import RegulaSpecification.Rules.RG1012
+public import Regula.Rules
+import all Regula.Rule
+import all Regula.Rules
 
 /-!
 # The registry of the rules' statements
@@ -23,6 +27,8 @@ in the run's findings ({lit}`registered_found`), so a run that dropped one rule'
 findings these theorems state.
 -/
 
+@[expose] public section
+
 namespace RegulaSpecification
 
 open Lean (Name)
@@ -33,7 +39,7 @@ def registry : List Proved :=
     rg1012Proved]
 
 /-- The specification's registry and the checker's are one list of rules, in one order. -/
-theorem registry_rules : registry.map (·.rule) = Regula.Closed.registry := rfl
+theorem registry_rules : registry.map (·.rule) = Regula.Closed.registry := by rfl
 
 /-- Every rule that reads the input holds of it. -/
 def AllHold (i : Input) : Prop := ∀ p ∈ registry, ∀ c, ¬ p.Violates i c
@@ -69,6 +75,6 @@ theorem registered_found (p : Proved) (hp : p ∈ registry) :
 and the refusal of a build that the checker cannot read print them ({lit}`proof_verdict_lines`, {lit}`full_gate_lines`). -/
 theorem rule_spellings :
     Regula.Closed.registry.map (·.spelling) =
-      ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1011", "RG1012"] := rfl
+      ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1011", "RG1012"] := by rfl
 
 end RegulaSpecification

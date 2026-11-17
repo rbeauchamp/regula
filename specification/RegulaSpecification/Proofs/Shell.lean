@@ -1,8 +1,16 @@
-import RegulaSpecification.Proofs.ShellParts
+module
+
+public import RegulaSpecification.Proofs.ShellParts
+import all Regula.Language
+import all Regula.Reader
+import all Regula.Shell
+import all Regula.Verdict
 
 /-!
 # What a whole run does
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

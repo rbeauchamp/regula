@@ -1,8 +1,12 @@
-import RegulaSpecification.Gate
+module
+
+public import RegulaSpecification.Gate
 
 /-!
 # Lean-intent's obligations for the verdict
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

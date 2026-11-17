@@ -1,6 +1,11 @@
-import RegulaSpecification.EffectsRecord
-import Regula.Reader
-import Regula.Table
+module
+
+public import RegulaSpecification.EffectsRecord
+public import Regula.Reader
+public import Regula.Table
+import all Init.System.ST
+import all Regula.Effect
+import all Regula.Reader
 
 /-!
 # Runs of a program, and what the interpreter does
@@ -12,6 +17,8 @@ the run has reached. {name}`BaseIO` is a state monad in Lean's own definition ({
 theorem about the definition and no assumption about how effects are ordered; that the compiler keeps that order
 stays with the compiler, which the trusted base lists.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

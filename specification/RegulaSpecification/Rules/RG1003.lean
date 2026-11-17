@@ -1,5 +1,9 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1003
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1003
+import all Regula.Rule
+import all Regula.Rules.RG1003
 
 /-!
 # RG1003: unknown axioms
@@ -8,6 +12,8 @@ A constant of a claimed module depends on an axiom other than {name}`propext`, {
 {name}`Classical.choice` of the toolchain, and RG1002 and RG1004 do not name it.
 {name (full := Regula.Rules.RG1003.check)}`Regula.Rules.RG1003.check` is the function that the checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

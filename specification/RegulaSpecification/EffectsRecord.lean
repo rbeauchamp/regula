@@ -1,5 +1,7 @@
-import Regula.Rules
-import RegulaSpecification.EffectsRun
+module
+
+public import Regula.Rules
+public import RegulaSpecification.EffectsRun
 
 /-!
 # The record of a run
@@ -19,6 +21,8 @@ that the specification's README publishes: each case is a statement of what Lean
 system answered, so a refusal is never untrue of those answers, and it says nothing of who else ought to
 pass.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

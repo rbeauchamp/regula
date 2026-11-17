@@ -1,5 +1,9 @@
-import Regula.Language
-import RegulaSpecification.Language
+module
+
+public import Regula.Language
+public import RegulaSpecification.Language
+import all Init.Prelude
+import all Regula.Language
 
 /-!
 # The language decision against its record
@@ -7,6 +11,8 @@ import RegulaSpecification.Language
 Each theorem is about the definition that the checker runs. What fills a {name (full := Regula.Language.Reading)}`Reading` from a real project
 (`Regula.Reader`) is in {lit}`Proofs/Reader.lean`, and the specification's trusted base lists what stays assumed.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Language
 

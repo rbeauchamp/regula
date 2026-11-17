@@ -1,6 +1,10 @@
-import RegulaSpecification.EffectsRecord
-import RegulaSpecification.Proofs.Paths
-import RegulaSpecification.Proofs.Load
+module
+
+public import RegulaSpecification.EffectsRecord
+public import RegulaSpecification.Proofs.Paths
+public import RegulaSpecification.Proofs.Load
+import all Lean.Environment
+import all Regula.Load
 
 /-!
 # What the rules ask of a build, by what Lean answered
@@ -12,6 +16,8 @@ two library directories that Lake's load named. `BuildAnswer.Floor` states the s
 functions and the components of a path. {lit}`loadFloor_iff` relates the two in both directions, so {lit}`pass_iff_answer` states the checker's
 decision against a property that names none of its functions.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

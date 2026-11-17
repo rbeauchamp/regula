@@ -1,5 +1,10 @@
-import Regula.DiagnosticsGate
-import Regula.Shell
+module
+
+public import Regula.DiagnosticsGate
+public import Regula.Shell
+import all Init.System.FilePath
+import all Init.System.ST
+import all Regula.DiagnosticsGate
 
 /-!
 # The local gate, at {name}`IO`
@@ -11,6 +16,8 @@ of {name (full := Regula.DiagnosticsGate.localSteps)}`localSteps` there are worl
 no assumption about the order of effects is needed for this. {lit}`localSteps_eq`, {lit}`localSteps_full`, {lit}`stepRequest` and {lit}`runStep_spawns` state what each step asks the operating system to start, and what it does with that request stays trusted. A defect that only stops the gate visibly, such as a failed
 copy or removal, which {name}`IO` turns into a nonzero exit, is accepted risk.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.GateProgram
 
@@ -339,7 +346,7 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
       have := (EST.Out.ok.inj h).1
       exact absurd this (by decide)
 
-theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := rfl
+theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := by rfl
 
 theorem localSteps_eq (checker root : String) :
     localSteps checker root =
@@ -350,7 +357,7 @@ theorem localSteps_eq (checker root : String) :
         ⟨["build", "--wfail", "Regula", "lint"], ".", none⟩,
         ⟨["lint"], ".", none⟩,
         ⟨["build", "--wfail"], "specification", none⟩,
-        ⟨["lint"], "specification", none⟩] := rfl
+        ⟨["lint"], "specification", none⟩] := by rfl
 
 theorem localSteps_full (checker root : String) :
     ∀ s ∈ localSteps checker root,
@@ -364,6 +371,6 @@ theorem runStep_spawns (step : Step) :
       announce step
       let child ← IO.Process.spawn (stepRequest step)
       child.wait) :=
-  rfl
+  by rfl
 
 end RegulaSpecification.GateProgram

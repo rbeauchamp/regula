@@ -1,4 +1,6 @@
-import RegulaSpecification.Proofs.Load
+module
+
+public import RegulaSpecification.Proofs.Load
 
 /-!
 # Two facts about Lean, as hypotheses
@@ -12,6 +14,8 @@ what that function gives. {lit}`pass_occurs` states the RG1005 and loop parts of
 an expression, {lit}`OccursIn`, which reads no Lean function, with the fact about Lean as a
 hypothesis. {lit}`UsedConstantsComplete` is that fact, so a reader sees it in the theorem's statement.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

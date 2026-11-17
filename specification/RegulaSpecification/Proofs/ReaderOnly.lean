@@ -1,8 +1,13 @@
-import RegulaSpecification.Proofs.Reader
+module
+
+public import RegulaSpecification.Proofs.Reader
+import all Regula.Reader
 
 /-!
 # What the reader never asks
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

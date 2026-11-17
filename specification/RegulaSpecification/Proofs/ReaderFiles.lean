@@ -1,8 +1,13 @@
-import RegulaSpecification.Proofs.ReaderWalk
+module
+
+public import RegulaSpecification.Proofs.ReaderWalk
+import all Regula.Reader
 
 /-!
 # What the reader's parse of each file gives
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

@@ -1,45 +1,47 @@
-import RegulaSpecification.Input
-import RegulaSpecification.RuleRecord
-import RegulaSpecification.Foundation
-import RegulaSpecification.Witnesses
-import RegulaSpecification.Proofs.Link
-import RegulaSpecification.Proofs.Tables
-import RegulaSpecification.Rule
-import RegulaSpecification.Rules
-import RegulaSpecification.Refinement
-import RegulaSpecification.Gate
-import RegulaSpecification.CasesGate
-import RegulaSpecification.Language
-import RegulaSpecification.Effects
-import RegulaSpecification.EffectsRun
-import RegulaSpecification.EffectsRecord
-import RegulaSpecification.Proofs.Paths
-import RegulaSpecification.Proofs.Floor
-import RegulaSpecification.Proofs.Verdict
-import RegulaSpecification.Proofs.Load
-import RegulaSpecification.Proofs.Written
-import RegulaSpecification.Proofs.Owed
-import RegulaSpecification.Proofs.Occurrences
-import RegulaSpecification.Proofs.Language
-import RegulaSpecification.Proofs.Owner
-import RegulaSpecification.Proofs.Effects
-import RegulaSpecification.Proofs.ReaderParts
-import RegulaSpecification.Proofs.ReaderWalk
-import RegulaSpecification.Proofs.ReaderFiles
-import RegulaSpecification.Proofs.Reader
-import RegulaSpecification.Proofs.ReaderOnly
-import RegulaSpecification.Proofs.ShellLoad
-import RegulaSpecification.Proofs.ShellParts
-import RegulaSpecification.Proofs.Standing
-import RegulaSpecification.Proofs.Shell
-import RegulaSpecification.Proofs.Witness
-import RegulaSpecification.Proofs.Program
-import RegulaSpecification.Proofs.Behaviour
-import RegulaSpecification.Proofs.OwedModel
-import RegulaSpecification.Proofs.EffectScan
-import RegulaSpecification.Proofs.Gate
-import RegulaSpecification.Assumptions
-import RegulaSpecification.Meaning
+module
+
+public import RegulaSpecification.Input
+public import RegulaSpecification.RuleRecord
+public import RegulaSpecification.Foundation
+public import RegulaSpecification.Witnesses
+public import RegulaSpecification.Proofs.Link
+public import RegulaSpecification.Proofs.Tables
+public import RegulaSpecification.Rule
+public import RegulaSpecification.Rules
+public import RegulaSpecification.Refinement
+public import RegulaSpecification.Gate
+public import RegulaSpecification.CasesGate
+public import RegulaSpecification.Language
+public import RegulaSpecification.Effects
+public import RegulaSpecification.EffectsRun
+public import RegulaSpecification.EffectsRecord
+public import RegulaSpecification.Proofs.Paths
+public import RegulaSpecification.Proofs.Floor
+public import RegulaSpecification.Proofs.Verdict
+public import RegulaSpecification.Proofs.Load
+public import RegulaSpecification.Proofs.Written
+public import RegulaSpecification.Proofs.Owed
+public import RegulaSpecification.Proofs.Occurrences
+public import RegulaSpecification.Proofs.Language
+public import RegulaSpecification.Proofs.Owner
+public import RegulaSpecification.Proofs.Effects
+public import RegulaSpecification.Proofs.ReaderParts
+public import RegulaSpecification.Proofs.ReaderWalk
+public import RegulaSpecification.Proofs.ReaderFiles
+public import RegulaSpecification.Proofs.Reader
+public import RegulaSpecification.Proofs.ReaderOnly
+public import RegulaSpecification.Proofs.ShellLoad
+public import RegulaSpecification.Proofs.ShellParts
+public import RegulaSpecification.Proofs.Standing
+public import RegulaSpecification.Proofs.Shell
+public import RegulaSpecification.Proofs.Witness
+public import RegulaSpecification.Proofs.Program
+public import RegulaSpecification.Proofs.Behaviour
+public import RegulaSpecification.Proofs.OwedModel
+public import RegulaSpecification.Proofs.EffectScan
+public import RegulaSpecification.Proofs.Gate
+public import RegulaSpecification.Assumptions
+public import RegulaSpecification.Meaning
 
 /-!
 # The specification of Regula

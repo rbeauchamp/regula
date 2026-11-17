@@ -1,5 +1,7 @@
-import Regula.Input
-import RegulaSpecification.RuleRecord
+module
+
+public import Regula.Input
+public import RegulaSpecification.RuleRecord
 
 /-!
 # The link from the implementation's input to the specification's
@@ -14,6 +16,8 @@ specification at {lit}`toSpec i`.
 input, and {lit}`ofAdmitted` carries a well-formed input, so that a function of the checker is a checker of the
 specification's input ({name (full := RegulaSpecification.Checker)}`Checker`) and can meet a rule's intent record.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

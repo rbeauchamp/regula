@@ -1,5 +1,12 @@
-import RegulaSpecification.Proofs.Behaviour
-import RegulaSpecification.Proofs.Owed
+module
+
+public import RegulaSpecification.Proofs.Behaviour
+public import RegulaSpecification.Proofs.Owed
+import all Regula.Effect
+import all Regula.Input
+import all Regula.Language
+import all Regula.Shell
+import all Regula.Verdict
 
 /-!
 # A model of what a pass rests on
@@ -13,6 +20,8 @@ environment with the floor ({lit}`EnvModel`), there is a run, whose proof takes 
 `opaque` constant, and for two facts about the pinned text and an empty log, and {lit}`EnvModel` because {name}`Lean.Environment`'s constructor is private. The witness runs meet the strengthened preparation relations through {name (full := RegulaSpecification.Effects.run_meets)}`run_meets`;
 neither the models nor those relations assert consistency of a filesystem behind the responses.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

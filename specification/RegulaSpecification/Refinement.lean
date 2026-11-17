@@ -1,7 +1,9 @@
-import RegulaSpecification.Rules.RG1002
-import RegulaSpecification.Rules.RG1003
-import RegulaSpecification.Rules.RG1004
-import RegulaSpecification.Rules.RG1005
+module
+
+public import RegulaSpecification.Rules.RG1002
+public import RegulaSpecification.Rules.RG1003
+public import RegulaSpecification.Rules.RG1004
+public import RegulaSpecification.Rules.RG1005
 
 /-!
 # RG1002 to RG1004 refine RG1005
@@ -11,6 +13,8 @@ every profile, so a wrong choice among them changes the reported rule, never the
 a pass means in the terms of Lean's environment ({lit}`EnvFloor`, in {lit}`Proofs/Load.lean`) states RG1005 alone
 for the first three by these theorems. This module relates rules, so it is no rule's module.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

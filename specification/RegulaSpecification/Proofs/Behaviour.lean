@@ -1,5 +1,9 @@
-import RegulaSpecification.Proofs.Program
-import RegulaSpecification.Proofs.Standing
+module
+
+public import RegulaSpecification.Proofs.Program
+public import RegulaSpecification.Proofs.Standing
+import all Regula.Language
+import all Regula.Rules
 
 /-!
 # What a pass means, and what it rests on
@@ -8,6 +12,8 @@ The theorems about a run read only what the run received. What those answers mea
 system do, and each such statement is a hypothesis of the theorem that needs it, re-read at each upgrade of Lean:
 {lit}`LakeBehaviour` (H3), {lit}`RealPathBehaviour` (H4) and {lit}`LakeSelection` (H5) here, and {name}`RegulaSpecification.Language.LeanBehaviour` (H1 and H2).
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

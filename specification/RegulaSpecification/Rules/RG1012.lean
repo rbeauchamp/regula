@@ -1,5 +1,10 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1012
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1012
+import all Init.Prelude
+import all Regula.Rule
+import all Regula.Rules.RG1012
 
 /-!
 # RG1012: hidden panics
@@ -21,6 +26,8 @@ mentions that form itself. A theorem is no subject, and a theorem's name is no p
 is never run. {name (full := Regula.Rules.RG1012.check)}`Regula.Rules.RG1012.check` is the function that the
 checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

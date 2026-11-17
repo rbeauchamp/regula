@@ -1,4 +1,10 @@
-import RegulaSpecification.EffectsRecord
+module
+
+public import RegulaSpecification.EffectsRecord
+import all Init.Data.String.Pattern.Basic
+import all Init.Data.String.Search
+import all Init.Data.String.Slice
+import all Init.System.FilePath
 
 /-!
 # Consequences of ordered preparation
@@ -6,6 +12,8 @@ import RegulaSpecification.EffectsRecord
 These consequences read the contract alone. No result here assumes consistent filesystem responses or
 describes effects inside trusted Lean/Lake calls.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

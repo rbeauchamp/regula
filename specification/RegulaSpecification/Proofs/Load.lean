@@ -1,7 +1,19 @@
-import Regula.Load
-import Regula.Shell
-import RegulaSpecification.Proofs.Verdict
-import RegulaSpecification.Refinement
+module
+
+public import Regula.Load
+public import Regula.Shell
+public import RegulaSpecification.Proofs.Verdict
+public import RegulaSpecification.Refinement
+public import Lean.Compiler.ExternAttr
+public import Lean.Compiler.ImplementedByAttr
+import all Lean.Declaration
+import all Regula.Input
+import all Regula.Load
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Shell
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # The loader, against the environment
@@ -25,6 +37,8 @@ environment returns, that {name (full := Lean.Expr.getUsedConstants)}`Expr.getUs
 finds each {lit}`.olean`, and that Lake names the modules of the default targets and the two library directories.
 The specification's trusted base lists them.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 
@@ -901,7 +915,7 @@ theorem pass_iff (h : f.input roots p = .ok i) :
   exact ⟨fun hf => ⟨input_form h, hf⟩, (·.2)⟩
 
 theorem decision_failed (why : String) :
-    (Regula.Closed.decision (.error why)).verdict = .incomplete := rfl
+    (Regula.Closed.decision (.error why)).verdict = .incomplete := by rfl
 
 theorem decision_pass {r : Except String Regula.Closed.Input}
     (h : (Regula.Closed.decision r).verdict = .pass) :
@@ -1267,7 +1281,7 @@ def KernelNames : List Name :=
     `Bool.false]
 
 /-- The checker's list is this one, so a change of either fails this proof. -/
-theorem kernelNames_eq : Regula.Closed.Input.kernelNames = KernelNames := rfl
+theorem kernelNames_eq : Regula.Closed.Input.kernelNames = KernelNames := by rfl
 
 /-- What the constant of a name mentions in the input, and nothing for a name that the input does not hold. -/
 def inputMentions (i : Regula.Closed.Input) (n : Name) : List Name :=
@@ -1279,7 +1293,7 @@ def inputSeeds (i : Regula.Closed.Input) (seeds : List Name) : List Name :=
 
 /-- The checker's cone is the search over what each constant of the input mentions, from those seeds. -/
 theorem cone_eq (i : Regula.Closed.Input) (seeds : List Name) :
-    i.cone seeds = Regula.Closed.reach (inputMentions i) (i.decls.map (·.uses.length)).sum (inputSeeds i seeds) := rfl
+    i.cone seeds = Regula.Closed.reach (inputMentions i) (i.decls.map (·.uses.length)).sum (inputSeeds i seeds) := by rfl
 
 theorem inputMentions_name (i : Regula.Closed.Input) {d : Regula.Closed.Decl} (hd : d ∈ i.decls) :
     inputMentions i d.name = d.uses := by
@@ -1482,7 +1496,7 @@ def copyEntries (f : Regula.Load.Facts) : List (Name × ConstantInfo) :=
   f.copies.zipIdx.map (Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁))
 
 theorem replayConstants_eq (f : Regula.Load.Facts) (i : Regula.Closed.Input) :
-    f.replayConstants i = (copyEntries f).foldl (fun m x => m.insert x.1 x.2) (coneConstants f i) := rfl
+    f.replayConstants i = (copyEntries f).foldl (fun m x => m.insert x.1 x.2) (coneConstants f i) := by rfl
 
 theorem mem_insertFold (L : List (Name × ConstantInfo)) (hL : (L.map (·.1)).Nodup)
     (base : Std.HashMap Name ConstantInfo) (n : Name) (info : ConstantInfo) :

@@ -1,10 +1,12 @@
-import LeanIntent.Record
-import LeanIntent.Obligations
-import LeanIntent.Progress
-import RegulaSpecification.Language
-import Regula.Effect
-import Regula.Language
-import Regula.Load
+module
+
+public import LeanIntent.Record
+public import LeanIntent.Obligations
+public import LeanIntent.Progress
+public import RegulaSpecification.Language
+public import Regula.Effect
+public import Regula.Language
+public import Regula.Load
 
 /-!
 # What a run of the checker does
@@ -17,6 +19,8 @@ A run is a list of events, each an operation with the response it got ({lit}`Run
 what a run received and what it did with it, for every response, so that none rests on the file system
 staying still.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

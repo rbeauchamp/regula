@@ -1,6 +1,10 @@
-import RegulaSpecification.Proofs.Load
-import RegulaSpecification.Proofs.ReaderFiles
-import RegulaSpecification.Proofs.Standing
+module
+
+public import RegulaSpecification.Proofs.Load
+public import RegulaSpecification.Proofs.ReaderFiles
+public import RegulaSpecification.Proofs.Standing
+import all Regula.Language
+import all Regula.Reader
 
 /-!
 # What the reader gives
@@ -13,6 +17,8 @@ the text judged is the text that stands (that {name (full := RegulaSpecification
 admission received no failed answer; and its acts meet the grammar {name (full := RegulaSpecification.Effects.ReadingPreparation)}`ReadingPreparation`, which places every
 act in the tree ({name (full := RegulaSpecification.Effects.ReadingPreparation.readActs)}`ReadingPreparation.readActs`).
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

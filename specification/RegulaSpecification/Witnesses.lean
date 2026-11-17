@@ -1,4 +1,7 @@
-import RegulaSpecification.Foundation
+module
+
+public import RegulaSpecification.Foundation
+import all Init.Prelude
 
 /-!
 # The compliant project that the cases of each rule extend
@@ -9,6 +12,8 @@ record, and {name (full := RegulaSpecification.silent_fails)}`silent_fails` and 
 that reports every candidate meets it. A statement that a do-nothing checker met, or that refused the
 compliant case, would fail here.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

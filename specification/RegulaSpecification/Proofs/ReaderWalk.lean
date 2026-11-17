@@ -1,10 +1,15 @@
-import RegulaSpecification.Proofs.Owed
-import RegulaSpecification.Proofs.Written
-import RegulaSpecification.Proofs.ReaderParts
+module
+
+public import RegulaSpecification.Proofs.Owed
+public import RegulaSpecification.Proofs.Written
+public import RegulaSpecification.Proofs.ReaderParts
+import all Regula.Reader
 
 /-!
 # What the reader's walk over the imports gives
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

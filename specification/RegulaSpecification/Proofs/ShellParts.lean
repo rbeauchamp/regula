@@ -1,9 +1,17 @@
-import RegulaSpecification.Proofs.ReaderOnly
-import RegulaSpecification.Proofs.ShellLoad
+module
+
+public import RegulaSpecification.Proofs.ReaderOnly
+public import RegulaSpecification.Proofs.ShellLoad
+import all Regula.Language
+import all Regula.Reader
+import all Regula.Shell
+import all Regula.Verdict
 
 /-!
 # The parts of a run: what it prints, and the loads of a finished build
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

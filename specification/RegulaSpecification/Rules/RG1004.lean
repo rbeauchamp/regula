@@ -1,5 +1,9 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1004
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1004
+import all Regula.Rule
+import all Regula.Rules.RG1004
 
 /-!
 # RG1004: native proofs
@@ -9,6 +13,8 @@ A constant of a claimed module depends on an axiom with the name form that {tact
 kernel trusts the compiler ({name (full := RegulaSpecification.compilerAxioms)}`compilerAxioms`). {name (full := Regula.Rules.RG1004.check)}`Regula.Rules.RG1004.check`
 is the function that the checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

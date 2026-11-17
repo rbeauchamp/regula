@@ -13,7 +13,7 @@ The input carries no source text, no message, no compiled code, no option and no
 rule cannot read here, it does not decide.
 -/
 
-public section
+@[expose] public section
 
 namespace RegulaSpecification
 

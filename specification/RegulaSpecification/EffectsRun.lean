@@ -1,4 +1,6 @@
-import RegulaSpecification.Effects
+module
+
+public import RegulaSpecification.Effects
 
 /-!
 # What the reader must have done, and what a whole run must do
@@ -7,6 +9,8 @@ import RegulaSpecification.Effects
 that has no such reason is no behaviour of the checker, so a reader that refuses everything is ruled out
 too.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

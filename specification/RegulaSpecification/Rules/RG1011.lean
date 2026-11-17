@@ -1,5 +1,9 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1011
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1011
+import all Regula.Rule
+import all Regula.Rules.RG1011
 
 /-!
 # RG1011: replaced compiled code
@@ -26,6 +30,8 @@ Lean's kernel checked each theorem of a claimed module in the replay of the cone
 reaches is one that the profile admits (RG1002 to RG1005). {name (full := Regula.Rules.RG1011.check)}`Regula.Rules.RG1011.check`
 is the function that the checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

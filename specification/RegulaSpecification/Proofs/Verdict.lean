@@ -1,8 +1,14 @@
-import RegulaSpecification.CasesGate
+module
+
+public import RegulaSpecification.CasesGate
+import all Regula.Input
+import all Regula.Rules
 
 /-!
 # The verdict, against its statement
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

@@ -1,8 +1,12 @@
-import RegulaSpecification.Effects
+module
+
+public import RegulaSpecification.Effects
 
 /-!
 # What the run's own acts leave in the tree
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

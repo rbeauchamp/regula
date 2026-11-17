@@ -1,4 +1,14 @@
-import RegulaSpecification.Proofs.Language
+module
+
+public import RegulaSpecification.Proofs.Language
+import all Init.Data.String.Pattern.Basic
+import all Init.Data.String.Pattern.String
+import all Init.Data.String.Slice
+import all Init.Data.String.TakeDrop
+import all Init.Meta.Defs
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Verdict
 
 /-!
 # What the owner confirmed, stated apart from the code's own values
@@ -14,6 +24,8 @@ own {lit}`parseCommand` and {lit}`parseHeader` gave for the owner's examples at 
 the parser gives for a project's real text is H1, which these theorems do not reach. Admitting Regula's own core cannot be stated this way:
 it is the gate's run of the full gate on this checkout, an observation, and {lit}`core_configuration_admitted` states only the configuration's part.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Owner
 
@@ -96,18 +108,24 @@ theorem refuses_plugin_key (r : Reading) {k : Name} (hk : k ∈ pluginKeys) (h :
   · exact hn hm
   · exact ho o hm he
 
-private abbrev n (k : Name) (xs : List Syntax) : Syntax := .node .none k ⟨xs⟩
+/-- A node of the kind {name}`k` with the children {name}`xs`, for the examples below. -/
+abbrev n (k : Name) (xs : List Syntax) : Syntax := .node .none k ⟨xs⟩
 
-private abbrev a (v : String) : Syntax := .atom .none v
+/-- The token {name}`v`. -/
+abbrev a (v : String) : Syntax := .atom .none v
 
-private abbrev i (m : Name) : Syntax := .ident .none default m []
+/-- The identifier {name}`m`. -/
+abbrev i (m : Name) : Syntax := .ident .none default m []
 
-private abbrev e : Syntax := n `null []
+/-- The empty node that the parser gives for an absent optional part. -/
+abbrev e : Syntax := n `null []
 
-private abbrev mods (attrs : Syntax) : Syntax :=
+/-- The modifiers of a declaration whose attributes are {name}`attrs`, with every other part absent. -/
+abbrev mods (attrs : Syntax) : Syntax :=
   n `Lean.Parser.Command.declModifiers [e, attrs, e, e, e, e, e]
 
-private abbrev byExample (tac : Syntax) : Syntax :=
+/-- The command {lit}`example : True := by tac`, for the tactic {name}`tac`. -/
+abbrev byExample (tac : Syntax) : Syntax :=
   n `Lean.Parser.Command.declaration [mods e,
     n `Lean.Parser.Command.example [a "example",
       n `Lean.Parser.Command.optDeclSig [e, n `null [n `Lean.Parser.Term.typeSpec [a ":", i `True]]],
@@ -116,7 +134,8 @@ private abbrev byExample (tac : Syntax) : Syntax :=
           n `Lean.Parser.Tactic.tacticSeq [n `Lean.Parser.Tactic.tacticSeq1Indented [n `null [tac]]]],
         n `Lean.Parser.Termination.suffix [e, e], e]]]
 
-private abbrev plusItem (item : Name) : Syntax :=
+/-- A tactic's configuration with the one item {lit}`+item`. -/
+abbrev plusItem (item : Name) : Syntax :=
   n `Lean.Parser.Tactic.optConfig [n `null [n `Lean.Parser.Tactic.configItem [n `Lean.Parser.Tactic.posConfigItem [a "+", i item]]]]
 
 /-- The library code that the owner's words name, and the one attribute of the form {lit}`@[name]` that Regula's core uses: {lit}`by simp`, {lit}`by omega`,

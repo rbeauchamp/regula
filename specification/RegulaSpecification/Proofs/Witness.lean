@@ -1,4 +1,10 @@
-import RegulaSpecification.Proofs.Shell
+module
+
+public import RegulaSpecification.Proofs.Shell
+import all Init.Meta.Defs
+import all Lake.Toml.Data.Dict
+import all Lake.Toml.Data.Value
+import all Lean.Parser.Module
 
 /-!
 # A project that the reader admits
@@ -8,10 +14,12 @@ trace on which the check that runs admits. The proof's trace is that of a projec
 the closed language.
 
 The tests of a path read {name}`System.FilePath`, whose separator depends on {name}`System.Platform.isWindows`, an
-`opaque` constant, so {lit}`WitnessPaths` states what those tests give on the paths of the project as hypotheses,
+{kw (of := Lean.Parser.Command.declaration)}`opaque` constant, so {lit}`WitnessPaths` states what those tests give on the paths of the project as hypotheses,
 and no theorem discharges them. Observed: the gate's run on Regula's own checkout takes the same branches on
 real paths, and its run ends with {lit}`full verdict: pass`.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

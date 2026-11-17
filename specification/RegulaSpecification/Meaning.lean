@@ -1,4 +1,6 @@
-import RegulaSpecification.Assumptions
+module
+
+public import RegulaSpecification.Assumptions
 
 /-!
 # What a verdict means
@@ -20,6 +22,8 @@ proposition is about Lean, Lake or the operating system depends on what it means
 field uses, such as {name (full := RegulaSpecification.Effects.FullRun)}`FullRun`, means what its own definition says, and the published text cites no other theorem as
 stating what a verdict means.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Meaning
 

@@ -1,4 +1,6 @@
-import RegulaSpecification.RuleRecord
+module
+
+public import RegulaSpecification.RuleRecord
 
 /-!
 # The axioms that more than one rule names
@@ -8,6 +10,8 @@ toolchain's axioms by which the kernel trusts the compiler, the name form of a n
 which axioms are known. Each rule's own statement is in its module below {lit}`Rules/`, and
 {lit}`Refinement.lean` proves that each axiom RG1002 to RG1004 name also violates RG1005.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

@@ -1,7 +1,12 @@
-import Lean.Elab.Command
-import RegulaSpecification.Proofs.Behaviour
-import RegulaSpecification.Proofs.Occurrences
-import RegulaSpecification.Rules.RG1006
+module
+
+public import RegulaSpecification.Proofs.Behaviour
+public import RegulaSpecification.Proofs.Occurrences
+public import RegulaSpecification.Rules.RG1006
+meta import Lean.Elab.Command
+import all Init.Prelude
+import all Regula.LanguageSet
+import all Regula.Verdict
 
 /-!
 # The assumptions
@@ -31,6 +36,8 @@ its record changed.
 A source is a path below the root of the tag `v4.35.0` of Lean with its lines, the source directory there of a component that
 the owner's account trusts whole, or a page of the platform's own documentation ({lit}`Source`).
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Assumptions
 
@@ -96,7 +103,7 @@ inductive Assumption where
   what the compiler runs for a definition ({name (full := RegulaSpecification.Language.LeanBehaviour.h2)}`LeanBehaviour.h2`). -/
   | h2
   /-- {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each constant that occurs in an expression ({name (full := RegulaSpecification.Loader.UsedConstantsComplete)}`UsedConstantsComplete`). Its body is an
-  `opaque` that {attr}`@[implemented_by]` replaces. -/
+  {kw (of := Lean.Parser.Command.declaration)}`opaque` that {attr}`@[implemented_by]` replaces. -/
   | usedConstants
   /-- What Lean's import and search give. {name}`Lean.importModules` with {lit}`loadExts := false` at the level {lean (type := "Lean.OLeanLevel")}`.private` loads the
   {lit}`.olean` files of the build, runs no initializer, and gives each constant of a {lit}`module` file with its body;

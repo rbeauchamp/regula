@@ -1,10 +1,17 @@
-import RegulaSpecification.Proofs.Effects
-import RegulaSpecification.Proofs.Language
-import RegulaSpecification.Proofs.Preparation
+module
+
+public import RegulaSpecification.Proofs.Effects
+public import RegulaSpecification.Proofs.Language
+public import RegulaSpecification.Proofs.Preparation
+import all Lean.Data.Name
+import all Regula.LanguageSet
+import all Regula.Reader
 
 /-!
 # What the parts of the reader give
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

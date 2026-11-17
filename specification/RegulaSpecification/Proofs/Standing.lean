@@ -1,12 +1,16 @@
-import RegulaSpecification.Proofs.Preparation
-import RegulaSpecification.Proofs.Owed
-import RegulaSpecification.Proofs.Written
+module
+
+public import RegulaSpecification.Proofs.Preparation
+public import RegulaSpecification.Proofs.Owed
+public import RegulaSpecification.Proofs.Written
 
 /-!
 # What a full verdict's admission is about
 
 These theorems read the record alone, so they hold of every program that meets it.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 
