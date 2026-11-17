@@ -77,6 +77,9 @@ structure Decl where
   /-- Whether it is {attr}`@[extern]` (`Lean.isExtern`). RG1011 reads it, and so does the form of a recursion
   helper (RG1006). -/
   isExtern : Bool
+  /-- The initialization function that {attr}`@[init]` or {attr}`@[builtin_init]` names for it, if any
+  (`Lean.getInitFnNameFor?`). RG1011 reads it of a definition. -/
+  initFn : Option Name
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
   deriving DecidableEq, Repr
