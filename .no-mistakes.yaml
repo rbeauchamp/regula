@@ -2,16 +2,22 @@
 # no-mistakes reads every setting here only from the copy of this file on the default branch, so a
 # change to it governs the runs that start after its merge.
 #
-# The gate of a change. The repository has no CI workflow. The pipeline's Test step is the gate: it
+# The gate of a change. The pipeline's Test step is the gate: it
 # runs `commands.test` in the run's disposable checkout at the commit it validates, and an exit code
 # other than 0 parks it. The command is the local gate (`lean/Regula/DiagnosticsGate.lean`), which
 # runs its steps one after another and stops at the first that fails.
+# The workflow `.github/workflows/gate.yml` runs the same command on a machine of GitHub's for each
+# pull request and each push to main, and reports its result as a check.
 # No `build_outputs` is declared: for Lake, the only store it may seed is Lake's
 # artifact cache, and the gate runs each command with `LAKE_ARTIFACT_CACHE=false`, so a seeded cache
 # would go unread.
 #
 # `no_ci` declares that no workflow file reports a check on a pull request, so a pull request with no
 # checks can count as ready. A check that GitHub still reports is processed as before.
+# That declaration is no longer true of a pull request on which `.github/workflows/gate.yml` has run.
+# It is still true of an open pull request that has had no event since that file reached main, which
+# has no check. So the setting stays in the change that adds the workflow, so that such a pull
+# request is not left waiting for a check, and a later change to this file removes it.
 #
 # `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional Commits header.
 #
