@@ -2,8 +2,8 @@ module
 
 public import Regula.Language
 public import RegulaSpecification.Language
-import all Regula.Language
 import all Init.Prelude
+import all Regula.Language
 
 /-!
 # The language decision against its record

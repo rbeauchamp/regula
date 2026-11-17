@@ -5,8 +5,8 @@ public import LeanIntent.Record
 public import LeanIntent.Obligations
 public import LeanIntent.Progress
 public import Regula.LanguageSet
-import all Regula.LanguageSet
 import all Init.Meta.Defs
+import all Regula.LanguageSet
 
 /-!
 # The language check

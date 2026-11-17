@@ -4,6 +4,9 @@ public import Regula.Load
 public import Regula.Shell
 public import RegulaSpecification.Proofs.Verdict
 public import RegulaSpecification.Refinement
+public import Lean.Compiler.ExternAttr
+public import Lean.Compiler.ImplementedByAttr
+import all Lean.Declaration
 import all Regula.Input
 import all Regula.Load
 import all Regula.Rule
@@ -11,9 +14,6 @@ import all Regula.Rules
 import all Regula.Shell
 import all Regula.Tables
 import all Regula.Verdict
-public import Lean.Compiler.ExternAttr
-public import Lean.Compiler.ImplementedByAttr
-import all Lean.Declaration
 
 /-!
 # The loader, against the environment

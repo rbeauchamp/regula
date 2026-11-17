@@ -1,10 +1,10 @@
 module
 
 public import RegulaSpecification.EffectsRecord
-import all Init.Data.String.Search
-import all Init.System.FilePath
-import all Init.Data.String.Slice
 import all Init.Data.String.Pattern.Basic
+import all Init.Data.String.Search
+import all Init.Data.String.Slice
+import all Init.System.FilePath
 
 /-!
 # Consequences of ordered preparation

@@ -2,9 +2,9 @@ module
 
 public import Regula.DiagnosticsGate
 public import Regula.Shell
-import all Regula.DiagnosticsGate
 import all Init.System.FilePath
 import all Init.System.ST
+import all Regula.DiagnosticsGate
 
 /-!
 # The local gate, at {name}`IO`

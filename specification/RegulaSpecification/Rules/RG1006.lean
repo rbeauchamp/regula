@@ -2,11 +2,11 @@ module
 
 public import RegulaSpecification.Rule
 public import Regula.Rules.RG1006
+public import Lean.Compiler.Old
+import all Init.Prelude
+import all Lean.Compiler.Old
 import all Regula.Rule
 import all Regula.Rules.RG1006
-import all Init.Prelude
-public import Lean.Compiler.Old
-import all Lean.Compiler.Old
 
 /-!
 # RG1006: `unsafe`, `partial` and loop declarations

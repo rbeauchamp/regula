@@ -3,8 +3,8 @@ module
 public import RegulaSpecification.EffectsRecord
 public import RegulaSpecification.Proofs.Paths
 public import RegulaSpecification.Proofs.Load
-import all Regula.Load
 import all Lean.Environment
+import all Regula.Load
 
 /-!
 # What the rules ask of a build, by what Lean answered

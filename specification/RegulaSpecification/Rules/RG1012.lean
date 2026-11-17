@@ -2,9 +2,9 @@ module
 
 public import RegulaSpecification.Rule
 public import Regula.Rules.RG1012
+import all Init.Prelude
 import all Regula.Rule
 import all Regula.Rules.RG1012
-import all Init.Prelude
 
 /-!
 # RG1012: hidden panics

@@ -1,14 +1,14 @@
 module
 
 public import RegulaSpecification.Proofs.Language
+import all Init.Data.String.Pattern.Basic
+import all Init.Data.String.Pattern.String
+import all Init.Data.String.Slice
+import all Init.Data.String.TakeDrop
+import all Init.Meta.Defs
 import all Regula.Language
 import all Regula.LanguageSet
 import all Regula.Verdict
-import all Init.Data.String.TakeDrop
-import all Init.Meta.Defs
-import all Init.Data.String.Slice
-import all Init.Data.String.Pattern.String
-import all Init.Data.String.Pattern.Basic
 
 /-!
 # What the owner confirmed, stated apart from the code's own values

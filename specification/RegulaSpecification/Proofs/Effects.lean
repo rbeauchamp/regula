@@ -3,9 +3,9 @@ module
 public import RegulaSpecification.EffectsRecord
 public import Regula.Reader
 public import Regula.Table
+import all Init.System.ST
 import all Regula.Effect
 import all Regula.Reader
-import all Init.System.ST
 
 /-!
 # Runs of a program, and what the interpreter does

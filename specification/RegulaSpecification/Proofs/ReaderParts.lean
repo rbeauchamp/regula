@@ -3,9 +3,9 @@ module
 public import RegulaSpecification.Proofs.Effects
 public import RegulaSpecification.Proofs.Language
 public import RegulaSpecification.Proofs.Preparation
+import all Lean.Data.Name
 import all Regula.LanguageSet
 import all Regula.Reader
-import all Lean.Data.Name
 
 /-!
 # What the parts of the reader give
