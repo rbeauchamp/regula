@@ -2,12 +2,7 @@ module
 
 public import Regula.ProgramCheck.EffectScan
 public import RegulaSpecification.Rule
-import all Regula.Input
 import all Regula.ProgramCheck.EffectScan
-import all Regula.Reach
-import all Regula.Rule
-import all Regula.Tables
-import all Regula.Verdict
 
 /-!
 # What the check of effects decides

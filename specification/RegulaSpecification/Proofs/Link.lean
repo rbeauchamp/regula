@@ -2,7 +2,6 @@ module
 
 public import Regula.Input
 public import RegulaSpecification.RuleRecord
-import all Regula.Input
 
 /-!
 # The link from the implementation's input to the specification's

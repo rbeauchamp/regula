@@ -6,11 +6,7 @@ public import LeanIntent.Obligations
 public import LeanIntent.Progress
 public import Regula.LanguageSet
 import all Regula.LanguageSet
-import all Regula.Verdict
-import all Init.Prelude
-import all Init.Data.String.Substring
 import all Init.Meta.Defs
-import all Lean.Data.Options
 
 /-!
 # The language check

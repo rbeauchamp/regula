@@ -3,11 +3,7 @@ module
 public import Regula.Rule
 public import RegulaSpecification.Witnesses
 public import RegulaSpecification.Proofs.Tables
-import all Regula.Input
-import all Regula.Reach
 import all Regula.Rule
-import all Regula.Tables
-import all Regula.Verdict
 
 /-!
 # What the statement of every rule shares

@@ -9,20 +9,8 @@ public import RegulaSpecification.Rules.RG1006
 public import RegulaSpecification.Rules.RG1011
 public import RegulaSpecification.Rules.RG1012
 public import Regula.Rules
-import all Regula.Input
-import all Regula.Reach
 import all Regula.Rule
 import all Regula.Rules
-import all Regula.Rules.RG1001
-import all Regula.Rules.RG1002
-import all Regula.Rules.RG1003
-import all Regula.Rules.RG1004
-import all Regula.Rules.RG1005
-import all Regula.Rules.RG1006
-import all Regula.Rules.RG1011
-import all Regula.Rules.RG1012
-import all Regula.Tables
-import all Regula.Verdict
 
 /-!
 # The registry of the rules' statements

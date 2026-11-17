@@ -7,15 +7,6 @@ public import RegulaSpecification.Language
 public import Regula.Effect
 public import Regula.Language
 public import Regula.Load
-import all Regula.Effect
-import all Regula.Input
-import all Regula.Language
-import all Regula.LanguageSet
-import all Regula.Load
-import all Regula.Reach
-import all Regula.Rule
-import all Regula.Tables
-import all Regula.Verdict
 
 /-!
 # What a run of the checker does

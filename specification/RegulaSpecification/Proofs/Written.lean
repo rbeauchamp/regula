@@ -1,15 +1,6 @@
 module
 
 public import RegulaSpecification.Effects
-import all Regula.Effect
-import all Regula.Input
-import all Regula.Language
-import all Regula.LanguageSet
-import all Regula.Load
-import all Regula.Reach
-import all Regula.Rule
-import all Regula.Tables
-import all Regula.Verdict
 
 /-!
 # What the run's own acts leave in the tree

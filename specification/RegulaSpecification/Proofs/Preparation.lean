@@ -1,29 +1,9 @@
 module
 
 public import RegulaSpecification.EffectsRecord
-import all Regula.Effect
-import all Regula.Input
-import all Regula.Language
-import all Regula.LanguageSet
-import all Regula.Load
-import all Regula.Reach
-import all Regula.Rule
-import all Regula.Rules
-import all Regula.Rules.RG1001
-import all Regula.Rules.RG1002
-import all Regula.Rules.RG1003
-import all Regula.Rules.RG1004
-import all Regula.Rules.RG1005
-import all Regula.Rules.RG1006
-import all Regula.Rules.RG1011
-import all Regula.Rules.RG1012
-import all Regula.Tables
-import all Regula.Verdict
 import all Init.Data.String.Search
 import all Init.System.FilePath
-import all Init.Data.Iterators.Consumers.Loop
 import all Init.Data.String.Slice
-import all Init.Data.String.Pattern.Pred
 import all Init.Data.String.Pattern.Basic
 
 /-!

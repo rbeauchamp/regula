@@ -2,12 +2,8 @@ module
 
 public import RegulaSpecification.Rule
 public import Regula.Rules.RG1011
-import all Regula.Input
-import all Regula.Reach
 import all Regula.Rule
 import all Regula.Rules.RG1011
-import all Regula.Tables
-import all Regula.Verdict
 
 /-!
 # RG1011: replaced compiled code

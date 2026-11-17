@@ -4,15 +4,6 @@ public import RegulaSpecification.Rules.RG1002
 public import RegulaSpecification.Rules.RG1003
 public import RegulaSpecification.Rules.RG1004
 public import RegulaSpecification.Rules.RG1005
-import all Regula.Input
-import all Regula.Reach
-import all Regula.Rule
-import all Regula.Rules.RG1002
-import all Regula.Rules.RG1003
-import all Regula.Rules.RG1004
-import all Regula.Rules.RG1005
-import all Regula.Tables
-import all Regula.Verdict
 
 /-!
 # RG1002 to RG1004 refine RG1005

@@ -2,8 +2,6 @@ module
 
 public import Regula.Tables
 public import RegulaSpecification.Proofs.Link
-import all Regula.Input
-import all Regula.Reach
 import all Regula.Tables
 
 /-!
