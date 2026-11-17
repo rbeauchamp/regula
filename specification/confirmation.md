@@ -2,6 +2,20 @@
 
 This file records each decision of the owner's about Regula, the confirmations of its specification among them, in the owner's words.
 
+## 2026-11-17: `module` files, in three steps
+
+On 2026-11-17 the owner told the owner's delegated agent "fyi, issue #67 for lean-intent is now complete." The agent checked it: lean-intent's pull request 68 closed that issue, Lean's header parser reported `module` for each of lean-intent's 63 Lean files at commit `3db11da`, and this package built against that commit with warnings as errors and no other change. It named what that unblocks, in order. First, to move this package's pin of lean-intent from `30fe70d` to `3db11da`. Second, to make this package's 51 files that are not `module` files `module` files, which it called the larger piece, because their proofs unfold bodies of the checker's functions and so need `import all` across packages or more exposed bodies. Third, a check of the proof verdict that each claimed module is a `module` file, which is possible only after the second and which the owner had not asked for. It recommended the first as a change of its own and the second as a separate one. The owner answered "yes to items 1 through 3 in order."
+
+In substance: the specification package follows lean-intent to `module` files in two changes, its pin first and then its own files, and after them Regula gains a check of the proof verdict that each claimed module is a `module` file.
+
+**Follows** means that the owner's words settle it. **Decided** means that the owner's delegated agents decided it on the owner's behalf, and it is no confirmation of the owner's.
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| The specification's pin of lean-intent moves to `3db11da`, in a change of its own. | `specification/lakefile.toml`, [Module files](README.md#module-files) | Follows. |
+| Each Lean file of the specification package becomes a `module` file, in the change after it. | [Module files](README.md#module-files) | Follows. How each file sees the bodies that its proofs unfold is left to that change. |
+| A check of the proof verdict refuses a claimed module that is not a `module` file, after those two. | [The rules](README.md#the-rules) | Follows, that the owner wants the check. What it costs a project was not shown to the owner: a `module` file cannot import a file that is not one, so a project with a dependency whose files are not `module` files could not pass it. Its restatement, with that and its examples, goes to the owner before the check is built. |
+
 ## 2026-11-17: the toolchain of the workflow
 
 On 2026-11-17 a review of the change that added the workflow found that the script `elan-init.sh`, which the workflow pinned by its commit, downloads the latest release of elan, so the installer that ran was not pinned. The owner's delegated agent told the owner, and the owner asked "What should we do about the elan install script? is there an issue?". The agent answered that no issue tracked it and that it stood as accepted risk; that the action and the script were pinned, and the elan that the script downloads and the toolchain that elan downloads were not; that the job has a token that can only read and no secret, so that the worst outcome is a wrong result of the check, which would need a compromised release of elan or of Lean; and that pinning elan alone would change little, because the download of Lean is the one that matters. It recommended leaving elan out of the workflow: to download the Lean release that `lean-toolchain` names from GitHub, to check its SHA-256 against a value written in the workflow, and to put it on the path, at the cost of about five lines of shell, which need the owner's approval, and of one digest to change at each upgrade of Lean. It said that it had not verified that the runner can unpack the archive or that the gate runs without elan, and that it would fold this into the change that removes `no_ci`. The owner answered "Proceed per your recommendation regarding ELAN."
