@@ -101,6 +101,7 @@ def decl' (d : Decl) : Regula.Closed.Decl where
 def toSpecDraft (d : Regula.Closed.Draft) : Input where
   profile := profile d.profile
   modules := d.modules
+  moduleFiles := d.moduleFiles
   decls := d.decls.map decl
   unique := by
     have h := d.unique
@@ -113,6 +114,7 @@ def toSpec (i : Regula.Closed.Input) : Input := toSpecDraft i.toDraft
 def ofSpec (s : Input) : Regula.Closed.Draft where
   profile := profile' s.profile
   modules := s.modules
+  moduleFiles := s.moduleFiles
   decls := s.decls.map decl'
   unique := by
     have h := s.unique
@@ -135,7 +137,7 @@ theorem decl_decl' (d : Decl) : decl (decl' d) = d := by
   cases k <;> cases s <;> rfl
 
 theorem toSpecDraft_ofSpec (s : Input) : toSpecDraft (ofSpec s) = s := by
-  rcases s with ⟨p, m, ds, u⟩
+  rcases s with ⟨p, m, mf, ds, u⟩
   simp only [toSpecDraft, ofSpec, profile_surj, List.map_map, Function.comp_def, decl_decl',
     List.map_id']
 

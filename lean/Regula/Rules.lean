@@ -8,6 +8,7 @@ public import Regula.Rules.RG1005
 public import Regula.Rules.RG1006
 public import Regula.Rules.RG1011
 public import Regula.Rules.RG1012
+public import Regula.Rules.RG1013
 
 /-!
 # The registry of the rules
@@ -19,7 +20,7 @@ rule, in the order of the list, and a pass exactly when no registered rule repor
 specification's registry, which `specification/RegulaSpecification/Rules.lean` proves equal to this one.
 
 RG1010, the language check (`Regula.Language`), and RG2001, the refusal of a build that the checker cannot
-read, are no rules of this list: neither reads a constant.
+read, are no rules of this list: neither reads the closed input.
 -/
 
 public section
@@ -30,7 +31,7 @@ namespace Regula.Closed
 def registry : List Rule :=
   [Regula.Rules.RG1001.rule, Regula.Rules.RG1002.rule, Regula.Rules.RG1003.rule, Regula.Rules.RG1004.rule,
     Regula.Rules.RG1005.rule, Regula.Rules.RG1006.rule, Regula.Rules.RG1011.rule,
-    Regula.Rules.RG1012.rule]
+    Regula.Rules.RG1012.rule, Regula.Rules.RG1013.rule]
 
 /-- The codes that no rule of the registry may take: the language check's and the environment's. -/
 def reservedSpellings : List String := ["RG1010", "RG2001"]

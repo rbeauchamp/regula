@@ -38,11 +38,12 @@ RG1006 reads it, and so does the loader's check of a constant that Lean's import
 (`Regula.Load.fitsUnshown`). -/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
-/-- What a rule reports of one constant: the constant, its module, and what the rule found. -/
+/-- What a rule reports of one subject: the subject, its module, and what the rule found. The subject is a
+constant, or for RG1013 a module, which is then its own module. -/
 structure Violation where
-  /-- The constant. -/
+  /-- The constant, or the module. -/
   subject : Name
-  /-- The module of the constant. -/
+  /-- The module of the constant, or the module itself. -/
   module : Name
   /-- What the rule found. -/
   detail : String
@@ -51,21 +52,21 @@ structure Violation where
 def violation (d : Decl) (detail : String) : Violation :=
   { subject := d.name, module := d.module, detail }
 
-/-- A rule: the name that its findings print, and the constants that it reports on an input, read
+/-- A rule: the name that its findings print, and the subjects that it reports on an input, read
 through the tables of that input. -/
 structure Rule where
   /-- The stable name of the rule, which each of its findings prints. -/
   spelling : String
-  /-- The constants of the input that violate the rule. -/
+  /-- The subjects of the input that violate the rule. -/
   check : ∀ {i : Input}, Tables i → List Violation
 
-/-- One finding: the spelling of the rule that reports it, the constant, its module, and a detail. -/
+/-- One finding: the spelling of the rule that reports it, the subject, its module, and a detail. -/
 structure Finding where
   /-- The spelling of the rule. -/
   rule : String
-  /-- The constant. -/
+  /-- The constant, or the module. -/
   subject : Name
-  /-- The module of the constant. -/
+  /-- The module of the constant, or the module itself. -/
   module : Name
   /-- What the rule found. -/
   detail : String

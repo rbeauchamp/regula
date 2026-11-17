@@ -45,6 +45,7 @@ def baseDecls : List Decl :=
 def base : Input where
   profile := .choiceFree
   modules := [`Good]
+  moduleFiles := [`Good]
   decls := baseDecls
   unique := by decide
 
