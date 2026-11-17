@@ -77,6 +77,7 @@ def decl (d : Regula.Closed.Decl) : Decl where
   valueUses := d.valueUses
   implementedBy := d.implementedBy
   isExtern := d.isExtern
+  initFn := d.initFn
   inToolchain := d.inToolchain
 
 /-- The specification's constant in the implementation. -/
@@ -89,6 +90,7 @@ def decl' (d : Decl) : Regula.Closed.Decl where
   valueUses := d.valueUses
   implementedBy := d.implementedBy
   isExtern := d.isExtern
+  initFn := d.initFn
   inToolchain := d.inToolchain
 
 /-- A reading of the checker as the specification's input. -/

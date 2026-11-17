@@ -110,6 +110,7 @@ structure Meaning : Prop where
     (Regula.Closed.decision (f.input roots p)).verdict = .pass → ∀ {m n : Name} {info : ConstantInfo},
       (m, n, info) ∈ f.claimedConstants →
       ModuleUnreplaced f.env m n ∧
+      ((∃ v, info = .defnInfo v) → ModuleUninitialized f.env m n) ∧
       (∀ v, info ≠ .axiomInfo v) ∧
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
         info.isPartial = true ∧ info.isUnsafe = false) ∧

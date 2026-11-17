@@ -102,7 +102,7 @@ inductive Assumption where
   {lit}`.olean` files of the build, runs no initializer, and gives each constant of a {lit}`module` file with its body;
   `Environment.constants.map₁` holds the constants that the import keeps; `header.moduleData` holds each module's own
   constants as its {lit}`.olean` states them, built from the same array as `header.moduleNames` ({lit}`ModuleDataComplete`); and
-  {name (full := Lean.Environment.find?)}`find?`, {name (full := Lean.Environment.getModuleIdxFor?)}`getModuleIdxFor?`, {name (full := Lean.Compiler.getImplementedBy?)}`getImplementedBy?` and {name (full := Lean.isExtern)}`isExtern` report what their names say.
+  {name (full := Lean.Environment.find?)}`find?`, {name (full := Lean.Environment.getModuleIdxFor?)}`getModuleIdxFor?`, {name (full := Lean.Compiler.getImplementedBy?)}`getImplementedBy?`, {name (full := Lean.isExtern)}`isExtern` and {name (full := Lean.getInitFnNameFor?)}`getInitFnNameFor?` report what their names say.
   {name (full := Lean.Environment.getModuleIdx?)}`getModuleIdx?` gives the index of the named module, and
   {name (full := Lean.PersistentEnvExtension.getModuleEntries)}`getModuleEntries` gives that module's own exported attribute entries,
   including its private entries at the imported level {lean (type := "Lean.OLeanLevel")}`.private`, even with
@@ -267,6 +267,7 @@ def sources : Assumption → List Source
   | usedConstants => [.file "src/Lean/Util/FoldConsts.lean" "51-56"]
   | leanImport => [.file "src/Lean/Environment.lean" "155-167, 1211-1212, 1666-1678, 1871, 2032, 2079-2080, 2094-2095, 2183, 2313-2317, 2367-2370, 2377",
       .file "src/Lean/Compiler/ImplementedByAttr.lean" "67-68", .file "src/Lean/Compiler/ExternAttr.lean" "75-76, 119-120",
+      .file "src/Lean/Compiler/InitAttr.lean" "50-79, 101, 110, 112-127",
       .file "src/Lean/Attributes.lean" "257-261, 272-279, 289-292, 306-318",
       .file "src/Lean/Util/Path.lean" "117-125", .file "src/Lean/Elab/Import.lean" "141-149",
       .file "src/Lean/Parser/Extension.lean" "348", .file "src/Lean/ScopedEnvExtension.lean" "26-31"]

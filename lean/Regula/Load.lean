@@ -5,6 +5,7 @@ public import Regula.Input
 public import Regula.Rule
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.ImplementedByAttr
+import Lean.Compiler.InitAttr
 import Lean.Util.Path
 import Lean.Compiler.Old
 
@@ -22,9 +23,10 @@ What it reads, and through what:
 - The constants: each constant of an environment that `Lean.importModules` loads with `loadExts := false`,
   so no extension state is built and no initializer of a loaded module runs, and at the level `.private`, so a
   `module` file gives each constant with its body, exposed or not (`Lean/Environment.lean:1871` and `:2183` at
-  v4.35.0). `getImplementedBy?` and `isExtern` read the module entries of an extension (`getModuleEntries`),
-  which `importModules` sets whatever `loadExts` is, and no extension's built state. `Facts.unreplaced`
-  also reads each claimed module's own entries, so merging names cannot hide an attribute.
+  v4.35.0). `getImplementedBy?`, `isExtern` and `getInitFnNameFor?` read the module entries of an extension
+  (`getModuleEntries`), which `importModules` sets whatever `loadExts` is, and no extension's built state.
+  `Facts.unreplaced` and `Facts.uninitialized` also read each claimed module's own entries, so a name that
+  two modules state cannot hide an attribute.
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
@@ -192,6 +194,7 @@ def Facts.declIn (f : Facts) (n : Name) (m : LoadedModule) (info : ConstantInfo)
   valueUses := (valueUsesOf info).toList
   implementedBy := Lean.Compiler.getImplementedBy? f.env n
   isExtern := isExtern f.env n
+  initFn := Lean.getInitFnNameFor? f.env n
   inToolchain := m.inToolchain
 
 /-- The constant `n` as the closed input states it, or the refusal of a constant that no loaded
@@ -278,6 +281,17 @@ def Facts.unreplaced (f : Facts) (m n : Name) : Bool :=
     (Lean.Compiler.implementedByAttr.ext.getModuleEntries f.env idx).all (·.1 != n) &&
       (Lean.externAttr.ext.getModuleEntries f.env idx).all (·.1 != n)
 
+/-- Whether the module's own entries of `@[init]` and `@[builtin_init]` name no initialization function
+for `n`. An entry with the anonymous name is the form that names none (`getInitFnNameForCore?`,
+`Lean/Compiler/InitAttr.lean:112-116` at v4.35.0). A missing module index is not an empty set of
+entries. -/
+def Facts.uninitialized (f : Facts) (m n : Name) : Bool :=
+  match f.env.getModuleIdx? m with
+  | none => false
+  | some idx =>
+    (Lean.regularInitAttr.ext.getModuleEntries f.env idx).all (fun e => e.1 != n || e.2 == .anonymous) &&
+      (Lean.builtinInitAttr.ext.getModuleEntries f.env idx).all (fun e => e.1 != n || e.2 == .anonymous)
+
 /-- Whether the environment shows a constant of a claimed module to the rules: it holds a constant
 of that name of which the rules read the same, in a claimed module. Lean's import merges two
 theorems of one name and type, and a theorem with an axiom of that name and type: it keeps one, and
@@ -286,12 +300,16 @@ gives the name the first module that holds it (`subsumesInfo` and `finalizeImpor
 reads as a subject. What a dropped constant mentions, and whether it is an axiom, the input still
 states of its name (`Facts.stated`), in every loaded module; this check decides whether the rules
 read a claimed module's own constant as a subject. Its own replacement attributes must be absent
-or the represented constant must already carry a replacement that RG1011 refuses. -/
+or the represented constant must already carry a replacement that RG1011 refuses. When the module's own
+constant is a definition, its own entries must name no initialization function, or the query must give
+one for the represented constant. -/
 def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
   match f.env.constants.map₁[x.2.1]?, f.info? x.2.1 with
   | some kept, some m => decide (readOf kept = readOf x.2.2) && m.claimed &&
       (f.unreplaced x.1 x.2.1 || (Lean.Compiler.getImplementedBy? f.env x.2.1).isSome ||
-        isExtern f.env x.2.1)
+        isExtern f.env x.2.1) &&
+      (kindOf x.2.2 != .definition || f.uninitialized x.1 x.2.1 ||
+        (Lean.getInitFnNameFor? f.env x.2.1).isSome)
   | none, _ | some _, none => false
 
 /-- Whether a constant `n` that the environment does not show is what the rules would admit: a

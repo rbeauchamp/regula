@@ -80,6 +80,9 @@ structure Decl where
   implementedBy : Option Name
   /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool
+  /-- The initialization function that `@[init]` or `@[builtin_init]` names for it, if any
+  (`Lean.getInitFnNameFor?`). -/
+  initFn : Option Name
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
   deriving Repr
