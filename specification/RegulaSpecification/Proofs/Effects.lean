@@ -1,6 +1,28 @@
-import RegulaSpecification.EffectsRecord
-import Regula.Reader
-import Regula.Table
+module
+
+public import RegulaSpecification.EffectsRecord
+public import Regula.Reader
+public import Regula.Table
+import all Regula.Effect
+import all Regula.Input
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Load
+import all Regula.Reach
+import all Regula.Reader
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Rules.RG1001
+import all Regula.Rules.RG1002
+import all Regula.Rules.RG1003
+import all Regula.Rules.RG1004
+import all Regula.Rules.RG1005
+import all Regula.Rules.RG1006
+import all Regula.Rules.RG1011
+import all Regula.Rules.RG1012
+import all Regula.Table
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # Runs of a program, and what the interpreter does
@@ -12,6 +34,8 @@ the run has reached. {name}`BaseIO` is a state monad in Lean's own definition ({
 theorem about the definition and no assumption about how effects are ordered; that the compiler keeps that order
 stays with the compiler, which the trusted base lists.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

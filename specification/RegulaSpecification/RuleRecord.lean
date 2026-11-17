@@ -1,7 +1,9 @@
-import LeanIntent.Record
-import LeanIntent.Obligations
-import LeanIntent.Progress
-import RegulaSpecification.Input
+module
+
+public import LeanIntent.Record
+public import LeanIntent.Obligations
+public import LeanIntent.Progress
+public import RegulaSpecification.Input
 
 /-!
 # The intent record of a rule
@@ -18,6 +20,8 @@ with a subject that does not. They give O2 at confirmation and before running, O
 freedom {lit}`SameReports`, which is what the record leaves unsaid: the order and repetition of reported
 subjects.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

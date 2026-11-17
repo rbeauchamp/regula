@@ -1,6 +1,13 @@
-import Regula.Rule
-import RegulaSpecification.Witnesses
-import RegulaSpecification.Proofs.Tables
+module
+
+public import Regula.Rule
+public import RegulaSpecification.Witnesses
+public import RegulaSpecification.Proofs.Tables
+import all Regula.Input
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # What the statement of every rule shares
@@ -13,6 +20,8 @@ statement, its proof and its cases.
 
 The lemmas here are the ones that more than one rule's proof uses.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

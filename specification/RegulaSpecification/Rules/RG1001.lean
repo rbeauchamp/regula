@@ -1,5 +1,13 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1001
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1001
+import all Regula.Input
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Rules.RG1001
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # RG1001: project axioms
@@ -8,6 +16,8 @@ A constant of a claimed module has the kind {lit}`axiom`, the axiom of a native 
 reports an axiom that nothing uses. {name (full := Regula.Rules.RG1001.check)}`Regula.Rules.RG1001.check` is the
 function that the checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

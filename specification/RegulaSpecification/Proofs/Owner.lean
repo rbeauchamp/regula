@@ -1,4 +1,9 @@
-import RegulaSpecification.Proofs.Language
+module
+
+public import RegulaSpecification.Proofs.Language
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Verdict
 
 /-!
 # What the owner confirmed, stated apart from the code's own values
@@ -14,6 +19,8 @@ own {lit}`parseCommand` and {lit}`parseHeader` gave for the owner's examples at 
 the parser gives for a project's real text is H1, which these theorems do not reach. Admitting Regula's own core cannot be stated this way:
 it is the gate's run of the full gate on this checkout, an observation, and {lit}`core_configuration_admitted` states only the configuration's part.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Owner
 

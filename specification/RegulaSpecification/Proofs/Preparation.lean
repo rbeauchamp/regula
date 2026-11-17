@@ -1,4 +1,24 @@
-import RegulaSpecification.EffectsRecord
+module
+
+public import RegulaSpecification.EffectsRecord
+import all Regula.Effect
+import all Regula.Input
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Load
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Rules.RG1001
+import all Regula.Rules.RG1002
+import all Regula.Rules.RG1003
+import all Regula.Rules.RG1004
+import all Regula.Rules.RG1005
+import all Regula.Rules.RG1006
+import all Regula.Rules.RG1011
+import all Regula.Rules.RG1012
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # Consequences of ordered preparation
@@ -6,6 +26,8 @@ import RegulaSpecification.EffectsRecord
 These consequences read the contract alone. No result here assumes consistent filesystem responses or
 describes effects inside trusted Lean/Lake calls.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

@@ -1,5 +1,13 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1005
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1005
+import all Regula.Input
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Rules.RG1005
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # RG1005: the profile
@@ -9,6 +17,8 @@ admits no axiom, choice-free admits {name}`propext` and {name}`Quot.sound`, and 
 {name}`Classical.choice`, each the toolchain's own ({lit}`Input.Admits`).
 {name (full := Regula.Rules.RG1005.check)}`Regula.Rules.RG1005.check` is the function that the checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

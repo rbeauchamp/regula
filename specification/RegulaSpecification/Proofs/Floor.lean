@@ -1,6 +1,28 @@
-import RegulaSpecification.EffectsRecord
-import RegulaSpecification.Proofs.Paths
-import RegulaSpecification.Proofs.Load
+module
+
+public import RegulaSpecification.EffectsRecord
+public import RegulaSpecification.Proofs.Paths
+public import RegulaSpecification.Proofs.Load
+import all Regula.Effect
+import all Regula.Input
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Load
+import all Regula.Reach
+import all Regula.Reader
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Rules.RG1001
+import all Regula.Rules.RG1002
+import all Regula.Rules.RG1003
+import all Regula.Rules.RG1004
+import all Regula.Rules.RG1005
+import all Regula.Rules.RG1006
+import all Regula.Rules.RG1011
+import all Regula.Rules.RG1012
+import all Regula.Shell
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # What the rules ask of a build, by what Lean answered
@@ -12,6 +34,8 @@ two library directories that Lake's load named. `BuildAnswer.Floor` states the s
 functions and the components of a path. {lit}`loadFloor_iff` relates the two in both directions, so {lit}`pass_iff_answer` states the checker's
 decision against a property that names none of its functions.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

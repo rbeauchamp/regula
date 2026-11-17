@@ -1,4 +1,27 @@
-import RegulaSpecification.Proofs.Shell
+module
+
+public import RegulaSpecification.Proofs.Shell
+import all Regula.Effect
+import all Regula.Input
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Load
+import all Regula.Reach
+import all Regula.Reader
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Rules.RG1001
+import all Regula.Rules.RG1002
+import all Regula.Rules.RG1003
+import all Regula.Rules.RG1004
+import all Regula.Rules.RG1005
+import all Regula.Rules.RG1006
+import all Regula.Rules.RG1011
+import all Regula.Rules.RG1012
+import all Regula.Shell
+import all Regula.Table
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # A project that the reader admits
@@ -12,6 +35,8 @@ The tests of a path read {name}`System.FilePath`, whose separator depends on {na
 and no theorem discharges them. Observed: the gate's run on Regula's own checkout takes the same branches on
 real paths, and its run ends with {lit}`full verdict: pass`.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 

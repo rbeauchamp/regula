@@ -1,5 +1,13 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1002
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1002
+import all Regula.Input
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Rules.RG1002
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # RG1002: proof holes
@@ -8,6 +16,8 @@ A constant of a claimed module depends on {name}`sorryAx`, directly or through a
 set ({name (full := RegulaSpecification.Input.AxiomOf)}`Input.AxiomOf`) holds it.
 {name (full := Regula.Rules.RG1002.check)}`Regula.Rules.RG1002.check` is the function that the checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

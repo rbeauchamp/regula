@@ -1,5 +1,16 @@
-import RegulaSpecification.Rule
-import Regula.Rules.RG1006
+module
+
+public import RegulaSpecification.Rule
+public import Regula.Rules.RG1006
+import all Regula.Input
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Rules.RG1006
+import all Regula.Tables
+import all Regula.Verdict
+import all Init.Prelude
+public import Lean.Compiler.Old
+import all Lean.Compiler.Old
 
 /-!
 # RG1006: `unsafe`, `partial` and loop declarations
@@ -19,6 +30,8 @@ module's own code adds during the build is admitted too, and no rule reads what 
 {lit}`helperForm_unreached` states why it cannot change what the proof verdict claims, under H6.
 {name (full := Regula.Rules.RG1006.check)}`Regula.Rules.RG1006.check` is the function that the checker runs.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 
@@ -227,7 +240,8 @@ theorem isUnsafeRecName_eq (n b : Name) :
 /-- The name under which the compiler looks up the helper of {name}`b` ({name (full := Lean.Compiler.mkUnsafeRecName)}`mkUnsafeRecName`, which
 {lit}`getDeclInfo?` reads) is one that {name}`HelperNamed` covers. -/
 theorem mkUnsafeRecName_eq (b : Name) :
-    Lean.Compiler.mkUnsafeRecName b = Name.str b "_unsafe_rec" := rfl
+    Lean.Compiler.mkUnsafeRecName b = Name.str b "_unsafe_rec" := by
+  rfl
 
 theorem namedAsHelper_iff (d : Regula.Closed.Decl) :
     Regula.Rules.RG1006.namedAsHelper d = true ↔ HelperNamed (decl d) := by

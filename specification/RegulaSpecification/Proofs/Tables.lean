@@ -1,5 +1,10 @@
-import Regula.Tables
-import RegulaSpecification.Proofs.Link
+module
+
+public import Regula.Tables
+public import RegulaSpecification.Proofs.Link
+import all Regula.Input
+import all Regula.Reach
+import all Regula.Tables
 
 /-!
 # What the rules' tables hold
@@ -9,6 +14,8 @@ theorems state that in terms of the specification's input: the constants by name
 claimed modules and the axiom set of each constant. Each holds of every value of {lit}`Tables i`, so no
 theorem about a rule has a hypothesis about the tables it reads.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

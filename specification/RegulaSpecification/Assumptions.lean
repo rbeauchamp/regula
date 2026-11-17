@@ -1,7 +1,30 @@
-import Lean.Elab.Command
-import RegulaSpecification.Proofs.Behaviour
-import RegulaSpecification.Proofs.Occurrences
-import RegulaSpecification.Rules.RG1006
+module
+
+public import Lean.Elab.Command
+public import RegulaSpecification.Proofs.Behaviour
+public import RegulaSpecification.Proofs.Occurrences
+public import RegulaSpecification.Rules.RG1006
+import all Regula.Effect
+import all Regula.Input
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Load
+import all Regula.Reach
+import all Regula.Reader
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Rules.RG1001
+import all Regula.Rules.RG1002
+import all Regula.Rules.RG1003
+import all Regula.Rules.RG1004
+import all Regula.Rules.RG1005
+import all Regula.Rules.RG1006
+import all Regula.Rules.RG1011
+import all Regula.Rules.RG1012
+import all Regula.Shell
+import all Regula.Table
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # The assumptions
@@ -31,6 +54,8 @@ its record changed.
 A source is a path below the root of the tag `v4.35.0` of Lean with its lines, the source directory there of a component that
 the owner's account trusts whole, or a page of the platform's own documentation ({lit}`Source`).
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Assumptions
 

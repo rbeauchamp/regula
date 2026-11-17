@@ -1,8 +1,16 @@
-import Lean.Data.Name
-import LeanIntent.Record
-import LeanIntent.Obligations
-import LeanIntent.Progress
-import Regula.LanguageSet
+module
+
+public import Lean.Data.Name
+public import LeanIntent.Record
+public import LeanIntent.Obligations
+public import LeanIntent.Progress
+public import Regula.LanguageSet
+import all Regula.LanguageSet
+import all Regula.Verdict
+import all Init.Prelude
+import all Init.Data.String.Substring
+import all Init.Meta.Defs
+import all Lean.Data.Options
 
 /-!
 # The language check
@@ -19,6 +27,8 @@ compiles it, because no model of Lean's elaborator exists in Lean. {lit}`LeanBeh
 hypotheses, H1 and H2, about Lean at one version, and each theorem that needs them takes them as an
 argument.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Language
 

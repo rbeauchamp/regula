@@ -1,5 +1,13 @@
-import Regula.ProgramCheck.EffectScan
-import RegulaSpecification.Rule
+module
+
+public import Regula.ProgramCheck.EffectScan
+public import RegulaSpecification.Rule
+import all Regula.Input
+import all Regula.ProgramCheck.EffectScan
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # What the check of effects decides
@@ -8,6 +16,8 @@ import RegulaSpecification.Rule
 closure of the executable and the two library roots, and fails the gate's build on what {name (full := Regula.ProgramCheck.EffectScan.judge)}`judge` refuses.
 What {name (full := Lean.Environment.find?)}`Environment.find?` and the header hold, and what {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists, stays Lean's.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.EffectScan
 

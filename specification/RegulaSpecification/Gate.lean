@@ -1,4 +1,20 @@
-import RegulaSpecification.Rules
+module
+
+public import RegulaSpecification.Rules
+import all Regula.Input
+import all Regula.Reach
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Rules.RG1001
+import all Regula.Rules.RG1002
+import all Regula.Rules.RG1003
+import all Regula.Rules.RG1004
+import all Regula.Rules.RG1005
+import all Regula.Rules.RG1006
+import all Regula.Rules.RG1011
+import all Regula.Rules.RG1012
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # The verdict of a run, and RG2001
@@ -6,6 +22,8 @@ import RegulaSpecification.Rules
 Regula's verdict is a closed type with three values. A build that Lean could not load, or an input that the
 admission refuses, is {lit}`incomplete` (RG2001), never read as absent; a claim of no module is refused too.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification
 

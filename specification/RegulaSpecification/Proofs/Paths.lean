@@ -1,5 +1,27 @@
-import RegulaSpecification.EffectsRecord
-import RegulaSpecification.Proofs.Load
+module
+
+public import RegulaSpecification.EffectsRecord
+public import RegulaSpecification.Proofs.Load
+import all Regula.Effect
+import all Regula.Input
+import all Regula.Language
+import all Regula.LanguageSet
+import all Regula.Load
+import all Regula.Reach
+import all Regula.Reader
+import all Regula.Rule
+import all Regula.Rules
+import all Regula.Rules.RG1001
+import all Regula.Rules.RG1002
+import all Regula.Rules.RG1003
+import all Regula.Rules.RG1004
+import all Regula.Rules.RG1005
+import all Regula.Rules.RG1006
+import all Regula.Rules.RG1011
+import all Regula.Rules.RG1012
+import all Regula.Shell
+import all Regula.Tables
+import all Regula.Verdict
 
 /-!
 # The checker's decisions over paths, against what they state
@@ -8,6 +30,8 @@ Each decision of the checker over a path, with a theorem that relates it, in bot
 the checker's functions: {name (full := Regula.Load.exactBelow)}`exactBelow` to {name (full := RegulaSpecification.Effects.ExactlyBelow)}`ExactlyBelow`, {name (full := Regula.Load.below)}`below` to {name (full := RegulaSpecification.Effects.StrictlyBelow)}`StrictlyBelow` and {name (full := Regula.Load.startsSearchPath)}`startsSearchPath` to {name (full := RegulaSpecification.Effects.SearchPathStarts)}`SearchPathStarts`. {module}`RegulaSpecification.Language` relates {name (full := Regula.Language.treeRelative)}`treeRelative` to {name (full := RegulaSpecification.Language.TreeRelative)}`TreeRelative`, and
 `RegulaSpecification.Proofs.ReaderWalk` relates {name (full := Regula.Reader.inTree)}`inTree` to it, and {lit}`apart_iff` relates {name (full := Regula.Reader.apart)}`apart` to {name (full := RegulaSpecification.Effects.Apart)}`Apart`.
 -/
+
+@[expose] public section
 
 namespace RegulaSpecification.Effects
 
