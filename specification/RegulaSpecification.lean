@@ -50,4 +50,3 @@ Each rule's formal statement, the cases that check each statement in both direct
 of the functions that the checker runs against the statements. The document is `README.md` in this
 directory.
 -/
-

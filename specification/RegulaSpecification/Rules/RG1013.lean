@@ -52,10 +52,11 @@ theorem rg1013_adequate : O2 rg1013 ∧ O2Run rg1013 ∧ O3 rg1013 ∧ O4 rg1013
 theorem rg1013_noisy : ¬ rg1013.Meets w1013.candidates :=
   noisy_fails w1013 (by simp [w1013, base])
 
-/-- A claimed module that is a {lit}`module` file is admitted whatever its constants are, and one that is not is
-refused though it holds none: the rule reads the module and no constant. -/
-theorem rg1013_reads_modules (i : Input) (m : Name) :
-    Violates1013 i m ↔ m ∈ i.modules ∧ m ∉ i.moduleFiles := Iff.rfl
+/-- The rule reads the claimed modules and the {lit}`module` files, and nothing else of the input: two inputs
+that agree on both have the same violations, whatever their constants and their profiles. -/
+theorem rg1013_reads_modules {i j : Input} (hm : i.modules = j.modules)
+    (hf : i.moduleFiles = j.moduleFiles) (m : Name) : Violates1013 i m ↔ Violates1013 j m := by
+  simp [Violates1013, Input.ClaimedModule, Input.ModuleFile, hm, hf]
 
 end Witnesses
 
