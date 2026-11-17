@@ -14,10 +14,10 @@
 #
 # `no_ci` declares that no workflow file reports a check on a pull request, so a pull request with no
 # checks can count as ready. A check that GitHub still reports is processed as before.
-# That declaration is no longer true of a pull request whose head holds `.github/workflows/gate.yml`,
-# and it is still true of a head from before that file, which can report no check. So the setting
-# stays in the change that adds the workflow, so that such a pull request is not left waiting for a
-# check, and a later change to this file removes it.
+# That declaration is no longer true of a pull request on which `.github/workflows/gate.yml` has run.
+# It is still true of an open pull request that has had no event since that file reached main, which
+# has no check. So the setting stays in the change that adds the workflow, so that such a pull
+# request is not left waiting for a check, and a later change to this file removes it.
 #
 # `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional Commits header.
 #

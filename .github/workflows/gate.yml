@@ -1,20 +1,25 @@
 # Runs the local gate (lean/Regula/DiagnosticsGate.lean) on a machine of GitHub's: for each pull
 # request, for each push to main, and when someone starts it by hand. It is the command that the
 # no-mistakes validation runs as its Test step (.no-mistakes.yaml, `commands.test`). This file adds no
-# check of its own and decides nothing: its job has two commands, the installer of elan and the gate.
+# check of its own and decides nothing: its job has a checkout and two steps, one that installs elan
+# and puts it on the path, and one that runs the gate.
 #
 # Why it is here: the gate starts with `lean --run` of a file of the change, so running it on a
-# change from outside the repository runs that change's code. Here it can run on a machine that
-# GitHub discards before it runs on a contributor's.
+# change from outside the repository runs that change's code. Here it can run on a runner that
+# GitHub hosts, which GitHub documents as a new virtual machine for each job, before it runs on a
+# contributor's machine.
 #
 # The runner image is `ubuntu-24.04`, the image on which Ubuntu 24.04.5 LTS on x86-64 was observed as
-# a named platform (specification/README.md, "Ubuntu"). GitHub moves that image, so a run is a run of
-# the gate on the image version that its log states, and is no observation of the platform.
+# a named platform (specification/README.md, "Ubuntu"). GitHub documents that it updates that image,
+# so a run is a run of the gate on the image version that its log states, and is no observation of
+# the platform.
 #
-# The job sets no time limit, as the gate sets none. The token can only read the repository
-# (`permissions`), and the checkout keeps no credential (`persist-credentials`). The event is
-# `pull_request` and never `pull_request_target`, which GitHub documents as running with the base
-# repository's token and secrets. The action and the installer are pinned by their commits.
+# The job sets no time limit of its own, as the gate sets none, so GitHub's limit for a job applies.
+# The token can only read the repository (`permissions`), and the checkout keeps no credential
+# (`persist-credentials`). The event is `pull_request` and never `pull_request_target`, which GitHub
+# documents as running with the base repository's token and secrets. The action and the script
+# `elan-init.sh` are pinned by their commits. That script downloads the latest release of elan, and
+# elan downloads the toolchain that `lean-toolchain` names: neither download is pinned.
 name: gate
 
 on:
@@ -33,7 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install elan (v4.2.4); lean-toolchain selects Lean
+      - name: Install elan with its script of v4.2.4; lean-toolchain selects Lean
         run: |
           curl -sSfL https://raw.githubusercontent.com/leanprover/elan/227caca133724d5516bee25c2aeb3e609478f2d8/elan-init.sh | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
