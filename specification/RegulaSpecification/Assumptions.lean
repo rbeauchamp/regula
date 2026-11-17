@@ -103,7 +103,7 @@ inductive Assumption where
   what the compiler runs for a definition ({name (full := RegulaSpecification.Language.LeanBehaviour.h2)}`LeanBehaviour.h2`). -/
   | h2
   /-- {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each constant that occurs in an expression ({name (full := RegulaSpecification.Loader.UsedConstantsComplete)}`UsedConstantsComplete`). Its body is an
-  {lit}`opaque` that {attr}`@[implemented_by]` replaces. -/
+  {kw (of := Lean.Parser.Command.declaration)}`opaque` that {attr}`@[implemented_by]` replaces. -/
   | usedConstants
   /-- What Lean's import and search give. {name}`Lean.importModules` with {lit}`loadExts := false` at the level {lean (type := "Lean.OLeanLevel")}`.private` loads the
   {lit}`.olean` files of the build, runs no initializer, and gives each constant of a {lit}`module` file with its body;
