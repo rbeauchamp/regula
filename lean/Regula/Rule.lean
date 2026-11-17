@@ -10,8 +10,9 @@ The core of the rules over the closed input (`Regula.Closed.Input`): what a rule
 the report of a run, and the tables that more than one reader uses. Each rule is a module of its own
 below `Regula/Rules/`, which imports this module and no other rule, and `Regula.Rules` lists them.
 
-A rule reads the input through a value of `Tables i` (`Regula.Tables`), which carries what each of its
-tables holds of the input `i`. A table that one rule alone reads is defined in that rule's module.
+A rule that reads constants reads them through a value of `Tables i` (`Regula.Tables`), which carries what
+each of its tables holds of the input `i`. RG1013 reads the input's two lists of modules and no table. A table
+that one rule alone reads is defined in that rule's module.
 -/
 
 public section

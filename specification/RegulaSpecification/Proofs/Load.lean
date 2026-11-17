@@ -251,10 +251,11 @@ def EnvPanic (f : Regula.Load.Facts) (u : Name) : Prop :=
   u ∈ panicFunctions ∨ (BangNamed u ∧ ¬ EnvTheorem f u)
 
 /-- The module {name}`m` of the environment is a {lit}`module` file: the data that the environment holds of its
-{lit}`.olean` says so (`ModuleData.isModule`). -/
-def EnvModuleFile (f : Regula.Load.Facts) (m : Name) : Prop :=
-  ∃ (k : Nat) (data : Lean.ModuleData), f.env.header.moduleNames[k]? = some m ∧
-    f.env.header.moduleData[k]? = some data ∧ data.isModule = true
+{lit}`.olean` says so ({name (full := Lean.ModuleData.isModule)}`ModuleData.isModule`). It names no function of the
+checker. -/
+def EnvModuleFile (env : Lean.Environment) (m : Name) : Prop :=
+  ∃ (k : Nat) (data : Lean.ModuleData), env.header.moduleNames[k]? = some m ∧
+    env.header.moduleData[k]? = some data ∧ data.isModule = true
 
 /-- What the rules state, in the terms of the environment. Each claimed module is a {lit}`module` file (RG1013).
 And what RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module: no loaded module
@@ -269,7 +270,7 @@ native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_h
 initialization function for it (RG1011). When it is a definition or an
 opaque constant, its value mentions no panic form (RG1012). -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
-  (∀ m ∈ f.claimed, EnvModuleFile f m) ∧
+  (∀ m ∈ f.claimed, EnvModuleFile f.env m) ∧
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
@@ -551,7 +552,7 @@ theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
     (toSpec i).ClaimedModule m ↔ m ∈ f.claimed := by
   simp [Input.ClaimedModule, toSpec, toSpecDraft, hl.modules]
 
-theorem mem_moduleFiles (f : Regula.Load.Facts) (m : Name) : m ∈ f.moduleFiles ↔ EnvModuleFile f m := by
+theorem mem_moduleFiles (f : Regula.Load.Facts) (m : Name) : m ∈ f.moduleFiles ↔ EnvModuleFile f.env m := by
   simp only [Regula.Load.Facts.moduleFiles, List.mem_map, List.mem_filter, Array.mem_toList_iff,
     Array.mem_iff_getElem?, Array.getElem?_zip_eq_some, EnvModuleFile]
   constructor
@@ -564,8 +565,8 @@ theorem mem_moduleFiles (f : Regula.Load.Facts) (m : Name) : m ∈ f.moduleFiles
     obtain ⟨lm, h1, rfl⟩ := hn
     exact ⟨(lm, data), ⟨⟨k, h1, h2⟩, hmod⟩, rfl⟩
 
-theorem moduleFile_iff (hl : Loaded f roots p i) (m : Name) :
-    (toSpec i).ModuleFile m ↔ EnvModuleFile f m := by
+theorem moduleFile_env (hl : Loaded f roots p i) (m : Name) :
+    (toSpec i).ModuleFile m ↔ EnvModuleFile f.env m := by
   rw [← mem_moduleFiles]
   simp [Input.ModuleFile, toSpec, toSpecDraft, hl.moduleFiles]
 
@@ -865,7 +866,7 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
   constructor
   · rintro ⟨h1, -, -, -, h5, h6, h11, h12, h13⟩
     refine ⟨fun m hm => Classical.byContradiction fun hno =>
-      h13 m ⟨(claimed_iff hl m).mpr hm, fun hfile => hno ((moduleFile_iff hl m).mp hfile)⟩, ?_⟩
+      h13 m ⟨(claimed_iff hl m).mpr hm, fun hfile => hno ((moduleFile_env hl m).mp hfile)⟩, ?_⟩
     intro n info m hn hm hc
     obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm
     have hx := to_mem hl hn hlm
@@ -909,7 +910,7 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
           ((reaches_env hl _ a).mp hr) hax'))
     refine ⟨?_, fun c h => no5 c (rg1005_of_hole h), fun c h => no5 c (rg1005_of_unknown h),
       fun c h => no5 c (rg1005_of_compiler h), no5, ?_, ?_, ?_,
-      fun c h => h.2 ((moduleFile_iff hl c).mpr (hfiles c ((claimed_iff hl c).mp h.1)))⟩
+      fun c h => h.2 ((moduleFile_env hl c).mpr (hfiles c ((claimed_iff hl c).mp h.1)))⟩
     · rintro c ⟨x, hx, rfl, hcm, hk⟩
       obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx
       have hmd := hmod hm hv

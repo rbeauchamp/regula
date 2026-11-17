@@ -136,11 +136,6 @@ environment does not hold as a theorem. -/
 def Panic (n : Name) : Prop :=
   n ∈ panicFunctions ∨ (BangNamed n ∧ ¬ a.Theorem n)
 
-/-- A module that Lean read as a {lit}`module` file, by the data that the environment holds of its {lit}`.olean`. -/
-def ModuleFile (m : Name) : Prop :=
-  ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧
-    a.env.header.moduleData[k]? = some data ∧ data.isModule = true
-
 /-- A constant that a claimed module's own {lit}`.olean` holds. -/
 def Own (m n : Name) (info : ConstantInfo) : Prop :=
   ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧ StrictlyBelow a.rootDir olean ∧
@@ -167,7 +162,7 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   /-- At least one module is claimed. -/
   claims : ∃ m, a.Claimed m
   /-- Each claimed module is a {lit}`module` file. -/
-  moduleFiles : ∀ m, a.Claimed m → a.ModuleFile m
+  moduleFiles : ∀ m, a.Claimed m → EnvModuleFile a.env m
   /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, reaches only axioms that the profile admits,
   has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
   constant, has a value that mentions no panic form. -/
@@ -217,18 +212,6 @@ theorem claimed_ofFacts (m : Name) : (ofFacts f).Claimed m ↔ m ∈ f.claimed :
     exact ⟨lm, hm, rfl, hb⟩
   · rintro ⟨lm, hm, rfl, hb⟩
     exact ⟨lm.olean, ⟨lm, hm, rfl, rfl⟩, hb⟩
-
-theorem moduleFile_ofFacts (m : Name) : (ofFacts f).ModuleFile m ↔ EnvModuleFile f m := by
-  simp only [ModuleFile, EnvModuleFile, ofFacts_getElem, Option.map_eq_some_iff, Prod.mk.injEq]
-  constructor
-  · rintro ⟨k, o, data, ⟨lm, hm, rfl, rfl⟩, hd, hmod⟩
-    refine ⟨k, data, ?_, hd, hmod⟩
-    rw [← moduleNames_getElem, hm]
-    rfl
-  · rintro ⟨k, data, hn, hd, hmod⟩
-    rw [← moduleNames_getElem, Option.map_eq_some_iff] at hn
-    obtain ⟨lm, hm, rfl⟩ := hn
-    exact ⟨k, lm.olean, data, ⟨lm, hm, rfl, rfl⟩, hd, hmod⟩
 
 theorem stated_ofFacts (n : Name) (v : ConstantInfo) : (ofFacts f).Stated n v ↔ v ∈ f.stated.getD n [] :=
   mem_stated.symm
@@ -406,7 +389,7 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       cases hc : f.claimed with
       | nil => exact absurd hc he
       | cons x xs => exact ⟨x, by simp⟩
-  have hfloor : ((∀ m, (BuildAnswer.ofFacts f).Claimed m → (BuildAnswer.ofFacts f).ModuleFile m) ∧
+  have hfloor : ((∀ m, (BuildAnswer.ofFacts f).Claimed m → EnvModuleFile (BuildAnswer.ofFacts f).env m) ∧
       ∀ n info m, (BuildAnswer.ofFacts f).env.constants.map₁[n]? = some info → ((BuildAnswer.ofFacts f).place? n).map (·.1) = some m →
       (BuildAnswer.ofFacts f).Claimed m →
       ¬ (BuildAnswer.ofFacts f).Axiom n ∧
@@ -418,7 +401,7 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ (BuildAnswer.ofFacts f).Panic u)) ↔
       EnvFloor f p := by
     simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts, BuildAnswer.helper_ofFacts,
-      BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts, BuildAnswer.panic_ofFacts, BuildAnswer.moduleFile_ofFacts]
+      BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts, BuildAnswer.panic_ofFacts]
     rfl
   have hunshown : (∀ m n info, (BuildAnswer.ofFacts f).Own m n info → ¬ (BuildAnswer.ofFacts f).Shown m n info →
       ModuleUnreplaced (BuildAnswer.ofFacts f).env m n ∧

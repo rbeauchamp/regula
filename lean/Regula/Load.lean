@@ -32,8 +32,8 @@ What it reads, and through what:
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
   constant must also fit the rules itself (`Facts.unread?`).
 - Whether each loaded module is a `module` file: the flag `isModule` of its data in `header.moduleData`, which Lean
-  writes from the header of the environment that elaborated the file (`mkModuleData`, `Lean/Environment.lean:1883-1886`
-  at v4.35.0).
+  writes from the header of the environment that elaborated the file (`mkModuleData` and `writeModule`,
+  `Lean/Environment.lean:1883-1886` and `1902-1918` at v4.35.0).
 - The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A claimed
   module lies below the root package's library directory; a constant of the toolchain is one whose module lies
   below the toolchain's library directory.

@@ -113,7 +113,7 @@ inductive Assumption where
   {name (full := Lean.Environment.getModuleIdx?)}`getModuleIdx?` gives the index of the named module, and
   {name (full := Lean.PersistentEnvExtension.getModuleEntries)}`getModuleEntries` gives that module's own exported attribute entries,
   including its private entries at the imported level {lean (type := "Lean.OLeanLevel")}`.private`, even with
-  {lit}`loadExts := false`. The flag {lit}`isModule` of a module's data is the one of the header of the environment that
+  {lit}`loadExts := false`. The flag {name (full := Lean.ModuleData.isModule)}`ModuleData.isModule` of a module's data is the one of the header of the environment that
   elaborated its file, which Lean sets when the file's header has {lit}`module` or the setup that it is given says so.
   Lean refuses an {lit}`.olean` of
   another release. {name}`Lean.findOLean` finds the {lit}`.olean` of a module on the search path that its row sets, and finds the
@@ -274,12 +274,12 @@ def sources : Assumption → List Source
       .file "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean" "648", .file "src/Lean/Compiler/LCNF/PassManager.lean" "217",
       .file "src/Lean/Compiler/IR/Meta.lean" "52, 56-59", .file "src/Lean/Environment.lean" "2537, 2618, 2620, 2627"]
   | usedConstants => [.file "src/Lean/Util/FoldConsts.lean" "51-56"]
-  | leanImport => [.file "src/Lean/Environment.lean" "109-111, 155-167, 1211-1212, 1666-1678, 1871, 1883-1886, 1901-1917, 2017-2032, 2079-2080, 2094-2095, 2183, 2313-2317, 2367-2370, 2377",
+  | leanImport => [.file "src/Lean/Environment.lean" "109-111, 155-167, 1211-1212, 1666-1678, 1871, 1883-1886, 1902-1918, 2017-2034, 2079-2080, 2094-2095, 2181-2183, 2308-2309, 2313-2317, 2367-2370, 2377",
       .file "src/Lean/Compiler/ImplementedByAttr.lean" "67-68", .file "src/Lean/Compiler/ExternAttr.lean" "75-76, 119-120",
       .file "src/Lean/Compiler/InitAttr.lean" "50-79, 101, 110, 112-127",
       .file "src/Lean/Attributes.lean" "257-261, 272-279, 289-292, 306-318",
-      .file "src/Lean/Util/Path.lean" "117-125", .file "src/Lean/Elab/Import.lean" "26-27, 141-149",
-      .file "src/Lean/Elab/Frontend.lean" "294-313",
+      .file "src/Lean/Util/Path.lean" "117-125", .file "src/Lean/Elab/Import.lean" "26-27, 141-160",
+      .file "src/Lean/Elab/Frontend.lean" "294-313", .file "src/Lean/Language/Lean.lean" "502-505",
       .file "src/Lean/Parser/Extension.lean" "348", .file "src/Lean/ScopedEnvExtension.lean" "26-31"]
   | leanVersion => [.file "src/Init/Meta/Defs.lean" "37, 57"]
   | platform => [.file "src/Init/System/Platform.lean" "39, 44", .file "src/Init/System/FilePath.lean" "127"]

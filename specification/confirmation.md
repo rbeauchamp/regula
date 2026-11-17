@@ -12,12 +12,12 @@ In substance: Regula gains a rule of the proof verdict that refuses each claimed
 
 | Consequence | Where | Status |
 | --- | --- | --- |
-| The proof verdict refuses each claimed module that Lean did not read as a `module` file, in every run of the rules, with no option that turns it off. | [RG1013](README.md#rg1013-files-that-are-not-module-files) | Follows. |
+| The proof verdict refuses each claimed module whose file has no `module` header, in every run of the rules, with no option that turns it off. | [RG1013](README.md#rg1013-files-that-are-not-module-files) | Follows. |
 | The README and this specification state the cost: a project whose claimed modules import a file of a dependency that is not a `module` file cannot pass. | [`README.md`](../README.md#the-checks), [RG1013](README.md#rg1013-files-that-are-not-module-files) | Follows. |
-| The rule reads claimed modules only. That the files a claimed module imports are `module` files is Lean's own refusal, and Regula proves nothing of it. | [What a pass means](README.md#what-a-pass-means) | Follows, that dependencies are not checked directly. |
+| The rule reports claimed modules only. That the files a claimed module imports are `module` files is Lean's own refusal, and Regula proves nothing of it. | [What a pass means](README.md#what-a-pass-means) | Follows, that dependencies are not checked directly. |
 | The code is RG1013. The rule is one of the registry, so a project that it refuses gets `fail` with a finding for each module, and the subject of a finding is the module. | [Decisions of this specification](README.md#decisions-of-this-specification) | Decided. The owner was shown a new code and no more. |
-| The rule reads the flag that Lean writes into the `.olean` of each module and no source file, so the closed input gains the loaded modules that are `module` files. | [The closed input](README.md#the-closed-input), [RG1013](README.md#rg1013-files-that-are-not-module-files) | Decided. |
-| Mathlib at its tag `v4.35.0` was measured after the owner's answer: each of its Lean files is a `module` file. No other dependency was measured. | [RG1013](README.md#rg1013-files-that-are-not-module-files) | Decided. The owner was told that this had not been checked. |
+| The rule reads the flag that Lean writes into the `.olean` of each module and no source file, so the closed input gains the loaded modules that are `module` files. For a build by Lake that flag is the header's. A file that another tool compiles with a setup that sets the flag is admitted without the header. | [The closed input](README.md#the-closed-input), [RG1013](README.md#rg1013-files-that-are-not-module-files) | Decided. The owner was shown the header. |
+| After the owner's answer the agent measured Mathlib at its tag `v4.35.0`, where `Mathlib.lean` and each file below `Mathlib/` is a `module` file, and no other dependency. | [RG1013](README.md#rg1013-files-that-are-not-module-files) | Decided, to measure Mathlib and no other. The owner was told that this had not been checked. |
 
 ## 2026-11-17: `module` files, in three steps
 

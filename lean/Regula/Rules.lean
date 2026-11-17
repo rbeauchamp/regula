@@ -20,7 +20,8 @@ rule, in the order of the list, and a pass exactly when no registered rule repor
 specification's registry, which `specification/RegulaSpecification/Rules.lean` proves equal to this one.
 
 RG1010, the language check (`Regula.Language`), and RG2001, the refusal of a build that the checker cannot
-read, are no rules of this list: neither reads the closed input.
+read, are no rules of this list: neither is a function from a closed input to its subjects. RG1010 reads
+source files before a build, and RG2001 is the run in which the rules are given no input.
 -/
 
 public section
