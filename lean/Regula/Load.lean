@@ -300,8 +300,9 @@ gives the name the first module that holds it (`subsumesInfo` and `finalizeImpor
 reads as a subject. What a dropped constant mentions, and whether it is an axiom, the input still
 states of its name (`Facts.stated`), in every loaded module; this check decides whether the rules
 read a claimed module's own constant as a subject. Its own replacement attributes must be absent
-or the represented constant must already carry a replacement that RG1011 refuses, and the same holds
-of an initialization function when the module's own constant is a definition. -/
+or the represented constant must already carry a replacement that RG1011 refuses. When the module's own
+constant is a definition, its own entries must name no initialization function, or the query must give
+one for the represented constant. -/
 def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
   match f.env.constants.map₁[x.2.1]?, f.info? x.2.1 with
   | some kept, some m => decide (readOf kept = readOf x.2.2) && m.claimed &&

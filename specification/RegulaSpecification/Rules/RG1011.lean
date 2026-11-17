@@ -8,8 +8,8 @@ A constant of a claimed module has {attr}`@[implemented_by]` or {attr}`@[extern]
 which {attr}`@[init]` or {attr}`@[builtin_init]` names an initialization function. Lean's compiler then
 compiles no code from its definition: it runs the constant that {attr}`@[implemented_by]` names, a
 function outside Lean for {attr}`@[extern]`, or the initialization function, whose result it stores as
-the constant, and nothing proves any of them equal to the definition that the constant's proofs are
-about. The input reads the three through the queries that the compiler reads
+the constant when the constant has no parameter, and nothing proves any of them equal to the definition
+that the constant's proofs are about. The input reads the three through the queries that the compiler reads
 ({lit}`Lean.Compiler.getImplementedBy?`, {lit}`Lean.isExtern` and {lit}`Lean.getInitFnNameFor?`).
 
 An initialization function is read of a definition alone. An opaque constant that has one, which the
@@ -32,8 +32,9 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- An initialization function stands in for the value of {name}`d` in compiled code: {name}`d` is a
-definition, and {attr}`@[init]` or {attr}`@[builtin_init]` names a function for it. -/
+/-- {name}`d` is a definition, and {attr}`@[init]` or {attr}`@[builtin_init]` names an initialization function
+for it. The compiler then compiles no code from the definition, and stores the function's result in its
+place when the definition has no parameter. -/
 def Initialized (d : Decl) : Prop := d.kind = .definition ∧ ∃ fn, d.initFn = some fn
 
 /-- The definition of {name}`d` is not what compiled code runs for it: it names a constant that
