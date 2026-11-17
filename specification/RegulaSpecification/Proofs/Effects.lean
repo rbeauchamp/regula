@@ -23,6 +23,7 @@ import all Regula.Rules.RG1012
 import all Regula.Table
 import all Regula.Tables
 import all Regula.Verdict
+import all Init.System.ST
 
 /-!
 # Runs of a program, and what the interpreter does

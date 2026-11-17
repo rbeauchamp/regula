@@ -4,6 +4,18 @@ public import RegulaSpecification.Proofs.Language
 import all Regula.Language
 import all Regula.LanguageSet
 import all Regula.Verdict
+import all Init.Data.Array.Basic
+import all Init.Data.List.Basic
+import all Init.Data.Option.Lemmas
+import all Init.Data.String.Basic
+import all Init.Data.String.Substring
+import all Init.Data.String.TakeDrop
+import all Init.Meta.Defs
+import all Init.Prelude
+import all Init.System.FilePath
+import all Lean.Data.Name
+import all Init.Data.Slice.List.Basic
+import all Init.Data.String.Defs
 
 /-!
 # What the owner confirmed, stated apart from the code's own values
@@ -103,18 +115,18 @@ theorem refuses_plugin_key (r : Reading) {k : Name} (hk : k ∈ pluginKeys) (h :
   · exact hn hm
   · exact ho o hm he
 
-private abbrev n (k : Name) (xs : List Syntax) : Syntax := .node .none k ⟨xs⟩
+abbrev n (k : Name) (xs : List Syntax) : Syntax := .node .none k ⟨xs⟩
 
-private abbrev a (v : String) : Syntax := .atom .none v
+abbrev a (v : String) : Syntax := .atom .none v
 
-private abbrev i (m : Name) : Syntax := .ident .none default m []
+abbrev i (m : Name) : Syntax := .ident .none default m []
 
-private abbrev e : Syntax := n `null []
+abbrev e : Syntax := n `null []
 
-private abbrev mods (attrs : Syntax) : Syntax :=
+abbrev mods (attrs : Syntax) : Syntax :=
   n `Lean.Parser.Command.declModifiers [e, attrs, e, e, e, e, e]
 
-private abbrev byExample (tac : Syntax) : Syntax :=
+abbrev byExample (tac : Syntax) : Syntax :=
   n `Lean.Parser.Command.declaration [mods e,
     n `Lean.Parser.Command.example [a "example",
       n `Lean.Parser.Command.optDeclSig [e, n `null [n `Lean.Parser.Term.typeSpec [a ":", i `True]]],
@@ -123,7 +135,7 @@ private abbrev byExample (tac : Syntax) : Syntax :=
           n `Lean.Parser.Tactic.tacticSeq [n `Lean.Parser.Tactic.tacticSeq1Indented [n `null [tac]]]],
         n `Lean.Parser.Termination.suffix [e, e], e]]]
 
-private abbrev plusItem (item : Name) : Syntax :=
+abbrev plusItem (item : Name) : Syntax :=
   n `Lean.Parser.Tactic.optConfig [n `null [n `Lean.Parser.Tactic.configItem [n `Lean.Parser.Tactic.posConfigItem [a "+", i item]]]]
 
 /-- The library code that the owner's words name, and the one attribute of the form {lit}`@[name]` that Regula's core uses: {lit}`by simp`, {lit}`by omega`,

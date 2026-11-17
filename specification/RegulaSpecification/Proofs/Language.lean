@@ -5,6 +5,9 @@ public import RegulaSpecification.Language
 import all Regula.Language
 import all Regula.LanguageSet
 import all Regula.Verdict
+import all Init.Data.String.Substring
+import all Init.Meta.Defs
+import all Init.Prelude
 
 /-!
 # The language decision against its record

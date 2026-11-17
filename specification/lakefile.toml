@@ -36,6 +36,9 @@ linter.missingDocs = true
 # resolve there stays unchecked literal text: a declaration later in the same file, a name outside what
 # the file imports, a term whose variables are out of scope, or a Lean declaration that no longer exists.
 doc.verso = true
+# TEMPORARY, for the migration to module files: full names in error messages.
+pp.fullNames = true
+pp.fieldNotation = false
 
 [[lean_lib]]
 name = "RegulaSpecification"

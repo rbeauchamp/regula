@@ -23,6 +23,7 @@ import all Regula.Rules.RG1012
 import all Regula.Shell
 import all Regula.Tables
 import all Regula.Verdict
+import all Lean.Environment
 
 /-!
 # What the rules ask of a build, by what Lean answered
