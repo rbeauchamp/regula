@@ -1,8 +1,8 @@
 # Runs the local gate (lean/Regula/DiagnosticsGate.lean) on a machine of GitHub's: for each pull
 # request, for each push to main, and when someone starts it by hand. It is the command that the
 # no-mistakes validation runs as its Test step (.no-mistakes.yaml, `commands.test`). This file adds no
-# check of its own and decides nothing: its job has a checkout and two steps, one that installs elan
-# and puts it on the path, and one that runs the gate.
+# check of its own but that of the toolchain's digest, and decides nothing else: its job has a
+# checkout and two steps, one that installs Lean and one that runs the gate.
 #
 # Why it is here: the gate starts with `lean --run` of a file of the change, so running it on a
 # change from outside the repository runs that change's code. Here it can run on a runner that
@@ -14,12 +14,18 @@
 # so a run is a run of the gate on the image version that its log states, and is no observation of
 # the platform.
 #
+# The toolchain is the archive of the release that `lean-toolchain` names, from Lean's releases on
+# GitHub, and the step fails unless that archive has the SHA-256 written in it. So a change of the
+# release that `lean-toolchain` names fails the step until the digest is that of the new release's
+# archive. No elan is installed: `lean-toolchain` gives only the version in the archive's address.
+# The digest is that of the archive as downloaded on 2026-11-17, whose Lean reports the release and
+# the commit that the checker reads (`Regula.Closed.pinnedLean`).
+#
 # The job sets no time limit of its own, as the gate sets none, so GitHub's limit for a job applies.
 # The token can only read the repository (`permissions`), and the checkout keeps no credential
 # (`persist-credentials`). The event is `pull_request` and never `pull_request_target`, which GitHub
-# documents as running with the base repository's token and secrets. The action and the script
-# `elan-init.sh` are pinned by their commits. That script downloads the latest release of elan, and
-# elan downloads the toolchain that `lean-toolchain` names: neither download is pinned.
+# documents as running with the base repository's token and secrets. The action is pinned by its
+# commit.
 name: gate
 
 on:
@@ -38,9 +44,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install elan with its script of v4.2.4; lean-toolchain selects Lean
+      - name: Install the Lean that lean-toolchain names, by the SHA-256 of its archive
         run: |
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/227caca133724d5516bee25c2aeb3e609478f2d8/elan-init.sh | sh -s -- -y --default-toolchain none
-          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          v="$(sed 's/^.*:v//' lean-toolchain)"
+          curl -sSfL -o "$RUNNER_TEMP/lean.zip" "https://github.com/leanprover/lean4/releases/download/v$v/lean-$v-linux.zip"
+          echo "c8531faaa4a93d5a4dae0c742cbc1bd42a2993594d02f93a9d629ebf299fb2c8  $RUNNER_TEMP/lean.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/lean.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/lean-$v-linux/bin" >> "$GITHUB_PATH"
       - name: Run the local gate
         run: lean --run lean/Regula/DiagnosticsGate.lean local

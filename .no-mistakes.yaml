@@ -12,12 +12,9 @@
 # artifact cache, and the gate runs each command with `LAKE_ARTIFACT_CACHE=false`, so a seeded cache
 # would go unread.
 #
-# `no_ci` declares that no workflow file reports a check on a pull request, so a pull request with no
-# checks can count as ready. A check that GitHub still reports is processed as before.
-# That declaration is no longer true of a pull request on which `.github/workflows/gate.yml` has run.
-# It is still true of an open pull request that has had no event since that file reached main, which
-# has no check. So the setting stays in the change that adds the workflow, so that such a pull
-# request is not left waiting for a check, and a later change to this file removes it.
+# `no_ci` is not set. It declares that no workflow file reports a check on a pull request, so that a
+# pull request with no checks can count as ready, and `.github/workflows/gate.yml` reports a check on
+# a pull request on which it runs.
 #
 # `pr.title_format` stays unset, so no-mistakes drafts each title as a Conventional Commits header.
 #
@@ -78,7 +75,6 @@
 # `pass` or `fail`, and no-mistakes rejects either result under a `no-surface` verdict. Prose steers
 # the agent and enforces nothing: an agent can still misjudge whether a claim needs a run, and a
 # mistaken `no-surface` then stops nobody.
-no_ci: true
 commands:
   test: lean --run lean/Regula/DiagnosticsGate.lean local
 heavy_steps:
