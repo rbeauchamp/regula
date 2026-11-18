@@ -4,7 +4,8 @@ module
 # The closed input
 
 Every rule of Regula reads one closed input: the constants Lean loads from a finished build, the
-modules that the build claims, and the profile that the project states. This module states that
+modules that the build claims, the loaded modules that are {lit}`module` files, and the profile that the
+project states. This module states that
 input as data, independently of the implementation. Each field says which interface of Lean or Lake
 gives it. {lit}`Proofs/Load.lean` states what the loader gives in terms of those interfaces, and the
 specification's trusted base lists what they report.
@@ -101,6 +102,9 @@ structure Input where
   /-- The claimed modules: each module of a default target of the root package, and each module of
   the root package that their imports reach. -/
   modules : List Name
+  /-- The loaded modules whose {lit}`.olean` states that Lean read the file as a {lit}`module` file
+  (`ModuleData.isModule`). RG1013 reads it. -/
+  moduleFiles : List Name
   /-- The constants of the environment that the shell loads. -/
   decls : List Decl
   /-- Each name is the name of one constant. An environment keeps its constants in a hash map, so an
@@ -113,6 +117,9 @@ variable (i : Input)
 
 /-- Module {name}`m` is claimed. -/
 def ClaimedModule (m : Name) : Prop := m ∈ i.modules
+
+/-- Lean read the file of the module {name}`m` as a {lit}`module` file. -/
+def ModuleFile (m : Name) : Prop := m ∈ i.moduleFiles
 
 /-- {name}`c` names a constant of a claimed module. -/
 def ClaimedName (c : Name) : Prop := ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module

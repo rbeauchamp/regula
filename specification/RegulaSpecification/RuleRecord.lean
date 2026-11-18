@@ -8,7 +8,7 @@ public import RegulaSpecification.Input
 /-!
 # The intent record of a rule
 
-Each rule is a pure function from the well-formed closed input to the list of constants it reports. A rule's
+Each rule is a pure function from the well-formed closed input to the list of subjects it reports. A rule's
 function takes the proof of the form with the input ({lit}`Checker`), so it has no case for an input the
 admission refuses. Its intent record ({name}`LeanIntent.IntentRecord`) has that function as its subject and one
 property: the function reports a subject exactly when the subject violates the rule ({lit}`ruleRecord`). The

@@ -7,7 +7,7 @@ public import Std.Data.HashSet
 # The closed input
 
 The one input every rule of the checker reads: the constants Lean loads from the finished build, the modules
-that the build claims, and the profile that the project states. It carries no source text, message, compiled
+that the build claims, the loaded modules that are `module` files, and the profile that the project states. It carries no source text, message, compiled
 code, option or build log, so a rule cannot decide anything that is not here.
 
 A value of `Input` has the closed form by its type: no name is that of two constants (`Draft.unique`), each
@@ -137,6 +137,9 @@ structure Draft where
   /-- The claimed modules: each module of a default target of the root package, and each module of
   the root package that their imports reach. -/
   modules : List Name
+  /-- The loaded modules whose `.olean` states that Lean read the file as a `module` file
+  (`ModuleData.isModule`). -/
+  moduleFiles : List Name
   /-- The constants of the environment. -/
   decls : List Decl
   /-- Each name is the name of one constant. -/

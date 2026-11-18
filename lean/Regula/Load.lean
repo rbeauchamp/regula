@@ -31,6 +31,9 @@ What it reads, and through what:
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
   constant must also fit the rules itself (`Facts.unread?`).
+- Whether each loaded module is a `module` file: the flag `isModule` of its data in `header.moduleData`, which Lean
+  writes from the header of the environment that elaborated the file (`mkModuleData` and `writeModule`,
+  `Lean/Environment.lean:1883-1886` and `1902-1918` at v4.35.0).
 - The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A claimed
   module lies below the root package's library directory; a constant of the toolchain is one whose module lies
   below the toolchain's library directory.
@@ -166,6 +169,11 @@ structure Facts where
 /-- The modules that are claimed. -/
 def Facts.claimed (f : Facts) : List Name :=
   (f.modules.toList.filter (·.claimed)).map (·.name)
+
+/-- The loaded modules whose own data states that Lean read the file as a `module` file (`ModuleData.isModule`,
+`Lean/Environment.lean:109-111` at v4.35.0). -/
+def Facts.moduleFiles (f : Facts) : List Name :=
+  ((f.modules.zip f.env.header.moduleData).toList.filter (·.2.isModule)).map (·.1.name)
 
 /-- The loaded module whose `.olean` holds constant `n`. -/
 def Facts.info? (f : Facts) (n : Name) : Option LoadedModule :=
@@ -347,7 +355,7 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
     | .error why => .error why
     | .ok decls =>
       let draft : Draft :=
-        { profile, modules := claimed, decls,
+        { profile, modules := claimed, moduleFiles := f.moduleFiles, decls,
           unique := f.decls_nodup (stated := (stated.getD · [])) h }
       match draft.admit with
       | .error why => .error why

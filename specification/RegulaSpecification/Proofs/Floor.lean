@@ -161,6 +161,8 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   closed : ∀ n u, a.Mention n u → ∃ info', a.env.constants.map₁[u]? = some info'
   /-- At least one module is claimed. -/
   claims : ∃ m, a.Claimed m
+  /-- Each claimed module is a {lit}`module` file. -/
+  moduleFiles : ∀ m, a.Claimed m → EnvModuleFile a.env m
   /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, reaches only axioms that the profile admits,
   has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
   constant, has a value that mentions no panic form. -/
@@ -387,7 +389,8 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       cases hc : f.claimed with
       | nil => exact absurd hc he
       | cons x xs => exact ⟨x, by simp⟩
-  have hfloor : (∀ n info m, (BuildAnswer.ofFacts f).env.constants.map₁[n]? = some info → ((BuildAnswer.ofFacts f).place? n).map (·.1) = some m →
+  have hfloor : ((∀ m, (BuildAnswer.ofFacts f).Claimed m → EnvModuleFile (BuildAnswer.ofFacts f).env m) ∧
+      ∀ n info m, (BuildAnswer.ofFacts f).env.constants.map₁[n]? = some info → ((BuildAnswer.ofFacts f).place? n).map (·.1) = some m →
       (BuildAnswer.ofFacts f).Claimed m →
       ¬ (BuildAnswer.ofFacts f).Axiom n ∧
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → (BuildAnswer.ofFacts f).Helper n info m) ∧
@@ -426,10 +429,10 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
   constructor
   · intro h
     refine ⟨fun r hr => (BuildAnswer.claimed_ofFacts f r).mpr (h.roots r hr), fun n info hn => (hq n).mpr (h.placed n info hn),
-      fun n u hm => h.form.closed n u ((BuildAnswer.mention_ofFacts f n u).mp hm), hclaims.mpr h.form.claims, hfloor.mpr h.floor, hunshown.mpr h.unshown⟩
+      fun n u hm => h.form.closed n u ((BuildAnswer.mention_ofFacts f n u).mp hm), hclaims.mpr h.form.claims, (hfloor.mpr h.floor).1, (hfloor.mpr h.floor).2, hunshown.mpr h.unshown⟩
   · intro h
     exact ⟨fun r hr => (BuildAnswer.claimed_ofFacts f r).mp (h.roots r hr), fun n info hn => (hq n).mp (h.placed n info hn),
-      ⟨fun n u hm => h.closed n u ((BuildAnswer.mention_ofFacts f n u).mpr hm), hclaims.mp h.claims⟩, hfloor.mp h.floor, hunshown.mp h.unshown⟩
+      ⟨fun n u hm => h.closed n u ((BuildAnswer.mention_ofFacts f n u).mpr hm), hclaims.mp h.claims⟩, hfloor.mp ⟨h.moduleFiles, h.floor⟩, hunshown.mp h.unshown⟩
 
 theorem pass_iff_answer (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile) :
     (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ (BuildAnswer.ofFacts f).Floor roots p :=

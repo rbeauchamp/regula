@@ -26,7 +26,8 @@ the environment: for every environment and {name (full := Regula.Load.Facts)}`Fa
 the fields of that {name (full := Lean.ConstantInfo)}`ConstantInfo` and of each constant of the name that any loaded module's own data states
 ({lit}`EnvMentions`, {lit}`EnvAxiom`, {lit}`mem_usesIn`), and {lit}`mem_stated` anchors those in `header.moduleData`. So an
 axiom or a chain of mentions that Lean's import drops still counts. On a pass, each axiom reached that way
-from a constant of a claimed module is one that the profile admits ({lit}`EnvFloor`). {lit}`pass_held` states a pass
+from a constant of a claimed module is one that the profile admits, and each claimed module is a {lit}`module`
+file by the data of its {lit}`.olean` ({lit}`EnvFloor`, {lit}`EnvModuleFile`). {lit}`pass_held` states a pass
 of each constant that {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants` lists, as that module's own {lit}`.olean` states it, also when
 Lean's import replaced it.
 
@@ -249,8 +250,16 @@ that {name}`BangNamed` admits and that the environment does not hold as a theore
 def EnvPanic (f : Regula.Load.Facts) (u : Name) : Prop :=
   u ∈ panicFunctions ∨ (BangNamed u ∧ ¬ EnvTheorem f u)
 
-/-- What RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module, in the terms of
-the environment: no loaded module states an axiom of its name (RG1001). When it is unsafe or partial, or
+/-- The module {name}`m` of the environment is a {lit}`module` file: the data that the environment holds of its
+{lit}`.olean` says so ({name (full := Lean.ModuleData.isModule)}`ModuleData.isModule`). It names no function of the
+checker. -/
+def EnvModuleFile (env : Lean.Environment) (m : Name) : Prop :=
+  ∃ (k : Nat) (data : Lean.ModuleData), env.header.moduleNames[k]? = some m ∧
+    env.header.moduleData[k]? = some data ∧ data.isModule = true
+
+/-- What the rules state, in the terms of the environment. Each claimed module is a {lit}`module` file (RG1013).
+And what RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module: no loaded module
+states an axiom of its name (RG1001). When it is unsafe or partial, or
 has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value
 mentions no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded
 module's own
@@ -261,6 +270,7 @@ native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_h
 initialization function for it (RG1011). When it is a definition or an
 opaque constant, its value mentions no panic form (RG1012). -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
+  (∀ m ∈ f.claimed, EnvModuleFile f.env m) ∧
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
@@ -401,6 +411,8 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   profile : i.profile = p
   /-- The claimed modules are those of the facts. -/
   modules : i.modules = f.claimed
+  /-- The modules that are {lit}`module` files are those of the facts. -/
+  moduleFiles : i.moduleFiles = f.moduleFiles
   /-- Each module of {name}`roots` is claimed. -/
   roots : ∀ r ∈ roots, r ∈ f.claimed
   /-- Each constant of the input is a constant of the environment, with the fields it gives. -/
@@ -472,7 +484,8 @@ theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.In
     (hfind : roots.find? (fun x => !f.claimed.contains x) = none)
     (hm : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (f.stated.getD x.1 [])) = .ok decls)
     {unique : (decls.map (·.name)).Nodup}
-    (hadmit : ({ profile := p, modules := f.claimed, decls, unique } : Regula.Closed.Draft).admit = .ok i') :
+    (hadmit : ({ profile := p, modules := f.claimed, moduleFiles := f.moduleFiles, decls, unique } :
+      Regula.Closed.Draft).admit = .ok i') :
     Loaded f roots p i' := by
   have hd := admit_toDraft hadmit
   obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok
@@ -481,7 +494,8 @@ theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.In
   have hdecls : i'.decls = decls := by rw [hd]
   have hp : i'.profile = p := by rw [hd]
   have hmods : i'.modules = f.claimed := by rw [hd]
-  refine ⟨hp, hmods, ?_, ?_, ?_⟩
+  have hfiles : i'.moduleFiles = f.moduleFiles := by rw [hd]
+  refine ⟨hp, hmods, hfiles, ?_, ?_, ?_⟩
   · intro r hr
     have := List.find?_eq_none.mp hfind r hr
     simpa using this
@@ -537,6 +551,24 @@ theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantIn
 theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
     (toSpec i).ClaimedModule m ↔ m ∈ f.claimed := by
   simp [Input.ClaimedModule, toSpec, toSpecDraft, hl.modules]
+
+theorem mem_moduleFiles (f : Regula.Load.Facts) (m : Name) : m ∈ f.moduleFiles ↔ EnvModuleFile f.env m := by
+  simp only [Regula.Load.Facts.moduleFiles, List.mem_map, List.mem_filter, Array.mem_toList_iff,
+    Array.mem_iff_getElem?, Array.getElem?_zip_eq_some, EnvModuleFile]
+  constructor
+  · rintro ⟨⟨lm, data⟩, ⟨⟨k, h1, h2⟩, hmod⟩, rfl⟩
+    refine ⟨k, data, ?_, h2, hmod⟩
+    rw [← moduleNames_getElem, h1]
+    rfl
+  · rintro ⟨k, data, hn, h2, hmod⟩
+    rw [← moduleNames_getElem, Option.map_eq_some_iff] at hn
+    obtain ⟨lm, h1, rfl⟩ := hn
+    exact ⟨(lm, data), ⟨⟨k, h1, h2⟩, hmod⟩, rfl⟩
+
+theorem moduleFile_env (hl : Loaded f roots p i) (m : Name) :
+    (toSpec i).ModuleFile m ↔ EnvModuleFile f.env m := by
+  rw [← mem_moduleFiles]
+  simp [Input.ModuleFile, toSpec, toSpecDraft, hl.moduleFiles]
 
 theorem of_mem {x : Decl} (hl : Loaded f roots p i) (hx : x ∈ (toSpec i).decls) :
     ∃ info m, f.env.constants.map₁[x.name]? = some info ∧ f.info? x.name = some m ∧
@@ -825,14 +857,17 @@ environment. A rule added to the registry makes this false until {name}`EnvFloor
 theorem allHold_iff (i : Input) : AllHold i ↔
     (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
       (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) ∧
-      (∀ c, ¬ Violates1011 i c) ∧ (∀ c, ¬ Violates1012 i c) := by
+      (∀ c, ¬ Violates1011 i c) ∧ (∀ c, ¬ Violates1012 i c) ∧ (∀ c, ¬ Violates1013 i c) := by
   simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved,
-    rg1011Proved, rg1012Proved]
+    rg1011Proved, rg1012Proved, rg1013Proved]
 
 theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor f p := by
   rw [allHold_iff]
   constructor
-  · rintro ⟨h1, -, -, -, h5, h6, h11, h12⟩ n info m hn hm hc
+  · rintro ⟨h1, -, -, -, h5, h6, h11, h12, h13⟩
+    refine ⟨fun m hm => Classical.byContradiction fun hno =>
+      h13 m ⟨(claimed_iff hl m).mpr hm, fun hfile => hno ((moduleFile_env hl m).mp hfile)⟩, ?_⟩
+    intro n info m hn hm hc
     obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm
     have hx := to_mem hl hn hlm
     have hcm := (claimed_iff hl _).mpr hc
@@ -861,7 +896,7 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
         exact absurd ⟨_, hx, rfl, hcm, .inr (.inr ⟨kind_definition.mpr ⟨hdef, hs⟩, fn, hfn⟩)⟩ (h11 n)
     · exact h12 n ⟨_, hx, rfl, hcm, (kind_runs hs).mpr hrun, u, (mem_valueUsesOf info u).mpr hv,
         (panic_env hl u).mpr hpanic⟩
-  · intro hf
+  · rintro ⟨hfiles, hf⟩
     have hmod : ∀ {x : Decl} {info m}, f.info? x.name = some m → x = decl
         (f.declIn x.name m info (f.stated.getD x.name [])) → f.moduleOf? x.name = some x.module :=
       fun {x info m} hm hv => moduleOf?_eq_some.mpr ⟨m, hm, by rw [hv]; rfl⟩
@@ -874,7 +909,8 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
         ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2.1 a
           ((reaches_env hl _ a).mp hr) hax'))
     refine ⟨?_, fun c h => no5 c (rg1005_of_hole h), fun c h => no5 c (rg1005_of_unknown h),
-      fun c h => no5 c (rg1005_of_compiler h), no5, ?_, ?_, ?_⟩
+      fun c h => no5 c (rg1005_of_compiler h), no5, ?_, ?_, ?_,
+      fun c h => h.2 ((moduleFile_env hl c).mpr (hfiles c ((claimed_iff hl c).mp h.1)))⟩
     · rintro c ⟨x, hx, rfl, hcm, hk⟩
       obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx
       have hmd := hmod hm hv
@@ -990,7 +1026,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   have hmod : f.moduleOf? n = some lm.name := moduleOf?_eq_some.mpr ⟨lm, hinfo, rfl⟩
   have hcl : lm.name ∈ f.claimed :=
     (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
-  obtain ⟨h1, h2, h3, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2 n k lm.name hk hmod hcl
+  obtain ⟨h1, h2, h3, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2.2 n k lm.name hk hmod hcl
   simp only [Regula.Load.readOf, Prod.mk.injEq] at hread
   obtain ⟨hkind, hsafety, huses, hvalue⟩ := hread
   have hsafe : k.isUnsafe = info.isUnsafe ∧ k.isPartial = info.isPartial := by
@@ -1229,7 +1265,7 @@ theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok 
   split
   · rename_i why hadmit
     have hwf : (toSpecDraft
-        { profile := p, modules := f.claimed, decls := decls,
+        { profile := p, modules := f.claimed, moduleFiles := f.moduleFiles, decls := decls,
           unique := f.decls_nodup (stated := fun n => f.stated.getD n []) hm }).WellFormed := by
       rw [wf_toSpecDraft_iff]
       refine ⟨fun x hx u hu => ?_, h.form.claims⟩
