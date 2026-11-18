@@ -22,7 +22,9 @@ table agrees with itself.
 An example is stated over the parser's node kinds or the decision's input. The kinds and the shapes of the trees below are what Lean's
 own {lit}`parseCommand` and {lit}`parseHeader` gave for the owner's examples at v4.35.0 (`README.md`, "What was measured"). That those trees are what
 the parser gives for a project's real text is H1, which these theorems do not reach. Admitting Regula's own core cannot be stated this way:
-it is the gate's run of the full gate on this checkout, an observation, and {lit}`core_configuration_admitted` states only the configuration's part.
+it is the gate's run of the full gate on this checkout, an observation of the files themselves, its Lake configuration among them. No
+definition here stands for what those files hold, since no build would compare the two: {lit}`configurationKeys` is a list for an
+example, and {lit}`admits_configuration_keys` is about that list.
 -/
 
 @[expose] public section
@@ -138,7 +140,7 @@ abbrev byExample (tac : Syntax) : Syntax :=
 abbrev plusItem (item : Name) : Syntax :=
   n `Lean.Parser.Tactic.optConfig [n `null [n `Lean.Parser.Tactic.configItem [n `Lean.Parser.Tactic.posConfigItem [a "+", i item]]]]
 
-/-- The library code that the owner's words name, and the one attribute of the form {lit}`@[name]` that Regula's core uses: {lit}`by simp`, {lit}`by omega`,
+/-- The library code that the owner's words name, and one attribute of the form {lit}`@[name]`: {lit}`by simp`, {lit}`by omega`,
 {lit}`by decide +kernel`, {lit}`variable (n : Nat)`, {lit}`inductive T where | a deriving DecidableEq` and {lit}`@[expose] def f : Nat := 1`. -/
 def libraryCode : List Syntax :=
   [byExample (n `Lean.Parser.Tactic.simp [a "simp", n `Lean.Parser.Tactic.optConfig [e], e, e, e, e]),
@@ -158,11 +160,12 @@ def libraryCode : List Syntax :=
         n `Lean.Parser.Command.optDeclSig [e, n `null [n `Lean.Parser.Term.typeSpec [a ":", i `Nat]]],
         n `Lean.Parser.Command.declValSimple [a ":=", n `num [a "1"], n `Lean.Parser.Termination.suffix [e, e], e], e]]]
 
-/-- The key paths of Regula's own `lakefile.toml`, by what its text states. -/
-def coreKeys : List Name :=
+/-- The key paths of the example below: keys at the top level, keys below {lit}`leanOptions`, and keys of the tables {lit}`lean_lib` and
+{lit}`lean_exe`. The list restates no file. -/
+def configurationKeys : List Name :=
   [`name, `version, `description, `keywords, `license, `licenseFiles, `srcDir, `defaultTargets, `lintDriver, `lintDriverArgs,
     `leanOptions.warningAsError, `leanOptions.autoImplicit, `leanOptions.relaxedAutoImplicit, `leanOptions.linter.missingDocs,
-    `lean_lib.name, `lean_lib.globs, `lean_exe.name, `lean_exe.root, `lean_exe.supportInterpreter]
+    `lean_lib.name, `lean_lib.roots, `lean_lib.globs, `lean_exe.name, `lean_exe.root, `lean_exe.supportInterpreter]
 
 /-- A project of one {lit}`module` file that holds {name}`commands`, with the pinned toolchain and the key paths {name}`keys`. -/
 def readingOf (keys : List Name) (commands : List Syntax) : Reading where
@@ -182,8 +185,9 @@ def readingOf (keys : List Name) (commands : List Syntax) : Reading where
 theorem admits_library_code : decision (readingOf [`name] libraryCode) = .admitted := by
   decide +kernel
 
-/-- Regula's own Lake configuration is admitted, on the pinned toolchain's text. The rest of admitting Regula's own core is observed, by the gate. -/
-theorem core_configuration_admitted : decision (readingOf coreKeys []) = .admitted := by
+/-- The project of {name}`readingOf` with those key paths and no command is admitted. This is about the list, and about no file: that
+Regula's own `lakefile.toml` is admitted is observed, by the gate, with the rest of its core. -/
+theorem admits_configuration_keys : decision (readingOf configurationKeys []) = .admitted := by
   decide +kernel
 
 theorem refuses_run_cmd_in_that_project :
