@@ -77,9 +77,14 @@ def kindOf : ConstantInfo → Kind
   | .ctorInfo _ => .constructor
   | .recInfo _ => .recursor
 
-/-- The names of `all`, each once. -/
+/-- One step of `dedup`: record `n` in `seen` and `out` when `seen` does not yet hold it. -/
+def dedupStep (acc : Std.HashSet Name × Array Name) (n : Name) : Std.HashSet Name × Array Name :=
+  let (seen, out) := acc
+  if seen.contains n then (seen, out) else (seen.insert n, out.push n)
+
+/-- The names of `all`, each once, in the order of their first occurrence. -/
 def dedup (all : Array Name) : Array Name :=
-  all.foldl (fun acc n => if acc.contains n then acc else acc.push n) #[]
+  (all.foldl dedupStep ({}, #[])).2
 
 /-- The constants a constant mentions: what Lean's kernel checks it against when Lean replays it. That is the type of each
 constant, the value of a definition, theorem or opaque constant, the constructors and the other types of an inductive type's
@@ -333,6 +338,14 @@ def fitsUnshown (f : Facts) {i : Input} (t : Tables i) (m n : Name) (info : Cons
     (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits i.profile ·))
 
 /-- The first constant of a claimed module that the environment does not show and that
+`fitsUnshown` does not admit, with its module, read through `t`. -/
+def Facts.unreadWith? (f : Facts) {i : Input} (t : Tables i) : Option (Name × Name) :=
+  match f.claimedConstants.filter (!f.shown ·) with
+  | [] => none
+  | unshown =>
+    (unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
+
+/-- The first constant of a claimed module that the environment does not show and that
 `fitsUnshown` does not admit, with its module. -/
 def Facts.unread? (f : Facts) (i : Input) : Option (Name × Name) :=
   match f.claimedConstants.filter (!f.shown ·) with
@@ -341,10 +354,11 @@ def Facts.unread? (f : Facts) (i : Input) : Option (Name × Name) :=
     let t := i.tables
     (unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
 
-/-- The closed input of the environment that `f` describes, under the profile `profile`. It refuses
-a module of `roots`, the default targets, that `f` does not claim, a constant with no module, a
-reading that the admission refuses (`Draft.admit`), and a constant that `Facts.unread?` gives. -/
-def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
+/-- The closed input of the environment that `f` describes, under the profile `profile`, paired with
+its tables constructed once. It refuses a module of `roots`, the default targets, that `f` does not
+claim, a constant with no module, a reading that the admission refuses (`Draft.admit`), and a
+constant that `Facts.unreadWith?` gives. -/
+def Facts.prepare (f : Facts) (roots : List Name) (profile : Profile) : Except String Prepared :=
   let claimed := f.claimed
   match roots.find? (!claimed.contains ·) with
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
@@ -360,11 +374,32 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
       match draft.admit with
       | .error why => .error why
       | .ok i =>
-        match f.unread? i with
+        let t := i.tables
+        match f.unreadWith? t with
         | some (m, n) => .error s!"the module {m} holds the constant {n}, which the merged environment \
             does not show to the rules, and this one is no theorem within the profile or \
             has a recursion helper's name or unread or forbidden compiled-code attributes"
-        | none => .ok i
+        | none => .ok ⟨i, t⟩
+
+theorem Facts.prepare_tables (f : Facts) (roots : List Name) (profile : Profile) {p : Prepared}
+    (h : f.prepare roots profile = .ok p) : p.tables = p.input.tables := by
+  simp only [Facts.prepare] at h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  cases h
+  rfl
+
+/-- The closed input of the environment that `f` describes, under the profile `profile`. It refuses
+a module of `roots`, the default targets, that `f` does not claim, a constant with no module, a
+reading that the admission refuses (`Draft.admit`), and a constant that `Facts.unread?` gives. -/
+def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
+  (f.prepare roots profile).map (·.input)
 
 /-- Whether Lean's replay is given a constant of the cone: each constant but the companions of `Quot`, `Quot.mk`,
 `Quot.lift` and `Quot.ind`, which the kernel adds with `Quot` and refuses to add again as names already taken
@@ -421,6 +456,19 @@ def Facts.coneSeeds (f : Facts) : List Name :=
 def Facts.replayConstants (f : Facts) (i : Input) : Std.HashMap Name ConstantInfo :=
   ((f.copies.zipIdx.map (copyAt (copyRoot f.env.constants.map₁))).foldl (fun m x => m.insert x.1 x.2)
     ((i.cone f.coneSeeds).toList.foldl (replayStep f.env.constants.map₁) {}))
+
+/-- What Lean's replay is given of the cone of `p.input`'s claim (`Regula.Closed.Tables.cone`),
+reusing the prebuilt index and claimed declarations of `p.tables`. -/
+def Facts.replayConstantsWith (f : Facts) (p : Prepared) : Std.HashMap Name ConstantInfo :=
+  ((f.copies.zipIdx.map (copyAt (copyRoot f.env.constants.map₁))).foldl (fun m x => m.insert x.1 x.2)
+    ((p.tables.cone f.coneSeeds).toList.foldl (replayStep f.env.constants.map₁) {}))
+
+theorem Facts.replayConstantsWith_eq (f : Facts) {p : Prepared} (h : p.tables = p.input.tables) :
+    f.replayConstantsWith p = f.replayConstants p.input := by
+  rcases p with ⟨i, t⟩
+  dsimp only at h
+  subst h
+  simp [Facts.replayConstantsWith, Facts.replayConstants, Tables.cone_tables]
 
 /-- Whether `loaded`, the search path of the workspace that a load of the current directory gave, starts the search path that this program
 received. Lake gives a program the libraries of its workspace, then its own, then what it inherited (`Workspace.augmentedLeanPath`,

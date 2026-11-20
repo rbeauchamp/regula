@@ -72,16 +72,17 @@ def ValueMentions : ConstantInfo → Name → Prop
   | .opaqueInfo v, u => u ∈ v.value.getUsedConstants
   | .axiomInfo _, _ | .quotInfo _, _ | .inductInfo _, _ | .ctorInfo _, _ | .recInfo _, _ => False
 
-theorem mem_dedupFold (l : List Name) (acc : Array Name) (u : Name) :
-    u ∈ l.foldl (fun acc n => if acc.contains n then acc else acc.push n) acc ↔
-      u ∈ l ∨ u ∈ acc := by
-  induction l generalizing acc with
+theorem mem_dedupFold (l : List Name) (seen : Std.HashSet Name) (out : Array Name)
+    (hinv : ∀ x, seen.contains x = true ↔ x ∈ out) (u : Name) :
+    u ∈ (l.foldl Regula.Load.dedupStep (seen, out)).2 ↔ u ∈ l ∨ u ∈ out := by
+  induction l generalizing seen out with
   | nil => simp
   | cons a l ih =>
-    simp only [List.foldl_cons, ih, List.mem_cons]
+    simp only [List.foldl_cons, Regula.Load.dedupStep, List.mem_cons]
     split
     · rename_i hc
-      have ha : a ∈ acc := by simpa using hc
+      have ha : a ∈ out := (hinv a).mp hc
+      rw [ih seen out hinv]
       constructor
       · rintro (h | h)
         · exact .inl (.inr h)
@@ -90,7 +91,12 @@ theorem mem_dedupFold (l : List Name) (acc : Array Name) (u : Name) :
         · exact .inr ha
         · exact .inl h
         · exact .inr h
-    · simp only [Array.mem_push]
+    · have hinv' : ∀ x, (seen.insert a).contains x = true ↔ x ∈ out.push a := by
+        intro x
+        simp only [Std.HashSet.contains_insert, Bool.or_eq_true, beq_iff_eq, hinv, Array.mem_push]
+        exact ⟨fun h => h.elim (fun h => .inr h.symm) .inl, fun h => h.elim .inr (fun h => .inl h.symm)⟩
+      rw [ih (seen.insert a) (out.push a) hinv']
+      simp only [Array.mem_push]
       constructor
       · rintro (h | h | rfl)
         · exact .inl (.inr h)
@@ -103,7 +109,7 @@ theorem mem_dedupFold (l : List Name) (acc : Array Name) (u : Name) :
 
 theorem mem_dedup (all : Array Name) (u : Name) : u ∈ Regula.Load.dedup all ↔ u ∈ all := by
   unfold Regula.Load.dedup
-  rw [← Array.foldl_toList, mem_dedupFold]
+  rw [← Array.foldl_toList, mem_dedupFold _ _ _ (by simp)]
   simp
 
 theorem mem_usesOf (info : ConstantInfo) (u : Name) :
@@ -514,8 +520,14 @@ theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.In
     rw [hdecls]
     exact hdv ▸ hd'
 
-theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
-  simp only [Regula.Load.Facts.input] at h
+theorem input_eq_ok_iff :
+    f.input roots p = .ok i ↔ ∃ prep, f.prepare roots p = .ok prep ∧ prep.input = i := by
+  simp only [Regula.Load.Facts.input, Except.map]
+  cases f.prepare roots p <;> simp
+
+theorem prepare_loaded {prep : Regula.Closed.Prepared} (h : f.prepare roots p = .ok prep) :
+    Loaded f roots p prep.input := by
+  simp only [Regula.Load.Facts.prepare] at h
   split at h
   · cases h
   rename_i hfind
@@ -531,21 +543,26 @@ theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
   subst h
   exact loaded_of_parts hfind hm hadmit
 
+theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
+  obtain ⟨prep, hprep, rfl⟩ := input_eq_ok_iff.mp h
+  exact prepare_loaded hprep
+
 theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantInfo}
     (hx : x ∈ f.claimedConstants) :
     f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true := by
-  simp only [Regula.Load.Facts.input] at h
-  split at h
-  · cases h
-  split at h
-  · cases h
-  split at h
-  · cases h
-  split at h
-  · cases h
+  obtain ⟨prep, hprep, rfl⟩ := input_eq_ok_iff.mp h
+  simp only [Regula.Load.Facts.prepare] at hprep
+  split at hprep
+  · cases hprep
+  split at hprep
+  · cases hprep
+  split at hprep
+  · cases hprep
+  split at hprep
+  · cases hprep
   rename_i hkeeps
-  simp only [Except.ok.injEq] at h
-  subst h
+  simp only [Except.ok.injEq] at hprep
+  subst hprep
   exact unread_none hkeeps hx
 
 theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
@@ -1243,8 +1260,8 @@ theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e 
         rw [hl] at h
         cases h
 
-theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok i := by
-  simp only [Regula.Load.Facts.input]
+theorem prepare_of_floor (h : LoadFloor f roots p) : ∃ prep, f.prepare roots p = .ok prep := by
+  simp only [Regula.Load.Facts.prepare]
   split
   · rename_i m hfind
     have hmem := List.mem_of_find?_eq_some hfind
@@ -1280,12 +1297,16 @@ theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok 
     cases hadmit
   rename_i i' hadmit
   have hl := loaded_of_parts hfind hm hadmit
-  have hnone : f.unread? i' = none := unread_none_of fun x hx => by
+  have hnone : f.unreadWith? i'.tables = none := unread_none_of fun x hx => by
     by_cases hs : f.shown x = true
     · exact .inl hs
     · exact .inr ((fitsUnshown_iff hl x).mpr (h.unshown x hx (by simpa using hs)))
   rw [hnone]
   exact ⟨_, rfl⟩
+
+theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok i := by
+  obtain ⟨prep, hprep⟩ := prepare_of_floor h
+  exact ⟨prep.input, by simp [Regula.Load.Facts.input, hprep, Except.map]⟩
 
 theorem pass_iff_floor :
     (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ LoadFloor f roots p := by

@@ -245,6 +245,23 @@ theorem mem_axiomSet (c a : Name) : a ∈ t.axiomSet c ↔ i.AxiomOf c a := by
   · rintro ⟨s, hm, hc⟩
     exact ⟨(a, s), hm, by simp [hc]⟩
 
+/-- The cone of the claim from `seeds`, read through `t`: each constant of a claimed module, each of
+`seeds`, and each constant that one of them reaches through what each constant mentions. -/
+def cone (seeds : List Name) : Std.HashSet Name :=
+  reach (fun n => ((t.index[n]?).map (·.uses)).getD []) (i.decls.map (·.uses.length)).sum
+    (t.claimed.map (·.name) ++ seeds)
+
+theorem cone_tables (i : Input) (seeds : List Name) : i.tables.cone seeds = i.cone seeds := by
+  rfl
+
 end Tables
+
+/-- An admitted closed input paired with its tables, so one construction of `Input.tables` serves
+both loader admission and rule evaluation for that exact input. -/
+structure Prepared where
+  /-- The admitted closed input. -/
+  input : Input
+  /-- The tables of `input`. -/
+  tables : Tables input
 
 end Regula.Closed

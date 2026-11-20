@@ -213,11 +213,12 @@ theorem loaded_spec {what : String} {r : Except String (Option (Root L) × List 
       exact ⟨log, rfl⟩
 
 theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile}
-    {b : Except String (FilePath × Regula.Closed.Input)} (hT : t.Sublist T) (hq : Quiet prior)
+    {b : Except String (FilePath × Regula.Closed.Prepared)} (hT : t.Sublist T) (hq : Quiet prior)
     (h : Runs (loadPlain p : Attempt L E _).run t b) :
-    Loaded PlainRoot PlainReason T p (b.map (·.2)) ∧
-      (∀ d i, b = .ok (d, i) → ((⟨.realPath ".", .ok d⟩ : Event L E) ∈ T ∧
-        ∃ sysroot root log, (⟨.loadWorkspace sysroot d, .ok (some root, log)⟩ : Event L E) ∈ T ∧ PlainRoot T root) ∧ Clean t) ∧
+    Loaded PlainRoot PlainReason T p (b.map (·.2.input)) ∧
+      (∀ d prep, b = .ok (d, prep) → prep.tables = prep.input.tables ∧
+        ((⟨.realPath ".", .ok d⟩ : Event L E) ∈ T ∧
+          ∃ sysroot root log, (⟨.loadWorkspace sysroot d, .ok (some root, log)⟩ : Event L E) ∈ T ∧ PlainRoot T root) ∧ Clean t) ∧
       PlainPreparation (prior ++ t) := by
   unfold loadPlain at h
   obtain ⟨t₁, t₂, r₁, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
@@ -287,23 +288,23 @@ theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile
           split at h₁₄
           · rename_i hdis
             obtain ⟨tI, tP, rI, rfl, hI, hP⟩ := runs_attempt_bind_iff.mp h₁₄
-            obtain ⟨o1, o2⟩ := inputOf_spec ((List.sublist_append_left _ _).trans hT₁₂) hI
+            obtain ⟨o1, otab, o2⟩ := inputOf_spec ((List.sublist_append_left _ _).trans hT₁₂) hI
             have hroot : PlainRoot T root := ⟨sysroot, dir, log, received, hmem₁, hmemLoad,
               hT₂.subset (by simp), hmemEnv, (startsSearchPath_eq_true_iff _ _).mp (by simpa using hdis)⟩
-            have hend : tP = [] ∧ b.map (·.2) = rI ∧ ∀ d i, b = .ok (d, i) → d = dir ∧ rI = .ok i := by
+            have hend : tP = [] ∧ b.map (·.2.input) = rI.map (·.input) ∧ ∀ d prep, b = .ok (d, prep) → d = dir ∧ rI = .ok prep := by
               cases rI with
               | error why => obtain ⟨rfl, rfl⟩ := hP; exact ⟨rfl, rfl, fun _ _ he => by cases he⟩
-              | ok input =>
+              | ok prep =>
                 obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp hP
-                exact ⟨rfl, rfl, fun d i he => by cases he; exact ⟨rfl, rfl⟩⟩
+                exact ⟨rfl, rfl, fun d prep' he => by cases he; exact ⟨rfl, rfl⟩⟩
             obtain ⟨rfl, hmap, hsub⟩ := hend
-            refine ⟨?_, fun d i he => ?_, by simpa [List.append_assoc] using hprep (u := [⟨.getEnv "LEAN_PATH", some received⟩] ++ tI) (o2.prepend hqe)⟩
+            refine ⟨?_, fun d prep he => ?_, by simpa [List.append_assoc] using hprep (u := [⟨.getEnv "LEAN_PATH", some received⟩] ++ tI) (o2.prepend hqe)⟩
             · rw [hmap]
-              rcases o1 with ⟨f, roots, hb, he, -⟩ | ⟨hf, hw⟩
+              rcases o1 with ⟨f, roots, hb, he, -⟩ | ⟨hf, why, rfl⟩
               · exact .inl ⟨root, f, roots, hroot, hb, he⟩
-              · exact .inr ⟨.build hroot hf, hw⟩
-            · obtain ⟨rfl, hi⟩ := hsub d i he
-              refine ⟨⟨hT₂.subset (by simp), sysroot, root, log, hmemLoad, hroot⟩, ?_⟩
+              · exact .inr ⟨.build hroot hf, why, rfl⟩
+            · obtain ⟨rfl, hi⟩ := hsub d prep he
+              refine ⟨otab prep hi, ⟨hT₂.subset (by simp), sysroot, root, log, hmemLoad, hroot⟩, ?_⟩
               rcases o1 with ⟨f, roots, -, -, hcl⟩ | ⟨-, why, hw⟩
               · have hc₁ : Clean ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩, ⟨.realPath ".", .ok d⟩,
                     ⟨.loadWorkspace sysroot d, .ok (some root, log)⟩, ⟨.getEnv "LEAN_PATH", some received⟩] : List (Event L E)) := by
@@ -314,7 +315,7 @@ theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile
                   · rintro ⟨y, hy⟩; cases hy
                   · rintro (⟨y, hy⟩ | ⟨y, hy⟩) <;> cases hy
                   · exact fun hn => by cases hn
-                simpa [List.append_assoc] using hc₁.append (hcl i hi)
+                simpa [List.append_assoc] using hc₁.append (hcl prep hi)
               · rw [hw] at hi; cases hi
           · rename_i hd
             obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₁₄
@@ -323,9 +324,10 @@ theorem loadPlain_spec {T prior t : List (Event L E)} {p : Regula.Closed.Profile
               by simpa using hprep (u := [⟨.getEnv "LEAN_PATH", some received⟩]) (InputPreparation.prepend (t := []) hqe (fun e he => by cases he))⟩
 
 theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}
-    {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Input} (hT : t.Sublist T)
+    {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Prepared} (hT : t.Sublist T)
     (h : Runs (loadTree sysroot tree p : Attempt L E _).run t b) :
-    Loaded (TreeRoot sysroot tree) (TreeReason sysroot tree) T p b ∧ (∀ i, b = .ok i → Clean t) ∧ RulesPreparation sysroot tree t := by
+    Loaded (TreeRoot sysroot tree) (TreeReason sysroot tree) T p (b.map (·.input)) ∧
+      (∀ prep, b = .ok prep → prep.tables = prep.input.tables ∧ Clean t) ∧ RulesPreparation sysroot tree t := by
   unfold loadTree at h
   obtain ⟨t₃, t₄, r₃, rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h
   obtain ⟨r₅, h₅, rfl⟩ := runs_attempt_iff.mp h₃
@@ -356,12 +358,12 @@ theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePa
     | ok root =>
       rw [hl] at h₇
       obtain ⟨log, rfl⟩ := l1 root hl
-      obtain ⟨o1, o2⟩ := inputOf_spec hT₆ h₇
-      refine ⟨?_, fun i he => ?_, .inr ⟨_, dir, .ok (some root, log), t₆, by simp, hpre, by simp, o2⟩⟩
+      obtain ⟨o1, otab, o2⟩ := inputOf_spec hT₆ h₇
+      refine ⟨?_, fun prep he => ⟨otab prep he, ?_⟩, .inr ⟨_, dir, .ok (some root, log), t₆, by simp, hpre, by simp, o2⟩⟩
       · have hroot : TreeRoot sysroot tree T root := ⟨dir, log, hT.subset (by simp), hmemLoad⟩
-        rcases o1 with ⟨f, roots, hb, he, -⟩ | ⟨hf, hw⟩
+        rcases o1 with ⟨f, roots, hb, he, -⟩ | ⟨hf, why, rfl⟩
         · exact .inl ⟨root, f, roots, hroot, hb, he⟩
-        · exact .inr ⟨.build hroot hf, hw⟩
+        · exact .inr ⟨.build hroot hf, why, rfl⟩
       · subst he
         rcases o1 with ⟨f, roots, -, -, hcl⟩ | ⟨-, why, hw⟩
         · have hc₁ : Clean ([⟨.realPath tree, .ok dir⟩, ⟨.loadRoot sysroot dir, .ok (some root, log)⟩] : List (Event L E)) := by
@@ -370,7 +372,7 @@ theorem loadTree_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePa
             rcases hx with rfl | rfl
             · rintro ⟨y, hy⟩; cases hy
             · rintro (⟨y, hy⟩ | ⟨y, hy⟩) <;> cases hy
-          simpa [List.append_assoc] using hc₁.append (hcl i rfl)
+          simpa [List.append_assoc] using hc₁.append (hcl prep rfl)
         · cases hw
 
 end RegulaSpecification.Effects

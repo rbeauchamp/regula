@@ -68,6 +68,10 @@ def details : Report → List String
 def coverage (i : Input) : String :=
   s!"regula: read {i.modules.length} claimed modules and {i.claimedDecls.length} of their constants"
 
+/-- What a run read, using the prebuilt table of claimed declarations. -/
+def coveragePrepared (p : Prepared) : String :=
+  s!"regula: read {p.input.modules.length} claimed modules and {p.tables.claimed.length} of their constants"
+
 /-- The spellings of the profiles, for a refusal. -/
 def profileSpellings : String :=
   ", ".intercalate (Profile.all.map (·.spelling))
@@ -114,28 +118,28 @@ def factsOf (env : Lean.Environment) (path : List FilePath) (toolchainDir rootDi
   pure { env, toolchainDir, rootDir, modules := ms.toArray, names := by simpa using hn,
          placed := by simpa using hp }
 
-/-- The input `i` of the facts `f`, once Lean's kernel has accepted, into an empty environment, the replay of the cone of
-its claim (`Regula.Load.Facts.replayConstants`). Any other answer is why the run is `incomplete`. -/
-def replayed (f : Regula.Load.Facts) (i : Input) : Attempt L E Input :=
+/-- The prepared input `p` of the facts `f`, once Lean's kernel has accepted, into an empty environment, the replay of the cone of
+its claim (`Regula.Load.Facts.replayConstantsWith`). Any other answer is why the run is `incomplete`. -/
+def replayed (f : Regula.Load.Facts) (p : Prepared) : Attempt L E Prepared :=
   ExceptT.mk do
-    match ← (Prog.call (.kernelReplay (f.replayConstants i)) : Prog L E (Except IO.Error Unit)) with
-    | .ok _ => pure (.ok i)
+    match ← (Prog.call (.kernelReplay (f.replayConstantsWith p)) : Prog L E (Except IO.Error Unit)) with
+    | .ok _ => pure (.ok p)
     | .error e => pure (.error s!"Lean's kernel did not accept the replay of the claim's cone: {e}")
 
-/-- The closed input of the finished build that the load `root` describes, once Lean's kernel has accepted the cone of its
+/-- The closed input and tables of the finished build that the load `root` describes, once Lean's kernel has accepted the cone of its
 claim. -/
-def inputOf (root : Root L) (profile : Profile) : Attempt L E Input := do
+def inputOf (root : Root L) (profile : Profile) : Attempt L E Prepared := do
   let modules ← defaultModules root root.defaultTargets
   let roots := modules.map (·.1)
   let env ← attempt (Prog.call (.importForRules root.leanPath roots.toArray))
   let f ← factsOf env root.leanPath root.leanLib root.rootLib
-  let i ← ExceptT.mk (pure (f.input roots profile))
-  replayed f i
+  let p ← ExceptT.mk (pure (f.prepare roots profile))
+  replayed f p
 
-/-- The closed input of the finished build of the workspace in the current directory, with that directory. The search path's test
+/-- The closed input and tables of the finished build of the workspace in the current directory, with that directory. The search path's test
 refuses a run whose search path does not start with that workspace's, and it says no more of what Lake selected (`Regula.Load.startsSearchPath`).
 -/
-def loadPlain (profile : Profile) : Attempt L E (FilePath × Input) := do
+def loadPlain (profile : Profile) : Attempt L E (FilePath × Prepared) := do
   let sysroot ← requireEnv "LEAN_SYSROOT"
     "LEAN_SYSROOT is not set, so the toolchain of the build is not known: run the checker with \
       `lake lint` or `lake exe lint`, which set it"
@@ -146,32 +150,33 @@ def loadPlain (profile : Profile) : Attempt L E (FilePath × Input) := do
     "LEAN_PATH is not set, so this run did not get Lake's search path: run the checker with \
       `lake lint` or `lake exe lint`, which set it"
   if Regula.Load.startsSearchPath (root.leanPath.map toString) ((System.SearchPath.parse received).map toString) then
-    let input ← inputOf root profile
-    pure (dir, input)
+    let prepared ← inputOf root profile
+    pure (dir, prepared)
   else
     throw "Lake's search path does not start with that of the workspace in the current directory, so this may be another workspace: run \
       `lake lint` from the directory of the workspace to check"
 
-/-- The closed input of the finished build in the checker's tree, through the root package's load alone. The
+/-- The closed input and tables of the finished build in the checker's tree, through the root package's load alone. The
 full gate asks this only after the check admitted the project, so each `globs` entry is a single module and it
 lists no directory. -/
-def loadTree (sysroot : String) (tree : FilePath) (profile : Profile) : Attempt L E Input := do
+def loadTree (sysroot : String) (tree : FilePath) (profile : Profile) : Attempt L E Prepared := do
   let dir ← realPath tree
   let root ← ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot dir)) fun r =>
     pure (loaded "the configuration" r))
   inputOf root profile
 
 /-- What a load read, printed. -/
-def sayCoverage : Except String Input → Prog L E Unit
-  | .ok input => say (coverage input)
+def sayCoverage : Except String Prepared → Prog L E Unit
+  | .ok prepared => say (coveragePrepared prepared)
   | .error _ => pure ()
 
 /-- The rules on the finished build: prints what they found, and gives their verdict. -/
-def rules (load : Attempt L E Input) : Prog L E Verdict := do
+def rules (load : Attempt L E Prepared) : Prog L E Verdict := do
   let result ← load.run
   sayCoverage result
-  sayAll (details (decision result))
-  pure (decision result).verdict
+  let report := decisionPrepared result
+  sayAll (details report)
+  pure report.verdict
 
 /-- What the language check says of a reading, printed. -/
 def check (sysroot : String) (dir tree : FilePath) : Prog L E Language.Outcome := do
@@ -247,16 +252,16 @@ def runFull (profile : Profile) (dir : FilePath) : Prog L E UInt32 := do
       finishFull dir report
 
 /-- The directory that a load gave. A load that gave no input names none, and its verdict is no pass. -/
-def subjectOf : Except String (FilePath × Input) → FilePath
+def subjectOf : Except String (FilePath × Prepared) → FilePath
   | .ok x => x.1
   | .error _ => "."
 
 /-- A run of the proof verdict on the workspace in the current directory. -/
 def runPlain (profile : Profile) : Prog L E UInt32 := do
   let result ← (loadPlain profile).run
-  let input := result.map (·.2)
-  sayCoverage input
-  finishPlain (subjectOf result) (decision input)
+  let prepared := result.map (·.2)
+  sayCoverage prepared
+  finishPlain (subjectOf result) (decisionPrepared prepared)
 
 /-- What a run does on this Lean with these arguments: the profile, or a refusal, and then the variable says which run. -/
 def dispatch (version commit : String) (args : List String) : Prog L E UInt32 :=

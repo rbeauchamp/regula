@@ -91,11 +91,12 @@ theorem factsOf_spec {env : Environment} {root : Root L} {toolchainDir rootDir :
     obtain ⟨g1, g2⟩ := m1 ⟨ms, hn, hp⟩ rfl
     exact ⟨rfl, rfl, rfl, fun m hm => by simpa using g1 m (by simpa using hm), by simpa using g2⟩
 
-theorem replayed_spec {f : Regula.Load.Facts} {i : Regula.Closed.Input} {t : List (Event L E)}
-    {b : Except String Regula.Closed.Input} (h : Runs (replayed f i : Attempt L E Regula.Closed.Input).run t b) :
-    ∃ r, t = [⟨.kernelReplay (f.replayConstants i), r⟩] ∧
-      ((r = .ok () ∧ b = .ok i) ∨ ((∃ e, r = .error e) ∧ ∃ message, b = .error message)) := by
-  rw [replayed] at h
+theorem replayed_spec {f : Regula.Load.Facts} {p : Regula.Closed.Prepared} {t : List (Event L E)}
+    {b : Except String Regula.Closed.Prepared} (ht : p.tables = p.input.tables)
+    (h : Runs (replayed f p : Attempt L E Regula.Closed.Prepared).run t b) :
+    ∃ r, t = [⟨.kernelReplay (f.replayConstants p.input), r⟩] ∧
+      ((r = .ok () ∧ b = .ok p) ∨ ((∃ e, r = .error e) ∧ ∃ message, b = .error message)) := by
+  rw [replayed, f.replayConstantsWith_eq ht] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_bind_iff.mp h
   obtain rfl := runs_call_iff.mp h₁
   cases r with
@@ -106,10 +107,13 @@ theorem replayed_spec {f : Regula.Load.Facts} {i : Regula.Closed.Input} {t : Lis
     obtain ⟨rfl, rfl⟩ := runs_done_iff.mp h₂
     exact ⟨.error e, rfl, .inr ⟨⟨e, rfl⟩, _, rfl⟩⟩
 
-theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed.Profile} {b : Except String Regula.Closed.Input}
-    (hT : t.Sublist T) (h : Runs (inputOf root p : Attempt L E Regula.Closed.Input).run t b) :
-    ((∃ f roots, BuildRead T root f roots ∧ Replayed T f (f.input roots p) b ∧ ∀ i, b = .ok i → Clean t) ∨
-      (BuildFailed T root ∧ ∃ why, b = .error why)) ∧ InputPreparation root t := by
+theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed.Profile}
+    {b : Except String Regula.Closed.Prepared}
+    (hT : t.Sublist T) (h : Runs (inputOf root p : Attempt L E Regula.Closed.Prepared).run t b) :
+    ((∃ f roots, BuildRead T root f roots ∧ Replayed T f (f.input roots p) (b.map (·.input)) ∧
+        ∀ prep, b = .ok prep → Clean t) ∨
+      (BuildFailed T root ∧ ∃ why, b = .error why)) ∧
+      (∀ prep, b = .ok prep → prep.tables = prep.input.tables) ∧ InputPreparation root t := by
   rw [inputOf] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   have hT₁ : t₁.Sublist T := (List.sublist_append_left _ _).trans hT
@@ -119,7 +123,8 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
   | error why =>
     obtain ⟨rfl, rfl⟩ := h₂
     obtain ⟨tg, lib, x, hg, hl, hx⟩ := m2 ⟨why, rfl⟩
-    exact ⟨.inr ⟨.library hg hl (hT₁.subset hx), why, rfl⟩, by simpa using InputPreparation.prepend (t := []) m3 (fun e he => by cases he)⟩
+    exact ⟨.inr ⟨.library hg hl (hT₁.subset hx), why, rfl⟩, (fun _ he => by cases he),
+      by simpa using InputPreparation.prepend (t := []) m3 (fun e he => by cases he)⟩
   | ok modules =>
     obtain ⟨hmods, hcl⟩ := m1 modules rfl
     dsimp only at h₂
@@ -135,6 +140,7 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
       obtain ⟨rfl, rfl⟩ := h₇
       exact ⟨.inr ⟨.import hmods (hT₂.subset (by simp) :
         (⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .error e⟩ : Event L E) ∈ T), _, rfl⟩,
+        (fun _ he => by cases he),
         by simpa using InputPreparation.prepend m3 himport⟩
     | ok env =>
       obtain ⟨t₇, t₈, r₇, rfl, h₉, h₁₀⟩ := runs_attempt_bind_iff.mp h₇
@@ -151,6 +157,7 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
         have hf : (⟨.findOLean root.leanPath m, .error e'⟩ : Event L E) ∈ T := hT₂.subset (by simp [he'])
         exact ⟨.inr ⟨.search hmods (hT₂.subset (by simp) :
           (⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩ : Event L E) ∈ T) hm hf, why, rfl⟩,
+          (fun _ he => by cases he),
           by simpa using hprep⟩
       | ok f =>
         obtain ⟨t₉, t₁₀, r₉, rfl, h₁₁, h₁₂⟩ := runs_attempt_bind_iff.mp h₁₀
@@ -166,29 +173,46 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
             simp [hm m hm']
         have hcl₈ : Clean (t₁ ++ ([⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩] ++ t₇)) :=
           by simpa [List.append_assoc] using hcl.append (hcl₆.append hcl₇)
-        cases hin : f.input (modules.map (·.1)) p with
+        cases hin : f.prepare (modules.map (·.1)) p with
         | error why =>
           rw [hin] at h₁₂
           obtain ⟨rfl, rfl⟩ := h₁₂
-          exact ⟨.inl ⟨f, modules.map (·.1), hread, by rw [hin]; simp [Replayed], fun _ he' => (by cases he')⟩, by simpa using hprep⟩
-        | ok i =>
+          have hinp : f.input (modules.map (·.1)) p = .error why := by
+            simp [Regula.Load.Facts.input, hin, Except.map]
+          exact ⟨.inl ⟨f, modules.map (·.1), hread, by rw [hinp]; simp [Replayed, Except.map], fun _ he' => (by cases he')⟩,
+            (fun _ he' => by cases he'), by simpa using hprep⟩
+        | ok prep =>
           rw [hin] at h₁₂
-          obtain ⟨r, rfl, hr'⟩ := replayed_spec h₁₂
-          have hmemR : (⟨.kernelReplay (f.replayConstants i), r⟩ : Event L E) ∈ T := hT₂.subset (by simp)
+          have htables : prep.tables = prep.input.tables := f.prepare_tables _ _ hin
+          obtain ⟨r, rfl, hr'⟩ := replayed_spec htables h₁₂
+          have hmemR : (⟨.kernelReplay (f.replayConstants prep.input), r⟩ : Event L E) ∈ T := hT₂.subset (by simp)
           have hprepR : InputPreparation root (t₁ ++ ([⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩] ++
-              (t₇ ++ ([] ++ [⟨.kernelReplay (f.replayConstants i), r⟩])))) := by
+              (t₇ ++ ([] ++ [⟨.kernelReplay (f.replayConstants prep.input), r⟩])))) := by
             refine InputPreparation.prepend m3 fun x hx => ?_
             simp only [List.nil_append, List.mem_append, List.mem_singleton] at hx
             rcases hx with hx | hx | rfl
             · exact himport x (List.mem_singleton.mpr hx)
             · exact f3 x hx
             · exact .inl trivial
-          refine ⟨.inl ⟨f, modules.map (·.1), hread, by rw [hin]; simp only [Replayed]; exact ⟨r, hmemR, hr'⟩, fun j hj => ?_⟩, by simpa [List.append_assoc] using hprepR⟩
-          rcases hr' with ⟨rfl, -⟩ | ⟨-, message, hm'⟩
-          · have hcl₉ : Clean ([⟨.kernelReplay (f.replayConstants i), .ok ()⟩] : List (Event L E)) :=
-              clean_one (by rintro ⟨y, hy⟩; cases hy)
-            simpa [List.append_assoc] using hcl₈.append hcl₉
-          · rw [hm'] at hj
-            cases hj
+          have hinp : f.input (modules.map (·.1)) p = .ok prep.input := by
+            simp [Regula.Load.Facts.input, hin, Except.map]
+          refine ⟨.inl ⟨f, modules.map (·.1), hread, ?_, fun j hj => ?_⟩, fun j hj => ?_,
+            by simpa [List.append_assoc] using hprepR⟩
+          · rw [hinp]
+            simp only [Replayed]
+            refine ⟨r, hmemR, ?_⟩
+            rcases hr' with ⟨rfl, rfl⟩ | ⟨he', msg, rfl⟩
+            · exact .inl ⟨rfl, rfl⟩
+            · exact .inr ⟨he', msg, rfl⟩
+          · rcases hr' with ⟨rfl, -⟩ | ⟨-, message, hm'⟩
+            · have hcl₉ : Clean ([⟨.kernelReplay (f.replayConstants prep.input), .ok ()⟩] : List (Event L E)) :=
+                clean_one (by rintro ⟨y, hy⟩; cases hy)
+              simpa [List.append_assoc] using hcl₈.append hcl₉
+            · rw [hm'] at hj
+              cases hj
+          · rcases hr' with ⟨-, rfl⟩ | ⟨-, message, rfl⟩
+            · cases hj
+              exact htables
+            · cases hj
 
 end RegulaSpecification.Effects

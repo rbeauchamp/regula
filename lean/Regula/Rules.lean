@@ -40,44 +40,86 @@ def reservedSpellings : List String := ["RG1010", "RG2001"]
 /-- Each spelling names one check, so a finding's code names the rule that reports it. -/
 theorem spellings_nodup : (registry.map (·.spelling) ++ reservedSpellings).Nodup := by decide
 
-/-- Every finding of the input: the findings of each registered rule, in the order of the registry. -/
-def Input.findings (i : Input) : List Finding :=
-  let t := i.tables
+/-- Every finding of the input, read through its tables `t`, in the order of the registry. -/
+def Tables.findings {i : Input} (t : Tables i) : List Finding :=
   registry.flatMap fun r => (r.check t).map (Finding.of r)
 
+theorem Tables.mem_findings {i : Input} {t : Tables i} {f : Finding} :
+    f ∈ t.findings ↔ ∃ r ∈ registry, ∃ v ∈ r.check t, Finding.of r v = f := by
+  simp [Tables.findings]
+
+theorem Tables.findings_eq_nil_iff {i : Input} (t : Tables i) :
+    t.findings = [] ↔ ∀ r ∈ registry, r.check t = [] := by
+  simp [Tables.findings]
+
+/-- Every finding of the input: the findings of each registered rule, in the order of the registry. -/
+def Input.findings (i : Input) : List Finding :=
+  i.tables.findings
+
 theorem mem_findings {i : Input} {f : Finding} :
-    f ∈ i.findings ↔ ∃ r ∈ registry, ∃ v ∈ r.check i.tables, Finding.of r v = f := by
-  simp [Input.findings]
+    f ∈ i.findings ↔ ∃ r ∈ registry, ∃ v ∈ r.check i.tables, Finding.of r v = f :=
+  Tables.mem_findings
 
-theorem findings_eq_nil_iff (i : Input) : i.findings = [] ↔ ∀ r ∈ registry, r.check i.tables = [] := by
-  simp [Input.findings]
+theorem findings_eq_nil_iff (i : Input) : i.findings = [] ↔ ∀ r ∈ registry, r.check i.tables = [] :=
+  Tables.findings_eq_nil_iff i.tables
 
-/-- The report of the closed input: it passes exactly when no rule reports a subject. -/
-def Input.report (i : Input) : Report :=
-  match i.findings with
+/-- The report of the closed input, read through its tables `t`: it passes exactly when no rule
+reports a subject. -/
+def Tables.report {i : Input} (t : Tables i) : Report :=
+  match t.findings with
   | [] => .pass
   | first :: rest => .fail first rest
 
-theorem report_findings (i : Input) : i.report.findings = i.findings := by
-  simp only [Input.report]
-  cases i.findings <;> rfl
+theorem Tables.report_findings {i : Input} (t : Tables i) : t.report.findings = t.findings := by
+  simp only [Tables.report]
+  cases t.findings <;> rfl
+
+/-- A run over `t` passes exactly when no registered rule reports a subject, and otherwise fails: an
+input of the closed form is never incomplete. -/
+theorem Tables.report_pass_iff {i : Input} (t : Tables i) :
+    t.report.verdict = .pass ↔ ∀ r ∈ registry, r.check t = [] := by
+  rw [← Tables.findings_eq_nil_iff]
+  simp only [Tables.report]
+  cases t.findings <;> simp [Report.verdict]
+
+theorem Tables.report_not_incomplete {i : Input} (t : Tables i) : t.report.verdict ≠ .incomplete := by
+  simp only [Tables.report]
+  cases t.findings <;> simp [Report.verdict]
+
+/-- The report of the closed input: it passes exactly when no rule reports a subject. -/
+def Input.report (i : Input) : Report :=
+  i.tables.report
+
+theorem report_findings (i : Input) : i.report.findings = i.findings :=
+  Tables.report_findings i.tables
 
 /-- A run passes exactly when no registered rule reports a subject, and otherwise fails: an input of
 the closed form is never incomplete. -/
 theorem report_pass_iff (i : Input) :
-    i.report.verdict = .pass ↔ ∀ r ∈ registry, r.check i.tables = [] := by
-  rw [← findings_eq_nil_iff]
-  simp only [Input.report]
-  cases i.findings <;> simp [Report.verdict]
+    i.report.verdict = .pass ↔ ∀ r ∈ registry, r.check i.tables = [] :=
+  Tables.report_pass_iff i.tables
 
-theorem report_not_incomplete (i : Input) : i.report.verdict ≠ .incomplete := by
-  simp only [Input.report]
-  cases i.findings <;> simp [Report.verdict]
+theorem report_not_incomplete (i : Input) : i.report.verdict ≠ .incomplete :=
+  Tables.report_not_incomplete i.tables
 
 /-- The report of a run, from what the load gave: a build it cannot read is `incomplete`, and
 otherwise the report is `Input.report`. -/
 def decision : Except String Input → Report
   | .error why => .incomplete why
   | .ok input => input.report
+
+/-- The report of a run, from a prepared load: a build it cannot read is `incomplete`, and
+otherwise the report is `Tables.report` on the prepared tables. -/
+def decisionPrepared : Except String Prepared → Report
+  | .error why => .incomplete why
+  | .ok p => p.tables.report
+
+theorem decisionPrepared_eq {r : Except String Prepared}
+    (ht : ∀ p, r = .ok p → p.tables = p.input.tables) :
+    decisionPrepared r = decision (r.map (·.input)) := by
+  cases r with
+  | error why => rfl
+  | ok p =>
+    simp only [decisionPrepared, Except.map, decision, Input.report, ht p rfl]
 
 end Regula.Closed

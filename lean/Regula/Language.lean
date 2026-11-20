@@ -29,21 +29,55 @@ namespace Regula.Language
 
 open Lean (Name Syntax)
 
+/-- Strict order on `Name` for binary search on sorted tables. -/
+def nameLt (a b : Name) : Bool :=
+  Name.cmp a b == .lt
+
+/-- Strict order on `String` for binary search on sorted tables. -/
+def strLt (a b : String) : Bool :=
+  decide (a < b)
+
+/-- Prebuilt sorted array of `kinds` for binary search. -/
+def kindsArray : Array Name := kinds.toArray
+
+/-- Prebuilt sorted array of `leafKinds` for binary search. -/
+def leafKindsArray : Array Name := leafKinds.toArray
+
+/-- Prebuilt sorted array of `atoms` for binary search. -/
+def atomsArray : Array String := atoms.toArray
+
+/-- Whether `k` is a leaf kind whose children are open text. -/
+def isLeafKind (k : Name) : Bool :=
+  leafKindsArray.binSearchContains k nameLt
+
+/-- Whether `k` is an admitted non-leaf syntax kind. -/
+def isKind (k : Name) : Bool :=
+  kindsArray.binSearchContains k nameLt
+
+/-- Whether `v` is an admitted token outside `leafKinds`. -/
+def isAtom (v : String) : Bool :=
+  atomsArray.binSearchContains v strLt
+
 mutual
-  /-- Every position of a tree that the check reads: the tree, and the positions of each child of a node
-  whose kind is not a leaf kind. -/
-  def positions : Syntax → List Syntax
+  /-- Every position of a tree that the check reads, pushed in reverse onto `acc`. -/
+  def positionsGo (acc : List Syntax) : Syntax → List Syntax
     | .node i k as =>
-      .node i k as :: (if leafKinds.contains k then [] else positionsOfArray as)
-    | s => [s]
-  /-- `positions` of each element. -/
-  def positionsOfArray : Array Syntax → List Syntax
-    | ⟨l⟩ => positionsOfList l
-  /-- `positions` of each element. -/
-  def positionsOfList : List Syntax → List Syntax
-    | [] => []
-    | x :: xs => positions x ++ positionsOfList xs
+      let acc := .node i k as :: acc
+      if isLeafKind k then acc else positionsOfArrayGo acc as
+    | s => s :: acc
+  /-- `positionsGo` of each element. -/
+  def positionsOfArrayGo (acc : List Syntax) : Array Syntax → List Syntax
+    | ⟨l⟩ => positionsOfListGo acc l
+  /-- `positionsGo` of each element. -/
+  def positionsOfListGo (acc : List Syntax) : List Syntax → List Syntax
+    | [] => acc
+    | x :: xs => positionsOfListGo (positionsGo acc x) xs
 end
+
+/-- Every position of a tree that the check reads: the tree, and the positions of each child of a node
+whose kind is not a leaf kind. -/
+def positions (t : Syntax) : List Syntax :=
+  (positionsGo [] t).reverse
 
 /-- Whether a project may not write this name, because Lean or its compiler reads its form. -/
 def reservedName : Name → Bool
@@ -90,10 +124,10 @@ def argumentsAdmitted (scopedParsers : List Name) (k : Name) (as : Array Syntax)
 /-- Whether one position is admitted. -/
 def positionAdmitted (scopedParsers : List Name) : Syntax → Bool
   | .missing => false
-  | .atom _ v => atoms.contains v
+  | .atom _ v => isAtom v
   | .ident _ _ n _ => !reservedName n
   | .node _ k as =>
-    (kinds.contains k || leafKinds.contains k) && argumentsAdmitted scopedParsers k as
+    (isKind k || isLeafKind k) && argumentsAdmitted scopedParsers k as
 
 /-- The positions of `t` that are not admitted. -/
 def offenders (scopedParsers : List Name) (t : Syntax) : List Syntax :=

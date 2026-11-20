@@ -2,8 +2,12 @@ module
 
 public import Regula.Language
 public import RegulaSpecification.Language
+import all Init.Data.Array.BinSearch
+import all Init.Data.Ord.String
 import all Init.Prelude
+import all Lean.Data.Name
 import all Regula.Language
+import all Regula.LanguageSet
 
 /-!
 # The language decision against its record
@@ -23,6 +27,337 @@ open LeanIntent
 theorem contains_iff {α : Type} [BEq α] [LawfulBEq α] {l : List α} {x : α} :
     l.contains x = true ↔ x ∈ l := List.contains_iff_mem
 
+/-- Whether adjacent elements strictly increase under {name}`lt`. -/
+def isSorted {α : Type} (lt : α → α → Bool) : List α → Bool
+  | [] | [_] => true
+  | a :: b :: rest => lt a b && isSorted lt (b :: rest)
+
+theorem pairwise_of_isSorted {α : Type} {lt : α → α → Bool}
+    (htrans : ∀ a b c, lt a b = true → lt b c = true → lt a c = true) :
+    ∀ {l : List α}, isSorted lt l = true → l.Pairwise (fun a b => lt a b = true)
+  | [], _ => .nil
+  | [_], _ => .cons (by simp) .nil
+  | a :: b :: rest, h => by
+    simp only [isSorted, Bool.and_eq_true] at h
+    have hrest := pairwise_of_isSorted htrans h.2
+    refine .cons ?_ hrest
+    intro c hc
+    rcases List.mem_cons.mp hc with rfl | hc
+    · exact h.1
+    · exact htrans a b c h.1 ((List.pairwise_cons.mp hrest).1 c hc)
+
+theorem getElem_lt_of_isSorted {α : Type} {lt : α → α → Bool}
+    (htrans : ∀ a b c, lt a b = true → lt b c = true → lt a c = true)
+    {as : Array α} (h : isSorted lt as.toList = true) :
+    ∀ (i j : Nat) (hi : i < as.size) (hj : j < as.size), i < j → lt as[i] as[j] = true := by
+  have hp := List.pairwise_iff_getElem.mp (pairwise_of_isSorted htrans h)
+  intro i j hi hj hij
+  have h1 := hp i j (by simpa using hi) (by simpa using hj) hij
+  simpa [Array.getElem_toList] using h1
+
+theorem binSearchAux_iff {α : Type} {as : Array α} {lt : α → α → Bool}
+    (htrans : ∀ a b c, lt a b = true → lt b c = true → lt a c = true)
+    (hirrefl : ∀ a, lt a a = false)
+    (htotal : ∀ a b, lt a b = false → lt b a = false → a = b)
+    (hsorted : ∀ (i j : Nat) (hi : i < as.size) (hj : j < as.size), i < j → lt as[i] as[j] = true)
+    (k : α) :
+    ∀ (d : Nat) (lo : Fin (as.size + 1)) (hi : Fin as.size) (hle : lo.1 ≤ hi.1),
+      hi.1 - lo.1 ≤ d →
+      (Array.binSearchAux lt Option.isSome as k lo hi hle = true ↔
+        ∃ (i : Nat) (h : i < as.size), lo.1 ≤ i ∧ i ≤ hi.1 ∧ as[i] = k)
+  | d, lo, hi, hle, hd => by
+    unfold Array.binSearchAux
+    have hm_lt : (lo.1 + hi.1) / 2 < as.size := by omega
+    dsimp only
+    let m := (lo.1 + hi.1) / 2
+    let a := as[m]'hm_lt
+    have hlt_left : ∀ (i : Nat) (hi' : i < as.size), i ≤ m → lt a k = true → as[i] ≠ k := by
+      intro i hi' him hlak heq
+      subst heq
+      rcases Nat.lt_or_eq_of_le him with hlt | rfl
+      · have h1 := hsorted i m hi' hm_lt hlt
+        have h2 := htrans _ _ _ h1 hlak
+        rw [hirrefl] at h2
+        cases h2
+      · rw [hirrefl] at hlak
+        cases hlak
+    have hlt_right : ∀ (i : Nat) (hi' : i < as.size), m ≤ i → lt k a = true → as[i] ≠ k := by
+      intro i hi' hmi hlka heq
+      subst heq
+      rcases Nat.lt_or_eq_of_le hmi with hlt | rfl
+      · have h1 := hsorted m i hm_lt hi' hlt
+        have h2 := htrans _ _ _ hlka h1
+        rw [hirrefl] at h2
+        cases h2
+      · rw [hirrefl] at hlka
+        cases hlka
+    cases h1 : lt a k with
+    | true =>
+      simp only [↓reduceIte]
+      split
+      · rename_i h'
+        cases d with
+        | zero => omega
+        | succ d' =>
+          rw [binSearchAux_iff htrans hirrefl htotal hsorted k d' ⟨m + 1, by omega⟩ hi h' (by simp; omega)]
+          constructor
+          · rintro ⟨i, hi', hlo, hhi, heq⟩
+            exact ⟨i, hi', by dsimp only at hlo; omega, hhi, heq⟩
+          · rintro ⟨i, hi', hlo, hhi, heq⟩
+            have hgt : m < i := by
+              refine Nat.lt_of_not_le fun him => hlt_left i hi' him h1 heq
+            exact ⟨i, hi', by dsimp only; omega, hhi, heq⟩
+      · rename_i h'
+        simp only [Option.isSome_none, Bool.false_eq_true, false_iff]
+        rintro ⟨i, hi', hlo, hhi, heq⟩
+        exact hlt_left i hi' (by omega) h1 heq
+    | false =>
+      simp only [Bool.false_eq_true, ↓reduceIte]
+      cases h2 : lt k a with
+      | true =>
+        simp only [↓reduceIte]
+        split
+        · rename_i h'
+          simp only [Option.isSome_none, Bool.false_eq_true, false_iff]
+          rintro ⟨i, hi', hlo, hhi, heq⟩
+          exact hlt_right i hi' (by omega) h2 heq
+        · rename_i h'
+          cases d with
+          | zero => omega
+          | succ d' =>
+            rw [binSearchAux_iff htrans hirrefl htotal hsorted k d' lo ⟨m - 1, by omega⟩ (by simp; omega) (by simp; omega)]
+            constructor
+            · rintro ⟨i, hi', hlo, hhi, heq⟩
+              exact ⟨i, hi', hlo, by dsimp only at hhi; omega, heq⟩
+            · rintro ⟨i, hi', hlo, hhi, heq⟩
+              have hlt : i < m := by
+                refine Nat.lt_of_not_le fun hmi => hlt_right i hi' hmi h2 heq
+              exact ⟨i, hi', hlo, by dsimp only; omega, heq⟩
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte, Option.isSome_some, true_iff]
+        exact ⟨m, hm_lt, by omega, by omega, htotal a k h1 h2⟩
+
+theorem binSearchContains_iff {α : Type} {as : Array α} {lt : α → α → Bool}
+    (htrans : ∀ a b c, lt a b = true → lt b c = true → lt a c = true)
+    (hirrefl : ∀ a, lt a a = false)
+    (htotal : ∀ a b, lt a b = false → lt b a = false → a = b)
+    (hsorted : isSorted lt as.toList = true) (k : α) :
+    as.binSearchContains k lt = true ↔ k ∈ as.toList := by
+  unfold Array.binSearchContains
+  by_cases h0 : 0 < as.size
+  · have hhi : as.size - 1 < as.size := by omega
+    simp only [h0, ↓reduceDIte, hhi, ↓reduceIte, Nat.zero_le]
+    rw [binSearchAux_iff htrans hirrefl htotal (getElem_lt_of_isSorted htrans hsorted) k as.size _ _ _ (by simp)]
+    constructor
+    · rintro ⟨i, hi, -, -, rfl⟩
+      exact Array.mem_toList_iff.mpr (Array.getElem_mem hi)
+    · intro hm
+      obtain ⟨i, hi, heq⟩ := Array.mem_iff_getElem.mp (Array.mem_toList_iff.mp hm)
+      exact ⟨i, hi, Nat.zero_le _, by simp; omega, heq⟩
+  · have hsz : as.size = 0 := by omega
+    have hempty : as.toList = [] := List.eq_nil_of_length_eq_zero (by simpa using hsz)
+    simp [h0, hempty]
+
+theorem nameCmp_self (a : Name) : Name.cmp a a = .eq := by
+  induction a with
+  | anonymous => rfl
+  | num p n ih =>
+    simp [Name.cmp, ih]
+  | str p s ih =>
+    simp [Name.cmp, ih, Std.ReflCmp.compare_self]
+
+theorem nameCmp_eq_iff (a b : Name) : Name.cmp a b = .eq ↔ a = b := by
+  induction a generalizing b with
+  | anonymous =>
+    cases b <;> simp [Name.cmp]
+  | num p₁ i₁ ih =>
+    cases b with
+    | anonymous => simp [Name.cmp]
+    | str _ _ => simp [Name.cmp]
+    | num p₂ i₂ =>
+      simp only [Name.cmp, Name.num.injEq]
+      cases h : Name.cmp p₁ p₂ with
+      | eq => simp [(ih p₂).mp h, Std.LawfulEqCmp.compare_eq_iff_eq]
+      | lt =>
+        have hne : p₁ ≠ p₂ := fun he => by subst he; rw [nameCmp_self] at h; cases h
+        simp [hne]
+      | gt =>
+        have hne : p₁ ≠ p₂ := fun he => by subst he; rw [nameCmp_self] at h; cases h
+        simp [hne]
+  | str p₁ s₁ ih =>
+    cases b with
+    | anonymous => simp [Name.cmp]
+    | num _ _ => simp [Name.cmp]
+    | str p₂ s₂ =>
+      simp only [Name.cmp, Name.str.injEq]
+      cases h : Name.cmp p₁ p₂ with
+      | eq => simp [(ih p₂).mp h, Std.LawfulEqCmp.compare_eq_iff_eq]
+      | lt =>
+        have hne : p₁ ≠ p₂ := fun he => by subst he; rw [nameCmp_self] at h; cases h
+        simp [hne]
+      | gt =>
+        have hne : p₁ ≠ p₂ := fun he => by subst he; rw [nameCmp_self] at h; cases h
+        simp [hne]
+
+theorem nameCmp_swap (a b : Name) : (Name.cmp a b).swap = Name.cmp b a := by
+  induction a generalizing b with
+  | anonymous =>
+    cases b <;> rfl
+  | num p₁ i₁ ih =>
+    cases b with
+    | anonymous => rfl
+    | str _ _ => rfl
+    | num p₂ i₂ =>
+      simp only [Name.cmp, ← ih p₂]
+      cases Name.cmp p₁ p₂ with
+      | eq => exact (Std.OrientedCmp.eq_swap (cmp := (compare : Nat → Nat → Ordering))).symm
+      | lt => rfl
+      | gt => rfl
+  | str p₁ s₁ ih =>
+    cases b with
+    | anonymous => rfl
+    | num _ _ => rfl
+    | str p₂ s₂ =>
+      simp only [Name.cmp, ← ih p₂]
+      cases Name.cmp p₁ p₂ with
+      | eq => exact (Std.OrientedCmp.eq_swap (cmp := (compare : String → String → Ordering))).symm
+      | lt => rfl
+      | gt => rfl
+
+theorem nameCmp_lt_trans {a b c : Name} (h1 : Name.cmp a b = .lt) (h2 : Name.cmp b c = .lt) :
+    Name.cmp a c = .lt := by
+  induction a generalizing b c with
+  | anonymous =>
+    cases b <;> cases c <;> simp [Name.cmp] at h1 h2 ⊢
+  | num p₁ i₁ ih =>
+    cases b with
+    | anonymous => simp [Name.cmp] at h1
+    | str _ _ =>
+      cases c with
+      | anonymous | num _ _ => simp [Name.cmp] at h2
+      | str _ _ => rfl
+    | num p₂ i₂ =>
+      cases c with
+      | anonymous => simp [Name.cmp] at h2
+      | str _ _ => rfl
+      | num p₃ i₃ =>
+        simp only [Name.cmp] at h1 h2 ⊢
+        cases hp1 : Name.cmp p₁ p₂ with
+        | gt => rw [hp1] at h1; cases h1
+        | eq =>
+          have heq := (nameCmp_eq_iff p₁ p₂).mp hp1
+          subst heq
+          rw [hp1] at h1
+          cases hp2 : Name.cmp p₁ p₃ with
+          | gt => rw [hp2] at h2; cases h2
+          | lt => rfl
+          | eq =>
+            rw [hp2] at h2
+            dsimp only at h1 h2
+            exact Std.TransCmp.lt_trans h1 h2
+        | lt =>
+          cases hp2 : Name.cmp p₂ p₃ with
+          | gt => rw [hp2] at h2; cases h2
+          | eq =>
+            have heq := (nameCmp_eq_iff p₂ p₃).mp hp2
+            subst heq
+            simp [hp1]
+          | lt => simp [ih hp1 hp2]
+  | str p₁ s₁ ih =>
+    cases b with
+    | anonymous | num _ _ => simp [Name.cmp] at h1
+    | str p₂ s₂ =>
+      cases c with
+      | anonymous | num _ _ => simp [Name.cmp] at h2
+      | str p₃ s₃ =>
+        simp only [Name.cmp] at h1 h2 ⊢
+        cases hp1 : Name.cmp p₁ p₂ with
+        | gt => rw [hp1] at h1; cases h1
+        | eq =>
+          have heq := (nameCmp_eq_iff p₁ p₂).mp hp1
+          subst heq
+          rw [hp1] at h1
+          cases hp2 : Name.cmp p₁ p₃ with
+          | gt => rw [hp2] at h2; cases h2
+          | lt => rfl
+          | eq =>
+            rw [hp2] at h2
+            dsimp only at h1 h2
+            exact Std.TransCmp.lt_trans h1 h2
+        | lt =>
+          cases hp2 : Name.cmp p₂ p₃ with
+          | gt => rw [hp2] at h2; cases h2
+          | eq =>
+            have heq := (nameCmp_eq_iff p₂ p₃).mp hp2
+            subst heq
+            simp [hp1]
+          | lt => simp [ih hp1 hp2]
+
+theorem nameLt_trans (a b c : Name) (h1 : nameLt a b = true) (h2 : nameLt b c = true) :
+    nameLt a c = true := by
+  simp only [nameLt, beq_iff_eq] at h1 h2 ⊢
+  exact nameCmp_lt_trans h1 h2
+
+theorem nameLt_irrefl (a : Name) : nameLt a a = false := by
+  simp [nameLt, nameCmp_self]
+
+theorem nameLt_total (a b : Name) (h1 : nameLt a b = false) (h2 : nameLt b a = false) : a = b := by
+  simp only [nameLt, beq_eq_false_iff_ne, ne_eq] at h1 h2
+  have hswap := nameCmp_swap a b
+  cases hc : Name.cmp a b with
+  | eq => exact (nameCmp_eq_iff a b).mp hc
+  | lt => exact absurd hc h1
+  | gt =>
+    rw [hc] at hswap
+    exact absurd hswap.symm h2
+
+theorem strLt_trans (a b c : String) (h1 : strLt a b = true) (h2 : strLt b c = true) :
+    strLt a c = true := by
+  simp only [strLt, decide_eq_true_eq] at h1 h2 ⊢
+  exact String.lt_trans h1 h2
+
+theorem strLt_irrefl (a : String) : strLt a a = false := by
+  simp [strLt, String.lt_irrefl]
+
+theorem strLt_total (a b : String) (h1 : strLt a b = false) (h2 : strLt b a = false) : a = b := by
+  simp only [strLt, decide_eq_false_iff_not] at h1 h2
+  have hcmp : compare a b = .eq := by
+    change compareOfLessAndEq a b = .eq
+    unfold compareOfLessAndEq
+    rw [ite_eq_right (fun h => absurd h h1)]
+    split
+    · rfl
+    · rename_i hne
+      have hgt : compare a b = .gt := by
+        change compareOfLessAndEq a b = .gt
+        unfold compareOfLessAndEq
+        rw [ite_eq_right (fun h => absurd h h1), ite_eq_right (fun h => absurd h hne)]
+      have hba : compare b a = .lt := by
+        have hswap := Std.OrientedCmp.eq_swap (cmp := (compare : String → String → Ordering)) (a := b) (b := a)
+        rw [hgt] at hswap
+        exact hswap
+      change compareOfLessAndEq b a = .lt at hba
+      unfold compareOfLessAndEq at hba
+      rw [ite_eq_right (fun h => absurd h h2)] at hba
+      split at hba <;> cases hba
+  exact Std.LawfulEqCmp.compare_eq_iff_eq.mp hcmp
+
+theorem kinds_sorted : isSorted nameLt kinds = true := by decide +kernel
+theorem leafKinds_sorted : isSorted nameLt leafKinds = true := by decide +kernel
+theorem atoms_sorted : isSorted strLt atoms = true := by decide +kernel
+
+theorem isKind_iff (k : Name) : isKind k = true ↔ k ∈ kinds := by
+  unfold isKind
+  exact binSearchContains_iff nameLt_trans nameLt_irrefl nameLt_total (as := kindsArray) kinds_sorted k
+
+theorem isLeafKind_iff (k : Name) : isLeafKind k = true ↔ k ∈ leafKinds := by
+  unfold isLeafKind
+  exact binSearchContains_iff nameLt_trans nameLt_irrefl nameLt_total (as := leafKindsArray) leafKinds_sorted k
+
+theorem isAtom_iff (v : String) : isAtom v = true ↔ v ∈ atoms := by
+  unfold isAtom
+  exact binSearchContains_iff strLt_trans strLt_irrefl strLt_total (as := atomsArray) atoms_sorted v
+
 theorem occurs_node {s : Syntax} {i k} {as : Array Syntax} :
     Occurs s (.node i k as) ↔ s = .node i k as ∨ (k ∉ leafKinds ∧ ∃ c ∈ as, Occurs s c) := by
   constructor
@@ -39,31 +374,62 @@ theorem occurs_leaf {s t : Syntax} (h : Occurs s t) (ht : ∀ i k as, t ≠ .nod
   | self => rfl
   | child _ _ _ => exact absurd rfl (ht _ _ _)
 
-theorem mem_positions_iff (t : Syntax) (s : Syntax) : s ∈ positions t ↔ Occurs s t := by
+theorem mem_positionsGo_iff (t : Syntax) (s : Syntax) :
+    ∀ acc, s ∈ positionsGo acc t ↔ Occurs s t ∨ s ∈ acc := by
   induction t using Syntax.rec
-    (motive_2 := fun as => s ∈ positionsOfArray as ↔ ∃ c ∈ as, Occurs s c)
-    (motive_3 := fun l => s ∈ positionsOfList l ↔ ∃ c ∈ l, Occurs s c) with
+    (motive_2 := fun as => ∀ acc, s ∈ positionsOfArrayGo acc as ↔ (∃ c ∈ as, Occurs s c) ∨ s ∈ acc)
+    (motive_3 := fun l => ∀ acc, s ∈ positionsOfListGo acc l ↔ (∃ c ∈ l, Occurs s c) ∨ s ∈ acc) with
   | missing =>
-    simp only [positions, List.mem_singleton]
-    exact ⟨fun h => h ▸ .self _, fun h => occurs_leaf h (by intros; exact Syntax.noConfusion)⟩
+    intro acc
+    simp only [positionsGo, List.mem_cons]
+    exact or_congr ⟨fun h => h ▸ .self _, fun h => occurs_leaf h (by intros; exact Syntax.noConfusion)⟩ Iff.rfl
   | node i k as ih =>
+    intro acc
     rw [occurs_node]
-    simp only [positions, List.mem_cons]
-    refine or_congr Iff.rfl ?_
+    simp only [positionsGo]
     by_cases hk : k ∈ leafKinds
-    · simp [hk]
-    · simp [hk, ih]
+    · have hlk : isLeafKind k = true := (isLeafKind_iff k).mpr hk
+      simp only [hlk, ↓reduceIte, List.mem_cons, hk, not_true_eq_false, false_and, or_false]
+    · have hlk : isLeafKind k = false := by
+        cases h : isLeafKind k with
+        | false => rfl
+        | true => exact absurd ((isLeafKind_iff k).mp h) hk
+      simp only [hlk, Bool.false_eq_true, ↓reduceIte, ih, List.mem_cons, hk, not_false_eq_true, true_and]
+      constructor
+      · rintro (h | rfl | h)
+        · exact .inl (.inr h)
+        · exact .inl (.inl rfl)
+        · exact .inr h
+      · rintro ((rfl | h) | h)
+        · exact .inr (.inl rfl)
+        · exact .inl h
+        · exact .inr (.inr h)
   | atom i v =>
-    simp only [positions, List.mem_singleton]
-    exact ⟨fun h => h ▸ .self _, fun h => occurs_leaf h (by intros; exact Syntax.noConfusion)⟩
+    intro acc
+    simp only [positionsGo, List.mem_cons]
+    exact or_congr ⟨fun h => h ▸ .self _, fun h => occurs_leaf h (by intros; exact Syntax.noConfusion)⟩ Iff.rfl
   | ident i r n p =>
-    simp only [positions, List.mem_singleton]
-    exact ⟨fun h => h ▸ .self _, fun h => occurs_leaf h (by intros; exact Syntax.noConfusion)⟩
+    intro acc
+    simp only [positionsGo, List.mem_cons]
+    exact or_congr ⟨fun h => h ▸ .self _, fun h => occurs_leaf h (by intros; exact Syntax.noConfusion)⟩ Iff.rfl
   | mk l ih =>
-    simp only [positionsOfArray, ih, List.mem_toArray]
-  | nil => simp [positionsOfList]
+    simp only [positionsOfArrayGo, ih, List.mem_toArray]
+  | nil =>
+    simp [positionsOfListGo]
   | cons x xs hx hxs =>
-    simp only [positionsOfList, List.mem_append, hx, hxs, List.mem_cons, exists_eq_or_imp]
+    simp only [positionsOfListGo, hxs, hx, List.mem_cons, exists_eq_or_imp]
+    constructor
+    · rintro (h | h | h)
+      · exact .inl (.inr h)
+      · exact .inl (.inl h)
+      · exact .inr h
+    · rintro ((h | h) | h)
+      · exact .inr (.inl h)
+      · exact .inl h
+      · exact .inr (.inr h)
+
+theorem mem_positions_iff (t : Syntax) (s : Syntax) : s ∈ positions t ↔ Occurs s t := by
+  simp [positions, mem_positionsGo_iff]
 
 theorem anonymous_not_reserved : ¬ ReservedName .anonymous := fun h => by cases h
 
@@ -270,13 +636,13 @@ theorem positionAdmitted_iff (sp : List Name) (s : Syntax) :
     positionAdmitted sp s = true ↔ PositionAdmitted sp s := by
   cases s with
   | missing => simp [positionAdmitted, PositionAdmitted]
-  | atom i v => simp [positionAdmitted, PositionAdmitted]
+  | atom i v => simp [positionAdmitted, PositionAdmitted, isAtom_iff]
   | ident i r n p =>
     simp only [positionAdmitted, PositionAdmitted, Bool.not_eq_true', ← reservedName_iff,
       Bool.not_eq_true]
   | node i k as =>
     simp only [positionAdmitted, PositionAdmitted, NodeAdmitted, Bool.and_eq_true, Bool.or_eq_true,
-      contains_iff, argumentsAdmitted_iff]
+      isKind_iff, isLeafKind_iff, argumentsAdmitted_iff]
 
 theorem offenders_eq_nil_iff (sp : List Name) (t : Syntax) :
     offenders sp t = [] ↔ TreeAdmitted sp t := by

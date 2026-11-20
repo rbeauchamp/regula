@@ -46,19 +46,30 @@ theorem registry_rules : registry.map (·.rule) = Regula.Closed.registry := by r
 def AllHold (i : Input) : Prop := ∀ p ∈ registry, ∀ c, ¬ p.Violates i c
 
 open Link in
-theorem findings_nil_iff (i : Regula.Closed.Input) :
-    i.findings = [] ↔ AllHold (toSpec i) := by
-  rw [Regula.Closed.findings_eq_nil_iff, ← registry_rules]
+theorem tables_findings_nil_iff {i : Regula.Closed.Input} (t : Regula.Closed.Tables i) :
+    t.findings = [] ↔ AllHold (toSpec i) := by
+  rw [Regula.Closed.Tables.findings_eq_nil_iff, ← registry_rules]
   simp only [List.mem_map, forall_exists_index, and_imp, forall_apply_eq_imp_iff₂, AllHold]
   refine forall₂_congr fun p _ => ?_
   rw [nil_iff_no_subject]
-  exact forall_congr' fun c => not_congr (p.exact i.tables c)
+  exact forall_congr' fun c => not_congr (p.exact t c)
+
+open Link in
+theorem findings_nil_iff (i : Regula.Closed.Input) :
+    i.findings = [] ↔ AllHold (toSpec i) :=
+  tables_findings_nil_iff i.tables
+
+theorem tables_report_complete {i : Regula.Closed.Input} (t : Regula.Closed.Tables i) :
+    t.report.verdict ≠ .incomplete ∧
+      (t.report.verdict = .pass ↔ AllHold (Link.toSpec i)) :=
+  ⟨Regula.Closed.Tables.report_not_incomplete t,
+    (Regula.Closed.Tables.report_pass_iff t).trans
+      ((Regula.Closed.Tables.findings_eq_nil_iff t).symm.trans (tables_findings_nil_iff t))⟩
 
 theorem report_complete (i : Regula.Closed.Input) :
     i.report.verdict ≠ .incomplete ∧
       (i.report.verdict = .pass ↔ AllHold (Link.toSpec i)) :=
-  ⟨Regula.Closed.report_not_incomplete i,
-    (Regula.Closed.report_pass_iff i).trans ((Regula.Closed.findings_eq_nil_iff i).symm.trans (findings_nil_iff i))⟩
+  tables_report_complete i.tables
 
 open Link in
 /-- Each registered rule's refused case gives a finding of that rule, on its subject, among the run's findings. -/
