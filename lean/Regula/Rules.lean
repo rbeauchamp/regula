@@ -102,8 +102,9 @@ theorem report_pass_iff (i : Input) :
 theorem report_not_incomplete (i : Input) : i.report.verdict ≠ .incomplete :=
   Tables.report_not_incomplete i.tables
 
-/-- The report of a run, from what the load gave: a build it cannot read is `incomplete`, and
-otherwise the report is `Input.report`. -/
+/-- The report of a load that gave a closed input or an error: a build it cannot read is `incomplete`,
+and otherwise the report is `Input.report`. A run evaluates `decisionPrepared`, which
+`decisionPrepared_eq` proves equal to this when the prepared tables are `Input.tables`. -/
 def decision : Except String Input → Report
   | .error why => .incomplete why
   | .ok input => input.report

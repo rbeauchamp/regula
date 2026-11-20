@@ -269,7 +269,7 @@ def dispatch (version commit : String) (args : List String) : Prog L E UInt32 :=
       | some dir => runFull profile (FilePath.mk dir)
       | none => runPlain profile
 
-/-- The checker with the arguments of `lake lint` (`profileOfRun`), giving the verdict of `decision`; or, with `fullVariable`
+/-- The checker with the arguments of `lake lint` (`profileOfRun`), giving the verdict of `decisionPrepared`; or, with `fullVariable`
 set, the full gate on the project it names. -/
 def run (args : List String) : Prog L E UInt32 :=
   Prog.bind (Prog.call .leanVersion : Prog L E (String × String)) fun v =>
