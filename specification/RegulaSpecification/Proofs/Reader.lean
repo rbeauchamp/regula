@@ -1013,7 +1013,8 @@ theorem ofConfig_spec {T : List (Event L E)} {dir treeDir project tree : FilePat
     cases hs
     refine ⟨by simp [Stage.outcome], ?_⟩
     by_cases ht : tf = some leanToolchain
-    · simp only [ht, beq_self_eq_true, Bool.true_and, List.all_eq_false] at hc
+    · simp only [configIsClosed, configKeysClosed, ht, beq_self_eq_true, Bool.not_false,
+        List.isEmpty_nil, Bool.true_and, Bool.and_true, List.all_eq_false] at hc
       obtain ⟨k, hk, hbad⟩ := hc
       simp only [Bool.or_eq_true, beq_iff_eq, not_or] at hbad
       obtain ⟨hroot, hna⟩ := hbad
@@ -1033,8 +1034,8 @@ theorem ofConfig_spec {T : List (Event L E)} {dir treeDir project tree : FilePat
       · exact .deepDependency htoml h'
     · refine ⟨fun _ hs => (by cases hs), fun cfg hs => ?_⟩
       cases hs
-      simp only [Bool.and_eq_true, beq_iff_eq] at hc
-      exact ⟨hc.1, rfl⟩
+      simp only [configIsClosed, Bool.and_eq_true, beq_iff_eq] at hc
+      exact ⟨hc.1.1.1, rfl⟩
 
 theorem readKeys_spec {T prior t : List (Event L E)} {dir treeDir project tree : FilePath} {tf : Option String}
     {sysroot text : String} {real : FilePath} {b : Except String (Stage × List (Name × Source))}

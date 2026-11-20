@@ -421,7 +421,7 @@ theorem configClosed_iff (r : Reading) : r.configClosed = true ↔ ConfigClosed 
   have h : (∀ k ∈ r.configKeys, k.getRoot = `require ∨ ConfigKeyAdmitted k) ↔
       ∀ k ∈ r.configKeys, ¬ k.getRoot = `require → ConfigKeyAdmitted k :=
     forall_congr' fun k => forall_congr' fun _ => by by_cases hk : k.getRoot = `require <;> simp [hk]
-  simp [Reading.configClosed, ConfigClosed, configKeyAdmitted_iff, and_assoc, h]
+  simp [Reading.configClosed, configIsClosed, configKeysClosed, ConfigClosed, configKeyAdmitted_iff, and_assoc, h]
 
 theorem readInFull_iff (r : Reading) : r.readInFull = true ↔ ReadInFull r := by
   simp [Reading.readInFull, ReadInFull]

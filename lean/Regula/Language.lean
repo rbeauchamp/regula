@@ -183,6 +183,17 @@ def treeRelative (base path : List String) : Option (List String) :=
     if rel.all (fun c => !c.isEmpty && c.front != '.') then some rel else none
   else none
 
+/-- Whether each key path of `lakefile.toml` either has root `require` or lies in the closed set. -/
+def configKeysClosed (keys : List Name) : Bool :=
+  keys.all fun k => k.getRoot == `require || configKeyAdmitted k
+
+/-- Whether a project's configuration is closed: the pinned toolchain, no `lakefile.lean`, no path outside
+the closed domain, and each key whose root is not `require` in the closed set. -/
+def configIsClosed (toolchainFile : Option String) (leanConfig : Bool) (openPaths : List String)
+    (configKeys : List Name) : Bool :=
+  toolchainFile == some leanToolchain && !leanConfig && openPaths.isEmpty &&
+    configKeysClosed configKeys
+
 /-- Whether what was read covers a claim: there is a claim, each root is reached, each module reached has a
 name in the closed domain, and each has its file read. -/
 def covers (roots reached : List Name) (files : List FileRead) : Bool :=
@@ -196,8 +207,7 @@ variable (r : Reading)
 /-- The pinned toolchain, no `lakefile.lean`, no path outside the closed domain, and each key whose root is
 not `require` in the closed set. -/
 def configClosed : Bool :=
-  r.toolchainFile == some leanToolchain && !r.leanConfig && r.openPaths.isEmpty &&
-    r.configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k
+  configIsClosed r.toolchainFile r.leanConfig r.openPaths r.configKeys
 
 /-- Nothing failed to read. -/
 def readInFull : Bool :=
@@ -245,9 +255,8 @@ namespace ClosedConfig
 /-- The empty closed configuration, with no key paths. -/
 def empty : ClosedConfig := ⟨[], rfl, rfl⟩
 
-theorem keys_closed (cfg : ClosedConfig) :
-    cfg.keys.all (fun k => k.getRoot == `require || configKeyAdmitted k) = true := by
-  simp only [List.all_eq_true, Bool.or_eq_true]
+theorem keys_closed (cfg : ClosedConfig) : configKeysClosed cfg.keys = true := by
+  simp only [configKeysClosed, List.all_eq_true, Bool.or_eq_true]
   intro k hk
   exact .inr (List.all_eq_true.mp cfg.admitted k hk)
 
@@ -260,14 +269,13 @@ inductive Stage where
   /-- The configuration is outside the closed set (wrong toolchain, `lakefile.lean`, open path or bad key). -/
   | configRefused (toolchainFile : Option String) (leanConfig : Bool) (configKeys : List Name)
       (openPaths : List String) (unread : List (Name × String))
-      (h : (toolchainFile == some leanToolchain && !leanConfig && openPaths.isEmpty &&
-        configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k) = false)
+      (h : configIsClosed toolchainFile leanConfig openPaths configKeys = false)
   /-- The configuration is closed, and something failed to read. -/
   | unread (cfg : ClosedConfig) (roots reached : List Name) (unread : List (Name × String))
       (hne : unread.isEmpty = false)
   /-- The configuration is closed, nothing failed to read, and `lakefile.toml` has a `require` key. -/
   | dependency (configKeys : List Name)
-      (hclosed : configKeys.all (fun k => k.getRoot == `require || configKeyAdmitted k) = true)
+      (hclosed : configKeysClosed configKeys = true)
       (hreq : configKeys.any (·.getRoot == `require) = true)
   /-- The configuration is closed with no dependency, the walk read in full, and Mathlib was reached. -/
   | mathlib (cfg : ClosedConfig) (roots reached : List Name)
@@ -320,23 +328,23 @@ theorem decision_toReading (s : Stage) : decision s.toReading = s.outcome := by
   | configRefused _ _ _ _ _ h =>
     simp [toReading, outcome, decision, Reading.configClosed, h]
   | unread cfg _ _ _ hne =>
-    simp [toReading, outcome, decision, Reading.configClosed, Reading.readInFull, cfg.keys_closed, hne]
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull, cfg.keys_closed, hne]
   | dependency _ hc hr =>
-    simp [toReading, outcome, decision, Reading.configClosed, Reading.readInFull,
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
       Reading.requiresDependency, hc, hr]
   | mathlib cfg _ _ hm =>
-    simp [toReading, outcome, decision, Reading.configClosed, Reading.readInFull,
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
       Reading.requiresDependency, Reading.mathlibReached, cfg.keys_closed, cfg.noRequire, hm]
   | uncovered cfg _ _ _ hm hc =>
-    simp [toReading, outcome, decision, Reading.configClosed, Reading.readInFull,
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
       Reading.requiresDependency, Reading.mathlibReached, Reading.covered,
       cfg.keys_closed, cfg.noRequire, hm, hc]
   | filesRefused cfg _ _ _ hm hc hf =>
-    simp [toReading, outcome, decision, Reading.configClosed, Reading.readInFull,
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
       Reading.requiresDependency, Reading.mathlibReached, Reading.covered, Reading.filesAdmitted,
       cfg.keys_closed, cfg.noRequire, hm, hc, hf]
   | admitted cfg _ _ _ hm hc hf =>
-    simp [toReading, outcome, decision, Reading.configClosed, Reading.readInFull,
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
       Reading.requiresDependency, Reading.mathlibReached, Reading.covered, Reading.filesAdmitted,
       cfg.keys_closed, cfg.noRequire, hm, hc, hf]
 
@@ -345,29 +353,26 @@ and `refused` otherwise. -/
 def earlyUnread (toolchainFile : Option String) (why : String) : Stage :=
   match ht : toolchainFile == some leanToolchain with
   | true => .unread ClosedConfig.empty [] [] [(`config, why)] rfl
-  | false => .configRefused toolchainFile false [] [] [(`config, why)] (by simp [ht])
+  | false => .configRefused toolchainFile false [] [] [(`config, why)] (by simp [configIsClosed, ht])
 
 /-- Stop because `lakefile.lean` exists. -/
 def mkLeanConfig (toolchainFile : Option String) : Stage :=
-  .configRefused toolchainFile true [] [] [] (by simp)
+  .configRefused toolchainFile true [] [] [] (by simp [configIsClosed])
 
 /-- Stop because the loaded configuration names an open path, non-single glob or non-library target. -/
 def mkOpenPaths (cfg : ClosedConfig) (paths : List String) (hne : paths.isEmpty = false) : Stage :=
-  .configRefused (some leanToolchain) false cfg.keys paths [] (by simp [hne])
+  .configRefused (some leanToolchain) false cfg.keys paths [] (by simp [configIsClosed, hne])
 
 /-- Classify the toolchain and TOML key paths into either a stopping stage (`refused` or `proofOnly`)
 or a closed configuration with no dependency. -/
 def ofConfig (toolchainFile : Option String) (keys : List Name) : Except Stage ClosedConfig :=
-  match hc : toolchainFile == some leanToolchain &&
-      keys.all (fun k => k.getRoot == `require || configKeyAdmitted k) with
-  | false => .error (.configRefused toolchainFile false keys [] [] (by
-      simp only [Bool.and_eq_false_iff, Bool.not_false, List.isEmpty_nil, Bool.and_true] at hc ⊢
-      exact hc))
+  match hc : configIsClosed toolchainFile false [] keys with
+  | false => .error (.configRefused toolchainFile false keys [] [] hc)
   | true =>
     match hr : keys.any (·.getRoot == `require) with
-    | true => .error (.dependency keys (by simp only [Bool.and_eq_true] at hc; exact hc.2) hr)
+    | true => .error (.dependency keys (by simp only [configIsClosed, Bool.and_eq_true] at hc; exact hc.2) hr)
     | false => .ok ⟨keys, by
-        simp only [Bool.and_eq_true, List.all_eq_true, List.any_eq_false] at hc hr ⊢
+        simp only [configIsClosed, configKeysClosed, Bool.and_eq_true, List.all_eq_true, List.any_eq_false] at hc hr ⊢
         intro k hk
         cases hreq : k.getRoot == `require with
         | true => exact absurd hreq (hr k hk)
