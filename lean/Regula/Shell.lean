@@ -251,12 +251,11 @@ def runFull (profile : Profile) (dir : FilePath) : Prog L E UInt32 := do
 /-- A run of the proof verdict on the workspace in the current directory. -/
 def runPlain (profile : Profile) : Prog L E UInt32 := do
   let result ← (loadPlain profile).run
-  let report := decisionPrepared (result.map (·.2))
   match result with
-  | .error _ => finishProof report
+  | .error why => finishProof (decisionPrepared (.error why))
   | .ok (dir, prepared) =>
     say (coverage prepared.input)
-    finishPlain dir report
+    finishPlain dir (decisionPrepared (.ok prepared))
 
 /-- What a run does on this Lean with these arguments: the profile, or a refusal, and then the variable says which run. -/
 def dispatch (version commit : String) (args : List String) : Prog L E UInt32 :=

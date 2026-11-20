@@ -45,7 +45,6 @@ inductive Subject where
   | constant (name module : Name)
   /-- The module `name`. -/
   | module (name : Name)
-  deriving DecidableEq, Repr
 
 /-- The name of a subject: the constant's name, or the module's name. -/
 def Subject.name : Subject → Name

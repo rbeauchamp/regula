@@ -11,8 +11,8 @@ import all Regula.Rule
 Each rule's statement is a module of its own below {lit}`Rules/`, which imports this module, the rule's own
 check in the checker's package, and no other rule. A rule enters the specification's registry
 ({lit}`Rules.lean`) as a value of {lit}`Proved`: the rule that the checker runs, its violation predicate,
-the proof that its check reports exactly the violations, and its cases. So no rule is registered without its
-statement, its proof and its cases.
+the proof that its check reports exactly the violations, its cases, and the proof of the kind of subject that
+its violations carry. So no rule is registered without its statement, its proofs and its cases.
 
 The lemmas here are the ones that more than one rule's proof uses.
 -/
@@ -25,8 +25,8 @@ open Lean (Name)
 open LeanIntent
 
 /-- A rule of the checker with its statement: the violation predicate over the specification's input, the
-proof that the rule's check reports exactly its violations on every input and every value of its tables, and the
-cases that the rule's record needs. -/
+proof that the rule's check reports exactly its violations on every input and every value of its tables, the
+cases that the rule's record needs, and the proof of the kind of subject that its violations carry. -/
 structure Proved where
   /-- The rule that the checker runs. -/
   rule : Regula.Closed.Rule
@@ -37,6 +37,11 @@ structure Proved where
     s ∈ (rule.check t).map (·.subject.name) ↔ Violates (Link.toSpec i) s
   /-- The case that the rule must refuse, and the case that it must admit. -/
   cases : Witnessed Violates
+  /-- Every violation of RG1013 has a module subject for a claimed module, and every violation of another rule
+  has a constant subject carrying the declaration's own name and module. -/
+  subject : ∀ {i : Regula.Closed.Input} (t : Regula.Closed.Tables i), ∀ v ∈ rule.check t,
+    (rule.spelling ≠ "RG1013" ∧ ∃ d ∈ i.decls, v.subject = .constant d.name d.module) ∨
+      (rule.spelling = "RG1013" ∧ ∃ m ∈ i.modules, v.subject = .module m)
 
 namespace Proved
 

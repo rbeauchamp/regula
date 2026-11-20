@@ -190,7 +190,9 @@ theorem rg1011_admits_neither {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
 end Link
 
 /-- RG1011 with its statement, its proof and its cases, for the registry. -/
-def rg1011Proved : Proved := ⟨Regula.Rules.RG1011.rule, Violates1011, Link.rg1011_exact, Witnesses.w1011⟩
+def rg1011Proved : Proved :=
+  ⟨Regula.Rules.RG1011.rule, Violates1011, Link.rg1011_exact, Witnesses.w1011,
+    fun t _ hv => .inl ⟨by decide, Link.rg1011_subject t hv⟩⟩
 
 /-- The function of RG1011 over the specification's input. -/
 def rg1011Checker : Checker Input Name := rg1011Proved.checker

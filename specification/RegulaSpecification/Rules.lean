@@ -16,7 +16,7 @@ import all Regula.Rules
 /-!
 # The registry of the rules' statements
 
-One line for each rule: the rule that the checker runs, with its statement, its proof and its cases
+One line for each rule: the rule that the checker runs, with its statement, its proofs and its cases
 ({name (full := RegulaSpecification.Proved)}`Proved`). {lit}`registry_rules` proves that this list and the checker's registry
 ({name}`Regula.Closed.registry`) are one, in their order, so a rule that one of them holds and the other does not
 stops the build.
@@ -83,25 +83,15 @@ theorem registered_found (p : Proved) (hp : p ∈ registry) :
   have hr : p.rule ∈ Regula.Closed.registry := registry_rules ▸ List.mem_map_of_mem hp
   exact ⟨i, _, Regula.Closed.mem_findings.mpr ⟨p.rule, hr, v, hv, rfl⟩, rfl, hs⟩
 
-open Link in
 /-- Every finding of RG1013 has a module subject for a claimed module, and every finding of another registered
 rule has a constant subject carrying the declaration's own name and module. -/
 theorem finding_subject {i : Regula.Closed.Input} {f : Regula.Closed.Finding} (hf : f ∈ i.findings) :
     (f.rule ≠ "RG1013" ∧ ∃ d ∈ i.decls, f.subject = .constant d.name d.module) ∨
       (f.rule = "RG1013" ∧ ∃ m ∈ i.modules, f.subject = .module m) := by
   obtain ⟨r, hr, v, hv, rfl⟩ := Regula.Closed.mem_findings.mp hf
-  simp only [Regula.Closed.registry, List.mem_cons, List.not_mem_nil, or_false] at hr
-  simp only [Regula.Closed.Finding.of]
-  rcases hr with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact .inl ⟨by decide, rg1001_subject i.tables hv⟩
-  · exact .inl ⟨by decide, rg1002_subject i.tables hv⟩
-  · exact .inl ⟨by decide, rg1003_subject i.tables hv⟩
-  · exact .inl ⟨by decide, rg1004_subject i.tables hv⟩
-  · exact .inl ⟨by decide, rg1005_subject i.tables hv⟩
-  · exact .inl ⟨by decide, rg1006_subject i.tables hv⟩
-  · exact .inl ⟨by decide, rg1011_subject i.tables hv⟩
-  · exact .inl ⟨by decide, rg1012_subject i.tables hv⟩
-  · exact .inr ⟨rfl, rg1013_subject i.tables hv⟩
+  rw [← registry_rules] at hr
+  obtain ⟨p, -, rfl⟩ := List.mem_map.mp hr
+  exact p.subject i.tables v hv
 
 /-- The spellings of the registered rules. RG1010 and RG2001 are no rules of the registry: the language check
 and the refusal of a build that the checker cannot read print them ({lit}`proof_verdict_lines`, {lit}`full_gate_lines`). -/

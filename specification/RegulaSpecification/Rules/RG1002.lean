@@ -89,7 +89,9 @@ theorem rg1002_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 end Link
 
 /-- RG1002 with its statement, its proof and its cases, for the registry. -/
-def rg1002Proved : Proved := ⟨Regula.Rules.RG1002.rule, Violates1002, Link.rg1002_exact, Witnesses.w1002⟩
+def rg1002Proved : Proved :=
+  ⟨Regula.Rules.RG1002.rule, Violates1002, Link.rg1002_exact, Witnesses.w1002,
+    fun t _ hv => .inl ⟨by decide, Link.rg1002_subject t hv⟩⟩
 
 /-- The function of RG1002 over the specification's input. -/
 def rg1002Checker : Checker Input Name := rg1002Proved.checker

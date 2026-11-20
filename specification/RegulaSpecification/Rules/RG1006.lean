@@ -363,7 +363,9 @@ theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
 end Link
 
 /-- RG1006 with its statement, its proof and its cases, for the registry. -/
-def rg1006Proved : Proved := ⟨Regula.Rules.RG1006.rule, Violates1006, Link.rg1006_exact, Witnesses.w1006⟩
+def rg1006Proved : Proved :=
+  ⟨Regula.Rules.RG1006.rule, Violates1006, Link.rg1006_exact, Witnesses.w1006,
+    fun t _ hv => .inl ⟨by decide, Link.rg1006_subject t hv⟩⟩
 
 /-- The function of RG1006 over the specification's input. -/
 def rg1006Checker : Checker Input Name := rg1006Proved.checker

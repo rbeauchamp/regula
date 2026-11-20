@@ -272,7 +272,9 @@ theorem rg1012_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 end Link
 
 /-- RG1012 with its statement, its proof and its cases, for the registry. -/
-def rg1012Proved : Proved := ⟨Regula.Rules.RG1012.rule, Violates1012, Link.rg1012_exact, Witnesses.w1012⟩
+def rg1012Proved : Proved :=
+  ⟨Regula.Rules.RG1012.rule, Violates1012, Link.rg1012_exact, Witnesses.w1012,
+    fun t _ hv => .inl ⟨by decide, Link.rg1012_subject t hv⟩⟩
 
 /-- The function of RG1012 over the specification's input. -/
 def rg1012Checker : Checker Input Name := rg1012Proved.checker

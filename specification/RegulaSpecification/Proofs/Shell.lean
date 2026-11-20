@@ -600,7 +600,7 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     obtain ⟨hc, hend, hsay⟩ := finishProof_spec h₂
     have hv : (Regula.Closed.decision (.error why)).verdict = .incomplete :=
       RegulaSpecification.Loader.decision_failed why
-    rw [hdec] at hc hend
+    rw [show Regula.Closed.decisionPrepared (.error why) = _ from hdec] at hc hend
     simp only [Except.map] at hc hend l1
     refine ⟨.error why, l1, hc, ?_, fun e he => ?_, fun hzero => ?_, ?_⟩
     · rw [hv] at hend ⊢
@@ -625,7 +625,7 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
     have hd := say_spec h₃
     obtain ⟨hc, hend, hsay⟩ := finishPlain_spec h₄
-    rw [hdec] at hc hend
+    rw [show Regula.Closed.decisionPrepared (.ok prepared) = _ from hdec] at hc hend
     simp only [Except.map] at hc hend l1
     have hend' : EndsWith (⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ t₄)))
         ((Regula.Closed.decision (.ok prepared.input)).verdict.proofLineOn dir.toString) := by

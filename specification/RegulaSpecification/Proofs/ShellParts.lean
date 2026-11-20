@@ -65,17 +65,6 @@ theorem line_module (rule : String) (name : Name) (detail : String) :
     Regula.Shell.line { rule, subject := .module name, detail } =
       s!"{rule} {name}: {detail}" := by rfl
 
-/-- A constant finding and a module finding never format to the same line, even when the constant and its
-module share the same name. -/
-theorem line_same_name_ne (rule : String) (name : Name) (detail : String) :
-    Regula.Shell.line { rule, subject := .constant name name, detail } ≠
-      Regula.Shell.line { rule, subject := .module name, detail } := by
-  intro h
-  have hlen := congrArg String.length h
-  simp only [Regula.Shell.line, toString, String.length_append] at hlen
-  have hpos : (": ").length < (" (module ").length + ("): ").length := by decide
-  omega
-
 theorem details_nil : Details (L := L) (E := E) [] := by
   simp [Details, printed]
 
