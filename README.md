@@ -181,11 +181,11 @@ The full verdict stays at its built size. On 2026-11-01 the owner was shown that
 
 ## Read Regula as an example
 
-[`STANDARD.md`](STANDARD.md) sets out the Lean 4 engineering standard across theorem proving and functional programming and maps each practice to its enforcement status in Regula. Five modules in this repository illustrate those patterns directly:
+[`STANDARD.md`](STANDARD.md) sets out the Lean 4 engineering standard across theorem proving and functional programming and maps each practice to its enforcement status in Regula. Five examples across six modules in this repository illustrate those patterns directly:
 
 - [`lean/Regula/Input.lean`](lean/Regula/Input.lean) — proof-bearing boundary admission (`Draft.admit` to `Input`, carrying `Input.closed` and `Input.claims`) and closed sum types (`Safety`, `Profile`).
 - [`lean/Regula/Tables.lean`](lean/Regula/Tables.lean) — dependent lookup tables (`Tables i`) carrying proofs of what each table holds of input `i`, alongside `Tables.axiomSet` and `Input.cone`.
-- [`lean/Regula/Effect.lean`](lean/Regula/Effect.lean) — pure effect trees (`Prog`) over a closed operation type (`Op`, `Resp`), separated from the straight-line IO table in [`lean/Regula/Table.lean`](lean/Regula/Table.lean).
+- [`lean/Regula/Effect.lean`](lean/Regula/Effect.lean) — pure effect trees (`Prog`) over a closed operation type (`Op`, `Resp`), separated from the thin IO table in [`lean/Regula/Table.lean`](lean/Regula/Table.lean).
 - [`lean/Regula/Reach.lean`](lean/Regula/Reach.lean) — total graph reachability (`reach`, `reachGo`) proved sound and complete (`mem_reach`) with a derived termination measure (`unseenWeight`, `unseenWeight_insert`), without `partial` or `while`.
 - [`specification/RegulaSpecification/Rules/RG1011.lean`](specification/RegulaSpecification/Rules/RG1011.lean) — an independent rule specification (`Violates1011`), non-vacuity witnesses (`Witnesses.w1011`, `rg1011_adequate`, `rg1011_noisy`), and a bidirectional proof over the executed check (`Link.rg1011_exact`).
 
