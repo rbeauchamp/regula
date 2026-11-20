@@ -80,7 +80,7 @@ theorem rg1013_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1013 with its statement, its proof and its cases, for the registry. -/
+/-- RG1013 with its statement, its proofs and its cases, for the registry. -/
 def rg1013Proved : Proved :=
   ⟨Regula.Rules.RG1013.rule, Violates1013, Link.rg1013_exact, Witnesses.w1013,
     fun t _ hv => .inr ⟨rfl, Link.rg1013_subject t hv⟩⟩

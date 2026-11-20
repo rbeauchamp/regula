@@ -104,7 +104,7 @@ theorem rg1004_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1004 with its statement, its proof and its cases, for the registry. -/
+/-- RG1004 with its statement, its proofs and its cases, for the registry. -/
 def rg1004Proved : Proved :=
   ⟨Regula.Rules.RG1004.rule, Violates1004, Link.rg1004_exact, Witnesses.w1004,
     fun t _ hv => .inl ⟨by decide, Link.rg1004_subject t hv⟩⟩

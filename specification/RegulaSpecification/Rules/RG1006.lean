@@ -362,7 +362,7 @@ theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
 
 end Link
 
-/-- RG1006 with its statement, its proof and its cases, for the registry. -/
+/-- RG1006 with its statement, its proofs and its cases, for the registry. -/
 def rg1006Proved : Proved :=
   ⟨Regula.Rules.RG1006.rule, Violates1006, Link.rg1006_exact, Witnesses.w1006,
     fun t _ hv => .inl ⟨by decide, Link.rg1006_subject t hv⟩⟩
