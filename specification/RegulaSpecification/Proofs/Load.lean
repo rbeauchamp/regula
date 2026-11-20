@@ -476,7 +476,7 @@ theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i.tables =
   · exact .inl hs
   refine .inr ?_
   have hmem : x ∈ f.claimedConstants.filter (!f.shown ·) := by simp [hx, hs]
-  simp only [Regula.Load.Facts.unread?, Option.map_eq_none_iff, List.find?_eq_none] at h
+  simp only [Regula.Load.Facts.unread?, Regula.Load.Facts.unshown, Option.map_eq_none_iff, List.find?_eq_none] at h
   simpa using h x hmem
 
 theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.Input}
@@ -515,26 +515,33 @@ theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.In
 
 theorem input_eq_ok_iff :
     f.input roots p = .ok i ↔ ∃ prep, f.prepare roots p = .ok prep ∧ prep.input = i := by
-  simp only [Regula.Load.Facts.input, Except.map]
-  cases f.prepare roots p <;> simp
+  rw [Regula.Load.Facts.input_eq_prepare_map]
+  cases f.prepare roots p <;> simp [Except.map]
 
-theorem prepare_loaded {prep : Regula.Closed.Prepared} (h : f.prepare roots p = .ok prep) :
-    Loaded f roots p prep.input := by
-  simp only [Regula.Load.Facts.prepare] at h
+theorem admitDraft_loaded {i' : Regula.Closed.Input} (h : f.admitDraft roots p = .ok i') :
+    Loaded f roots p i' := by
+  simp only [Regula.Load.Facts.admitDraft] at h
   split at h
   · cases h
   rename_i hfind
   split at h
   · cases h
   rename_i decls hm
-  split at h
-  · cases h
-  rename_i i' hadmit
-  split at h
-  · cases h
-  simp only [Except.ok.injEq] at h
-  subst h
-  exact loaded_of_parts hfind hm hadmit
+  exact loaded_of_parts hfind hm h
+
+theorem prepare_loaded {prep : Regula.Closed.Prepared} (h : f.prepare roots p = .ok prep) :
+    Loaded f roots p prep.input := by
+  simp only [Regula.Load.Facts.prepare] at h
+  cases hd : f.admitDraft roots p with
+  | error why => simp [hd] at h
+  | ok i' =>
+    rw [hd] at h
+    cases hc : f.checkUnread i'.tables with
+    | error why => simp [hc] at h
+    | ok _ =>
+      simp only [hc, Except.ok.injEq] at h
+      subst h
+      exact admitDraft_loaded hd
 
 theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
   obtain ⟨prep, hprep, rfl⟩ := input_eq_ok_iff.mp h
@@ -545,18 +552,17 @@ theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantIn
     f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true := by
   obtain ⟨prep, hprep, rfl⟩ := input_eq_ok_iff.mp h
   simp only [Regula.Load.Facts.prepare] at hprep
-  split at hprep
-  · cases hprep
-  split at hprep
-  · cases hprep
-  split at hprep
-  · cases hprep
-  split at hprep
-  · cases hprep
-  rename_i hkeeps
-  simp only [Except.ok.injEq] at hprep
-  subst hprep
-  exact unread_none hkeeps hx
+  cases hd : f.admitDraft roots p with
+  | error why => simp [hd] at hprep
+  | ok i' =>
+    rw [hd] at hprep
+    simp only [Regula.Load.Facts.checkUnread] at hprep
+    cases hu : f.unread? i'.tables with
+    | some _ => simp [hu] at hprep
+    | none =>
+      simp only [hu, Except.ok.injEq] at hprep
+      subst hprep
+      exact unread_none hu hx
 
 theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
     (toSpec i).ClaimedModule m ↔ m ∈ f.claimed := by
@@ -1222,7 +1228,8 @@ theorem unread_none_of {i : Regula.Closed.Input}
     (h : ∀ x ∈ f.claimedConstants,
       f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true) :
     f.unread? i.tables = none := by
-  simp only [Regula.Load.Facts.unread?, Option.map_eq_none_iff, List.find?_eq_none, Bool.not_eq_true']
+  simp only [Regula.Load.Facts.unread?, Regula.Load.Facts.unshown, Option.map_eq_none_iff, List.find?_eq_none,
+    Bool.not_eq_true']
   intro x hmem
   simp only [List.mem_filter, Bool.not_eq_true'] at hmem
   rcases h x hmem.1 with hs | hf
@@ -1248,8 +1255,8 @@ theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e 
         rw [hl] at h
         cases h
 
-theorem prepare_of_floor (h : LoadFloor f roots p) : ∃ prep, f.prepare roots p = .ok prep := by
-  simp only [Regula.Load.Facts.prepare]
+theorem admitDraft_of_floor (h : LoadFloor f roots p) : ∃ i, f.admitDraft roots p = .ok i := by
+  simp only [Regula.Load.Facts.admitDraft]
   split
   · rename_i m hfind
     have hmem := List.mem_of_find?_eq_some hfind
@@ -1267,34 +1274,31 @@ theorem prepare_of_floor (h : LoadFloor f roots p) : ∃ prep, f.prepare roots p
   obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok
     (fun x : Name × ConstantInfo => f.decl x.1 x.2 (f.stated.getD x.1 []))
     (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ hm
-  split
-  · rename_i why hadmit
-    have hwf : (toSpecDraft
-        { profile := p, modules := f.claimed, moduleFiles := f.moduleFiles, decls := decls,
-          unique := f.decls_nodup (stated := fun n => f.stated.getD n []) hm }).WellFormed := by
-      rw [wf_toSpecDraft_iff]
-      refine ⟨fun x hx u hu => ?_, h.form.claims⟩
-      obtain ⟨⟨n, info⟩, hin, hok⟩ := h1 x hx
-      obtain ⟨m, -, rfl⟩ := decl_ok hok
-      have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hin
-      obtain ⟨k, hk⟩ := h.form.closed n u ⟨info, hget, (mem_usesIn info _ u).mp hu⟩
-      obtain ⟨y, hy, hoky⟩ := h2 (u, k) (Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr hk)
-      exact ⟨y, hy, f.decl_name hoky⟩
-    obtain ⟨i, hi⟩ := (admit_ok_iff _).mpr hwf
-    rw [hi] at hadmit
-    cases hadmit
-  rename_i i' hadmit
-  have hl := loaded_of_parts hfind hm hadmit
+  have hwf : (toSpecDraft
+      { profile := p, modules := f.claimed, moduleFiles := f.moduleFiles, decls := decls,
+        unique := f.decls_nodup (stated := fun n => f.stated.getD n []) hm }).WellFormed := by
+    rw [wf_toSpecDraft_iff]
+    refine ⟨fun x hx u hu => ?_, h.form.claims⟩
+    obtain ⟨⟨n, info⟩, hin, hok⟩ := h1 x hx
+    obtain ⟨m, -, rfl⟩ := decl_ok hok
+    have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hin
+    obtain ⟨k, hk⟩ := h.form.closed n u ⟨info, hget, (mem_usesIn info _ u).mp hu⟩
+    obtain ⟨y, hy, hoky⟩ := h2 (u, k) (Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr hk)
+    exact ⟨y, hy, f.decl_name hoky⟩
+  exact (admit_ok_iff _).mpr hwf
+
+theorem prepare_of_floor (h : LoadFloor f roots p) : ∃ prep, f.prepare roots p = .ok prep := by
+  obtain ⟨i', hd⟩ := admitDraft_of_floor h
+  have hl := admitDraft_loaded hd
   have hnone : f.unread? i'.tables = none := unread_none_of fun x hx => by
     by_cases hs : f.shown x = true
     · exact .inl hs
     · exact .inr ((fitsUnshown_iff hl x).mpr (h.unshown x hx (by simpa using hs)))
-  rw [hnone]
-  exact ⟨_, rfl⟩
+  exact ⟨⟨i', i'.tables⟩, by simp [Regula.Load.Facts.prepare, hd, Regula.Load.Facts.checkUnread, hnone]⟩
 
 theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok i := by
   obtain ⟨prep, hprep⟩ := prepare_of_floor h
-  exact ⟨prep.input, by simp [Regula.Load.Facts.input, hprep, Except.map]⟩
+  exact ⟨prep.input, by rw [Regula.Load.Facts.input_eq_prepare_map, hprep]; rfl⟩
 
 theorem pass_iff_floor :
     (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ LoadFloor f roots p := by

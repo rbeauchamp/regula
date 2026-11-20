@@ -178,7 +178,7 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
           rw [hin] at h₁₂
           obtain ⟨rfl, rfl⟩ := h₁₂
           have hinp : f.input (modules.map (·.1)) p = .error why := by
-            simp [Regula.Load.Facts.input, hin, Except.map]
+            rw [Regula.Load.Facts.input_eq_prepare_map, hin]; rfl
           exact ⟨.inl ⟨f, modules.map (·.1), hread, by rw [hinp]; simp [Replayed, Except.map], fun _ he' => (by cases he')⟩,
             (fun _ he' => by cases he'), by simpa using hprep⟩
         | ok prep =>
@@ -195,7 +195,7 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
             · exact f3 x hx
             · exact .inl trivial
           have hinp : f.input (modules.map (·.1)) p = .ok prep.input := by
-            simp [Regula.Load.Facts.input, hin, Except.map]
+            rw [Regula.Load.Facts.input_eq_prepare_map, hin]; rfl
           refine ⟨.inl ⟨f, modules.map (·.1), hread, ?_, fun j hj => ?_⟩, fun j hj => ?_,
             by simpa [List.append_assoc] using hprepR⟩
           · rw [hinp]

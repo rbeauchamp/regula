@@ -321,26 +321,7 @@ theorem strLt_irrefl (a : String) : strLt a a = false := by
 
 theorem strLt_total (a b : String) (h1 : strLt a b = false) (h2 : strLt b a = false) : a = b := by
   simp only [strLt, decide_eq_false_iff_not] at h1 h2
-  have hcmp : compare a b = .eq := by
-    change compareOfLessAndEq a b = .eq
-    unfold compareOfLessAndEq
-    rw [ite_eq_right (fun h => absurd h h1)]
-    split
-    · rfl
-    · rename_i hne
-      have hgt : compare a b = .gt := by
-        change compareOfLessAndEq a b = .gt
-        unfold compareOfLessAndEq
-        rw [ite_eq_right (fun h => absurd h h1), ite_eq_right (fun h => absurd h hne)]
-      have hba : compare b a = .lt := by
-        have hswap := Std.OrientedCmp.eq_swap (cmp := (compare : String → String → Ordering)) (a := b) (b := a)
-        rw [hgt] at hswap
-        exact hswap
-      change compareOfLessAndEq b a = .lt at hba
-      unfold compareOfLessAndEq at hba
-      rw [ite_eq_right (fun h => absurd h h2)] at hba
-      split at hba <;> cases hba
-  exact Std.LawfulEqCmp.compare_eq_iff_eq.mp hcmp
+  exact String.le_antisymm (String.not_lt.mp h2) (String.not_lt.mp h1)
 
 theorem kinds_sorted : isSorted Name.lt kinds = true := by decide +kernel
 theorem leafKinds_sorted : isSorted Name.lt leafKinds = true := by decide +kernel

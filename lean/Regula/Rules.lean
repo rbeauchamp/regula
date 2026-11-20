@@ -102,18 +102,18 @@ theorem report_pass_iff (i : Input) :
 theorem report_not_incomplete (i : Input) : i.report.verdict ≠ .incomplete :=
   Tables.report_not_incomplete i.tables
 
-/-- The report of a load that gave a closed input or an error: a build it cannot read is `incomplete`,
-and otherwise the report is `Input.report`. A run evaluates `decisionPrepared`, which
-`decisionPrepared_eq` proves equal to this when the prepared tables are `Input.tables`. -/
-def decision : Except String Input → Report
-  | .error why => .incomplete why
-  | .ok input => input.report
-
 /-- The report of a run, from a prepared load: a build it cannot read is `incomplete`, and
 otherwise the report is `Tables.report` on the prepared tables. -/
 def decisionPrepared : Except String Prepared → Report
   | .error why => .incomplete why
   | .ok p => p.tables.report
+
+/-- The report of a load that gave a closed input or an error: a build it cannot read is `incomplete`,
+and otherwise the report is `Input.report`. A run evaluates `decisionPrepared` on its final load
+result after kernel replay, which `decisionPrepared_eq` proves equal to this when the prepared tables
+are `Input.tables`. -/
+def decision (r : Except String Input) : Report :=
+  decisionPrepared (r.map fun i => ⟨i, i.tables⟩)
 
 theorem decisionPrepared_eq {r : Except String Prepared}
     (ht : ∀ p, r = .ok p → p.tables = p.input.tables) :
@@ -121,6 +121,6 @@ theorem decisionPrepared_eq {r : Except String Prepared}
   cases r with
   | error why => rfl
   | ok p =>
-    simp only [decisionPrepared, Except.map, decision, Input.report, ht p rfl]
+    simp only [decisionPrepared, decision, Except.map, ht p rfl]
 
 end Regula.Closed
