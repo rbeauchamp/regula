@@ -160,13 +160,54 @@ theorem only_existsByName (path : FilePath) : OnlyA (existsByName path : Attempt
 
 theorem only_readProject (sysroot : String) (dir treeDir : FilePath) :
     OnlyA (read sysroot dir treeDir : Attempt L E _) := by
-  unfold Regula.Reader.read readProject readProjectStage realPath toolchainOf readConfig readKeys readRoot readFiles noOtherConfig
-  repeat' first
-    | exact only_readExact _ _ | exact only_existsByName _ | exact only_writeInTree _ _ _ | exact only_defaultModules _ _
-    | exact only_walk _ _ _ _ _ _ _ | exact only_parseFiles _ _ _ _ _ | exact only_writeSources _ _ | exact only_readBack _
-    | exact only_pure _ | exact onlyA_pure _ | exact onlyA_throw _
-    | exact onlyA_attempt (only_call trivial) | exact onlyA_lift (only_call trivial) | exact only_call trivial
-    | refine onlyA_seq ?_ fun _ => ?_ | refine only_seq ?_ fun _ => ?_
-    | refine onlyA_lift ?_ | split | dsimp only | (rename_i r; cases r)
+  unfold Regula.Reader.read readProject
+  refine onlyA_seq (onlyA_seq ?_ fun _ => onlyA_pure _) fun _ => onlyA_pure _
+  unfold readProjectStage
+  refine onlyA_seq (onlyA_attempt (only_call trivial)) fun project =>
+    onlyA_seq (onlyA_attempt (only_call trivial)) fun tree => onlyA_seq (onlyA_lift ?_) fun tf => ?_
+  · unfold toolchainOf
+    exact only_seq (only_readExact _ _) fun r => by cases r <;> exact only_pure _
+  split
+  · exact onlyA_pure _
+  unfold readConfig
+  refine onlyA_seq (only_existsByName _) fun present => ?_
+  split
+  · exact onlyA_pure _
+  refine onlyA_seq (onlyA_lift (only_readExact _ _)) fun r => ?_
+  split
+  · exact onlyA_pure _
+  unfold readKeys
+  refine onlyA_seq (onlyA_lift (only_call trivial)) fun parsed => ?_
+  cases parsed
+  · exact onlyA_pure _
+  dsimp only
+  split
+  · exact onlyA_pure _
+  refine onlyA_seq (only_writeInTree _ _ _) fun _ => onlyA_seq (only_writeInTree _ _ _) fun _ => ?_
+  unfold readRoot
+  refine onlyA_seq (only_seq (only_call trivial) fun _ => only_pure _) fun root => ?_
+  dsimp only
+  split
+  · exact onlyA_pure _
+  refine onlyA_seq (only_defaultModules _ _) fun modules => ?_
+  split
+  · exact onlyA_pure _
+  unfold readFiles
+  refine onlyA_seq (onlyA_lift (only_walk _ _ _ _ _ _ _)) fun w => ?_
+  dsimp only
+  split
+  · exact onlyA_pure _
+  split
+  · exact onlyA_pure _
+  refine onlyA_seq (only_parseFiles _ _ _ _ _) fun files => ?_
+  split
+  · refine onlyA_seq (only_writeSources _ _) fun _ => onlyA_seq (only_readBack _) fun _ =>
+      onlyA_seq ?_ fun _ => onlyA_pure _
+    unfold noOtherConfig
+    refine onlyA_seq (only_existsByName _) fun b => ?_
+    split
+    · exact onlyA_throw _
+    · exact onlyA_pure _
+  · exact onlyA_pure _
 
 end RegulaSpecification.Effects

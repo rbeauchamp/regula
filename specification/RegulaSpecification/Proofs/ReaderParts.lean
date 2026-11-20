@@ -247,14 +247,16 @@ theorem visible_closed (hs : List (Name × Array Import)) (held : List Name) (fu
       by_cases hm : held.contains m = true
       · simp only [hm, ite_true]
         obtain ⟨h1, S, h2, h3, h4⟩ := ih rest seen (by omega)
-        refine ⟨fun x hx => by grind, S, h2, fun n hn => by grind, fun s hs' hns => ?_⟩
+        refine ⟨List.forall_mem_cons.mpr ⟨List.contains_iff_mem.mp hm, h1⟩, S, h2,
+          List.forall_mem_cons.mpr ⟨.inl (List.mem_cons_self ..),
+            fun n hn => (h3 n hn).imp_left (List.mem_cons_of_mem m)⟩, fun s hs' hns => ?_⟩
         obtain ⟨h5, h6⟩ := h4 s hs' hns
-        exact ⟨h5, fun i hi he => by rcases h6 i hi he with h | h <;> grind⟩
+        exact ⟨h5, fun i hi he => (h6 i hi he).imp_left (List.mem_cons_of_mem m)⟩
       · simp only [hm, Bool.false_eq_true, ite_false]
         by_cases hsn : seen.contains m = true
         · simp only [hsn, ite_true]
           obtain ⟨h1, S, h2, h3, h4⟩ := ih rest seen (by omega)
-          exact ⟨h1, S, h2, fun n hn => by grind, h4⟩
+          exact ⟨h1, S, h2, List.forall_mem_cons.mpr ⟨.inr (h2 m (List.contains_iff_mem.mp hsn)), h3⟩, h4⟩
         · simp only [hsn, Bool.false_eq_true, ite_false]
           have hstep := remaining_step hs seen m (by simpa using hsn)
           have hlen : (((hs.lookup m).getD #[]).toList.filter (·.isExported) |>.map (·.module)).length ≤
@@ -264,7 +266,9 @@ theorem visible_closed (hs : List (Name × Array Import)) (held : List Name) (fu
           obtain ⟨h1, S, h2, h3, h4⟩ := ih
             ((((hs.lookup m).getD #[]).toList.filter (·.isExported) |>.map (·.module)) ++ rest) (m :: seen)
             (by simp only [List.length_append]; omega)
-          refine ⟨h1, S, fun n hn => h2 n (List.mem_cons_of_mem _ hn), fun n hn => by grind, fun s hs' hns => ?_⟩
+          refine ⟨h1, S, fun n hn => h2 n (List.mem_cons_of_mem m hn),
+            List.forall_mem_cons.mpr ⟨.inr (h2 m (List.mem_cons_self ..)),
+              fun n hn => h3 n (List.mem_append_right _ hn)⟩, fun s hs' hns => ?_⟩
           by_cases hsm : s = m
           · subst hsm
             refine ⟨by simpa using hm, fun i hi he => h3 _ (List.mem_append_left _ ?_)⟩
