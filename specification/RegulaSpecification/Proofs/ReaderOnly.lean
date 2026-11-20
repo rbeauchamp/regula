@@ -33,21 +33,14 @@ abbrev Only (p : Prog L E α) : Prop :=
 
 variable {P : Op L E → Prop}
 
-theorem only_pure (a : α) : OnlyIn P (pure a : Prog L E α) := by
-  intro t b h e he
-  obtain ⟨rfl, -⟩ := runs_pure_iff.mp h
-  cases he
+theorem only_pure (a : α) : OnlyIn P (pure a : Prog L E α) := fun _ _ h _ he => by
+  obtain ⟨rfl, -⟩ := runs_pure_iff.mp h; cases he
 
-theorem only_call {o : Op L E} (h : P o) : OnlyIn P (Prog.call o) := by
-  intro t a hr e he
-  obtain rfl := runs_call_iff.mp hr
-  have : e = _ := List.mem_singleton.mp he
-  subst this
-  exact h
+theorem only_call {o : Op L E} (h : P o) : OnlyIn P (Prog.call o) := fun _ _ hr _ he => by
+  obtain rfl := runs_call_iff.mp hr; rw [List.mem_singleton.mp he]; exact h
 
 theorem only_seq {p : Prog L E α} {f : α → Prog L E β} (hp : OnlyIn P p) (hf : ∀ a, OnlyIn P (f a)) :
-    OnlyIn P (p >>= f) := by
-  intro t b h e he
+    OnlyIn P (p >>= f) := fun _ _ h e he => by
   obtain ⟨t₁, t₂, a, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
   rcases List.mem_append.mp he with he | he
   · exact hp _ _ h₁ e he
@@ -61,34 +54,24 @@ def OnlyAIn (P : Op L E → Prop) (x : Attempt L E α) : Prop :=
 abbrev OnlyA (x : Attempt L E α) : Prop :=
   OnlyAIn ReadOp x
 
-theorem onlyA_pure (a : α) : OnlyAIn P (pure a : Attempt L E α) :=
-  only_pure _
-
-theorem onlyA_throw (e : String) : OnlyAIn P (throw e : Attempt L E α) :=
-  only_pure _
+theorem onlyA_pure (a : α) : OnlyAIn P (pure a : Attempt L E α) := only_pure _
+theorem onlyA_throw (e : String) : OnlyAIn P (throw e : Attempt L E α) := only_pure _
 
 theorem onlyA_seq {x : Attempt L E α} {f : α → Attempt L E β} (hx : OnlyAIn P x)
-    (hf : ∀ a, OnlyAIn P (f a)) : OnlyAIn P (x >>= f) := by
-  intro t b h e he
+    (hf : ∀ a, OnlyAIn P (f a)) : OnlyAIn P (x >>= f) := fun _ _ h e he => by
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
   rcases List.mem_append.mp he with he | he
   · exact hx _ _ h₁ e he
   · cases r with
     | ok a => exact hf a _ _ h₂ e he
-    | error why =>
-      obtain ⟨rfl, -⟩ := h₂
-      cases he
+    | error _ => obtain ⟨rfl, -⟩ := h₂; cases he
 
-theorem onlyA_lift {p : Prog L E α} (hp : OnlyIn P p) : OnlyAIn P (ExceptT.lift p : Attempt L E α) := by
-  intro t b h e he
-  obtain ⟨a, h₁, -⟩ := runs_lift_iff.mp h
-  exact hp _ _ h₁ e he
+theorem onlyA_lift {p : Prog L E α} (hp : OnlyIn P p) : OnlyAIn P (ExceptT.lift p : Attempt L E α) := fun _ _ h e he =>
+  let ⟨_, h₁, _⟩ := runs_lift_iff.mp h; hp _ _ h₁ e he
 
 theorem onlyA_attempt {step : Prog L E (Except IO.Error α)} (hp : OnlyIn P step) :
-    OnlyAIn P (attempt step) := by
-  intro t b h e he
-  obtain ⟨r, h₁, -⟩ := runs_attempt_iff.mp h
-  exact hp _ _ h₁ e he
+    OnlyAIn P (attempt step) := fun _ _ h e he =>
+  let ⟨_, h₁, _⟩ := runs_attempt_iff.mp h; hp _ _ h₁ e he
 
 /-- Each step of a program whose operations the reader may ask, by its structure. -/
 macro "only_steps" : tactic =>
@@ -107,11 +90,9 @@ theorem only_writeInTree (tree path : FilePath) (text : String) : OnlyA (writeIn
 theorem only_readSource (project tree path : FilePath) : OnlyA (readSource project tree path : Attempt L E _) := by
   rw [readSource, readForTree]
   refine onlyA_seq ?_ fun _ => by only_steps
-  split
-  · exact onlyA_throw _
-  · split
-    · exact only_readExact _ _
-    · exact onlyA_throw _
+  split; · exact onlyA_throw _
+  split; · exact only_readExact _ _
+  exact onlyA_throw _
 
 theorem only_walk (project tree : FilePath) (root : Root L) (modules : List (Name × FilePath))
     (fuel : Nat) (todo : List Name) (w : Walk) :
@@ -123,16 +104,11 @@ theorem only_walk (project tree : FilePath) (root : Root L) (modules : List (Nam
     | nil => rw [walk]; exact only_pure _
     | cons m rest =>
       rw [walk]
-      split
-      · exact ih _ _
-      · split
-        · exact ih _ _
-        · split
-          · exact ih _ _
-          · split
-            · exact only_seq (only_readSource _ _ _) fun r => by cases r <;> exact ih _ _
-            · refine only_seq ?_ fun r => by cases r <;> exact ih _ _
-              rw [toolchainOLean]; only_steps
+      repeat' first
+        | exact ih _ _
+        | exact only_seq (only_readSource _ _ _) fun r => by cases r <;> exact ih _ _
+        | exact only_seq (by rw [toolchainOLean]; only_steps) fun r => by cases r <;> exact ih _ _
+        | split
 
 theorem only_parseAll (input) (env : E) (state) (messages) (fuel : Nat) :
     Only (parseAll input env state messages fuel : Prog L E _) := by
@@ -141,8 +117,7 @@ theorem only_parseAll (input) (env : E) (state) (messages) (fuel : Nat) :
   | succ fuel ih =>
     rw [parseAll]
     refine only_seq (only_call trivial) fun ⟨stx, state', messages'⟩ => ?_
-    dsimp only
-    split
+    dsimp only; split
     · exact only_pure _
     · exact only_seq (ih _ _) fun _ => only_pure _
 
@@ -151,50 +126,41 @@ theorem only_parseFiles (path : List FilePath) (sources : List (Name × Source))
   induction todo generalizing cache with
   | nil => rw [parseFiles]; exact onlyA_pure _
   | cons x todo ih =>
-    obtain ⟨m, s⟩ := x
-    rw [parseFiles]
-    refine onlyA_seq ?_ fun r => onlyA_seq (ih _) fun _ => onlyA_pure _
-    rw [parseFile]
-    refine onlyA_seq ?_ fun r => onlyA_seq (onlyA_lift (only_parseAll _ _ _ _ _)) fun _ => onlyA_pure _
+    rw [parseFiles]; refine onlyA_seq ?_ fun _ => onlyA_seq (ih _) fun _ => onlyA_pure _
+    rw [parseFile]; refine onlyA_seq ?_ fun _ => onlyA_seq (onlyA_lift (only_parseAll _ _ _ _ _)) fun _ => onlyA_pure _
     rw [environmentFor]; only_steps
 
 theorem only_defaultModules (root : Root L) (targets : List Name) :
     OnlyA (defaultModules root targets : Attempt L E _) := by
   induction targets with
   | nil => rw [defaultModules]; exact onlyA_pure _
-  | cons t ts ih =>
-    rw [defaultModules]
-    refine onlyA_seq ?_ fun _ => onlyA_seq ih fun _ => onlyA_pure _
+  | cons _ _ ih =>
+    rw [defaultModules]; refine onlyA_seq ?_ fun _ => onlyA_seq ih fun _ => onlyA_pure _
     rw [modulesOfTarget]; only_steps
 
 theorem only_readBack (l : List (FilePath × String)) : OnlyA (readBack l : Attempt L E _) := by
   induction l with
   | nil => rw [readBack]; exact onlyA_pure _
-  | cons x rest ih =>
-    rw [readBack]
-    refine onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => ?_
-    split
-    · exact ih
-    · exact onlyA_throw _
+  | cons _ _ ih =>
+    rw [readBack]; refine onlyA_seq (onlyA_attempt (only_call trivial)) fun _ => ?_
+    split; · exact ih
+    exact onlyA_throw _
 
 theorem only_writeSources (tree : FilePath) (srcs : List (Name × Source)) :
     OnlyA (writeSources tree srcs : Attempt L E _) := by
   induction srcs with
   | nil => rw [writeSources]; exact onlyA_pure _
-  | cons x rest ih =>
-    rw [writeSources]
-    exact onlyA_seq (only_writeInTree _ _ _) fun _ => ih
+  | cons _ _ ih => rw [writeSources]; exact onlyA_seq (only_writeInTree _ _ _) fun _ => ih
 
 theorem only_existsByName (path : FilePath) : OnlyA (existsByName path : Attempt L E _) := by
-  rw [existsByName]
-  refine only_seq (only_call trivial) fun r => ?_
+  rw [existsByName]; refine only_seq (only_call trivial) fun r => ?_
   cases r with
   | ok _ => exact only_pure _
   | error e => cases e <;> exact only_pure _
 
 theorem only_readProject (sysroot : String) (dir treeDir : FilePath) :
     OnlyA (read sysroot dir treeDir : Attempt L E _) := by
-  unfold Regula.Reader.read readProject realPath toolchainOf readConfig readKeys readRoot readFiles noOtherConfig
+  unfold Regula.Reader.read readProject readProjectStage realPath toolchainOf readConfig readKeys readRoot readFiles noOtherConfig
   repeat' first
     | exact only_readExact _ _ | exact only_existsByName _ | exact only_writeInTree _ _ _ | exact only_defaultModules _ _
     | exact only_walk _ _ _ _ _ _ _ | exact only_parseFiles _ _ _ _ _ | exact only_writeSources _ _ | exact only_readBack _
