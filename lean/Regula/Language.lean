@@ -29,10 +29,6 @@ namespace Regula.Language
 
 open Lean (Name Syntax)
 
-/-- Strict order on `Name` for binary search on sorted tables. -/
-def nameLt (a b : Name) : Bool :=
-  Name.cmp a b == .lt
-
 /-- Strict order on `String` for binary search on sorted tables. -/
 def strLt (a b : String) : Bool :=
   decide (a < b)
@@ -48,11 +44,11 @@ def atomsArray : Array String := atoms.toArray
 
 /-- Whether `k` is a leaf kind whose children are open text. -/
 def isLeafKind (k : Name) : Bool :=
-  leafKindsArray.binSearchContains k nameLt
+  leafKindsArray.binSearchContains k Name.lt
 
 /-- Whether `k` is an admitted non-leaf syntax kind. -/
 def isKind (k : Name) : Bool :=
-  kindsArray.binSearchContains k nameLt
+  kindsArray.binSearchContains k Name.lt
 
 /-- Whether `v` is an admitted token outside `leafKinds`. -/
 def isAtom (v : String) : Bool :=

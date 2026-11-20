@@ -92,11 +92,11 @@ theorem factsOf_spec {env : Environment} {root : Root L} {toolchainDir rootDir :
     exact ⟨rfl, rfl, rfl, fun m hm => by simpa using g1 m (by simpa using hm), by simpa using g2⟩
 
 theorem replayed_spec {f : Regula.Load.Facts} {p : Regula.Closed.Prepared} {t : List (Event L E)}
-    {b : Except String Regula.Closed.Prepared} (ht : p.tables = p.input.tables)
+    {b : Except String Regula.Closed.Prepared}
     (h : Runs (replayed f p : Attempt L E Regula.Closed.Prepared).run t b) :
     ∃ r, t = [⟨.kernelReplay (f.replayConstants p.input), r⟩] ∧
       ((r = .ok () ∧ b = .ok p) ∨ ((∃ e, r = .error e) ∧ ∃ message, b = .error message)) := by
-  rw [replayed, f.replayConstantsWith_eq ht] at h
+  rw [replayed] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_bind_iff.mp h
   obtain rfl := runs_call_iff.mp h₁
   cases r with
@@ -184,7 +184,7 @@ theorem inputOf_spec {T t : List (Event L E)} {root : Root L} {p : Regula.Closed
         | ok prep =>
           rw [hin] at h₁₂
           have htables : prep.tables = prep.input.tables := f.prepare_tables _ _ hin
-          obtain ⟨r, rfl, hr'⟩ := replayed_spec htables h₁₂
+          obtain ⟨r, rfl, hr'⟩ := replayed_spec h₁₂
           have hmemR : (⟨.kernelReplay (f.replayConstants prep.input), r⟩ : Event L E) ∈ T := hT₂.subset (by simp)
           have hprepR : InputPreparation root (t₁ ++ ([⟨.importForRules root.leanPath (modules.map (·.1)).toArray, .ok env⟩] ++
               (t₇ ++ ([] ++ [⟨.kernelReplay (f.replayConstants prep.input), r⟩])))) := by

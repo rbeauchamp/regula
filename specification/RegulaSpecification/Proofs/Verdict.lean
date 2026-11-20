@@ -17,8 +17,10 @@ open LeanIntent
 
 open Link
 
-/-- The verdict of a reading, by the two functions that the checker runs on it: the admission, and the decision
-on what the admission gives. -/
+/-- The verdict of a reading, by the admission that the checker runs on it and {name}`Regula.Closed.decision` on what
+the admission gives. The checker's own decision is {name}`Regula.Closed.decisionPrepared`, which
+{name}`Regula.Closed.decisionPrepared_eq` proves equal to that one when its tables are
+{name}`Regula.Closed.Input.tables` of its input. -/
 def run (d : Regula.Closed.Draft) : Regula.Closed.Report :=
   Regula.Closed.decision d.admit
 

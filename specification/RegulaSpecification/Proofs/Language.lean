@@ -293,16 +293,16 @@ theorem nameCmp_lt_trans {a b c : Name} (h1 : Name.cmp a b = .lt) (h2 : Name.cmp
             simp [hp1]
           | lt => simp [ih hp1 hp2]
 
-theorem nameLt_trans (a b c : Name) (h1 : nameLt a b = true) (h2 : nameLt b c = true) :
-    nameLt a c = true := by
-  simp only [nameLt, beq_iff_eq] at h1 h2 ⊢
+theorem nameLt_trans (a b c : Name) (h1 : Name.lt a b = true) (h2 : Name.lt b c = true) :
+    Name.lt a c = true := by
+  simp only [Name.lt, beq_iff_eq] at h1 h2 ⊢
   exact nameCmp_lt_trans h1 h2
 
-theorem nameLt_irrefl (a : Name) : nameLt a a = false := by
-  simp [nameLt, nameCmp_self]
+theorem nameLt_irrefl (a : Name) : Name.lt a a = false := by
+  simp [Name.lt, nameCmp_self]
 
-theorem nameLt_total (a b : Name) (h1 : nameLt a b = false) (h2 : nameLt b a = false) : a = b := by
-  simp only [nameLt, beq_eq_false_iff_ne, ne_eq] at h1 h2
+theorem nameLt_total (a b : Name) (h1 : Name.lt a b = false) (h2 : Name.lt b a = false) : a = b := by
+  simp only [Name.lt, beq_eq_false_iff_ne, ne_eq] at h1 h2
   have hswap := nameCmp_swap a b
   cases hc : Name.cmp a b with
   | eq => exact (nameCmp_eq_iff a b).mp hc
@@ -342,8 +342,8 @@ theorem strLt_total (a b : String) (h1 : strLt a b = false) (h2 : strLt b a = fa
       split at hba <;> cases hba
   exact Std.LawfulEqCmp.compare_eq_iff_eq.mp hcmp
 
-theorem kinds_sorted : isSorted nameLt kinds = true := by decide +kernel
-theorem leafKinds_sorted : isSorted nameLt leafKinds = true := by decide +kernel
+theorem kinds_sorted : isSorted Name.lt kinds = true := by decide +kernel
+theorem leafKinds_sorted : isSorted Name.lt leafKinds = true := by decide +kernel
 theorem atoms_sorted : isSorted strLt atoms = true := by decide +kernel
 
 theorem isKind_iff (k : Name) : isKind k = true ↔ k ∈ kinds := by

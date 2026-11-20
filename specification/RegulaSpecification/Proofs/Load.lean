@@ -469,22 +469,15 @@ theorem shown_uninitialized {x : Name × Name × ConstantInfo} (h : f.shown x = 
   · cases h
   · cases h
 
-theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i = none)
+theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i.tables = none)
     (hx : x ∈ f.claimedConstants) :
     f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true := by
   by_cases hs : f.shown x = true
   · exact .inl hs
   refine .inr ?_
   have hmem : x ∈ f.claimedConstants.filter (!f.shown ·) := by simp [hx, hs]
-  simp only [Regula.Load.Facts.unread?] at h
-  cases hu : f.claimedConstants.filter (!f.shown ·) with
-  | nil =>
-    rw [hu] at hmem
-    cases hmem
-  | cons a l =>
-    rw [hu] at h hmem
-    simp only [Option.map_eq_none_iff, List.find?_eq_none] at h
-    simpa using h x hmem
+  simp only [Regula.Load.Facts.unread?, Option.map_eq_none_iff, List.find?_eq_none] at h
+  simpa using h x hmem
 
 theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.Input}
     (hfind : roots.find? (fun x => !f.claimed.contains x) = none)
@@ -1228,18 +1221,13 @@ theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantI
 theorem unread_none_of {i : Regula.Closed.Input}
     (h : ∀ x ∈ f.claimedConstants,
       f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true) :
-    f.unread? i = none := by
-  simp only [Regula.Load.Facts.unread?]
-  cases hu : f.claimedConstants.filter (!f.shown ·) with
-  | nil => rfl
-  | cons a l =>
-    simp only [Option.map_eq_none_iff, List.find?_eq_none, Bool.not_eq_true']
-    intro x hx
-    have hmem : x ∈ f.claimedConstants.filter (!f.shown ·) := hu ▸ hx
-    simp only [List.mem_filter, Bool.not_eq_true'] at hmem
-    rcases h x hmem.1 with hs | hf
-    · simp [hmem.2] at hs
-    · simpa using hf
+    f.unread? i.tables = none := by
+  simp only [Regula.Load.Facts.unread?, Option.map_eq_none_iff, List.find?_eq_none, Bool.not_eq_true']
+  intro x hmem
+  simp only [List.mem_filter, Bool.not_eq_true'] at hmem
+  rcases h x hmem.1 with hs | hf
+  · simp [hmem.2] at hs
+  · simpa using hf
 
 theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e : ε) (h : l.mapM g = .error e) :
     ∃ a ∈ l, ∃ e', g a = .error e' := by
@@ -1297,7 +1285,7 @@ theorem prepare_of_floor (h : LoadFloor f roots p) : ∃ prep, f.prepare roots p
     cases hadmit
   rename_i i' hadmit
   have hl := loaded_of_parts hfind hm hadmit
-  have hnone : f.unreadWith? i'.tables = none := unread_none_of fun x hx => by
+  have hnone : f.unread? i'.tables = none := unread_none_of fun x hx => by
     by_cases hs : f.shown x = true
     · exact .inl hs
     · exact .inr ((fitsUnshown_iff hl x).mpr (h.unshown x hx (by simpa using hs)))

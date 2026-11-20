@@ -68,10 +68,6 @@ def details : Report → List String
 def coverage (i : Input) : String :=
   s!"regula: read {i.modules.length} claimed modules and {i.claimedDecls.length} of their constants"
 
-/-- What a run read, using the prebuilt table of claimed declarations. -/
-def coveragePrepared (p : Prepared) : String :=
-  s!"regula: read {p.input.modules.length} claimed modules and {p.tables.claimed.length} of their constants"
-
 /-- The spellings of the profiles, for a refusal. -/
 def profileSpellings : String :=
   ", ".intercalate (Profile.all.map (·.spelling))
@@ -119,10 +115,10 @@ def factsOf (env : Lean.Environment) (path : List FilePath) (toolchainDir rootDi
          placed := by simpa using hp }
 
 /-- The prepared input `p` of the facts `f`, once Lean's kernel has accepted, into an empty environment, the replay of the cone of
-its claim (`Regula.Load.Facts.replayConstantsWith`). Any other answer is why the run is `incomplete`. -/
+its claim (`Regula.Load.Facts.replayConstants`). Any other answer is why the run is `incomplete`. -/
 def replayed (f : Regula.Load.Facts) (p : Prepared) : Attempt L E Prepared :=
   ExceptT.mk do
-    match ← (Prog.call (.kernelReplay (f.replayConstantsWith p)) : Prog L E (Except IO.Error Unit)) with
+    match ← (Prog.call (.kernelReplay (f.replayConstants p.input)) : Prog L E (Except IO.Error Unit)) with
     | .ok _ => pure (.ok p)
     | .error e => pure (.error s!"Lean's kernel did not accept the replay of the claim's cone: {e}")
 
@@ -167,7 +163,7 @@ def loadTree (sysroot : String) (tree : FilePath) (profile : Profile) : Attempt 
 
 /-- What a load read, printed. -/
 def sayCoverage : Except String Prepared → Prog L E Unit
-  | .ok prepared => say (coveragePrepared prepared)
+  | .ok prepared => say (coverage prepared.input)
   | .error _ => pure ()
 
 /-- The rules on the finished build: prints what they found, and gives their verdict. -/

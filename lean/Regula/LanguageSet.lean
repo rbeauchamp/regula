@@ -238,7 +238,7 @@ inductive Step where
   /-- Build the checker's tree (`lake build --wfail`). -/
   | build
   /-- Read the finished build, replay the cone of its claim in Lean's kernel and run the rules
-  (`Regula.Shell.inputOf`, `Regula.Closed.decision`). -/
+  (`Regula.Shell.inputOf`, `Regula.Closed.decisionPrepared`). -/
   | rules
   deriving DecidableEq, Repr
 
