@@ -9,14 +9,22 @@ import all Regula.Rule
 import all Regula.Rules.RG1006
 
 /-!
-# RG1006: `unsafe`, `partial` and loop declarations
+# RG1006: `unsafe`, `partial`, loop and `partial_fixpoint` declarations
 
-RG1006 refuses three things in a claimed module: a constant that is unsafe or partial, a constant that has
-the name of a recursion helper, and a constant whose value mentions a loop construct of Lean. A `while`
+RG1006 refuses four things in a claimed module: a constant that is unsafe or partial, a constant that has
+the name of a recursion helper, a constant whose value mentions a loop construct of Lean, and a definition
+or opaque constant whose value directly mentions {name}`Lean.Order.fix`. A `while`
 needs no `partial` of the module that uses it: it compiles through a private `partial` of Lean's library
 ({lit}`Init/While.lean`), so the flags alone do not show it. A constant with a helper's name needs no flag
 either: the compiler reads `f._unsafe_rec` in place of {lit}`f` by its name alone ({lit}`getDeclInfo?`,
-{lit}`Lean/Compiler/LCNF/ToDecl.lean:25-27`).
+{lit}`Lean/Compiler/LCNF/ToDecl.lean:25-27`). A computational {lit}`partial_fixpoint` definition elaborates
+as a safe definition whose value mentions {name}`Lean.Order.fix` ({lit}`Lean/Meta/Order.lean:52-54`,
+{lit}`Init/Internal/Order/Basic.lean:486`), while its executable code compiles through a `partial`
+{lit}`._unsafe_rec` helper ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:103-111,191,220`,
+{lit}`Lean/Elab/PreDefinition/Basic.lean:280-296`). Reading only definitions and opaque constants admits
+theorems such as realized dependency {lit}`.eq_def` lemmas ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Eqns.lean:52-113`),
+and checking {name}`Lean.Order.fix` alone admits {name}`Lean.Order.lfp_monotone` used by
+{lit}`inductive_fixpoint`, {lit}`coinductive_fixpoint` and {lit}`coinductive` predicates.
 
 The one constant of these the rule admits has the exempted form: `f._unsafe_rec`, partial and not unsafe,
 with neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, beside a safe, total definition {lit}`f` of its module. It is
@@ -61,12 +69,19 @@ def HelperNamed (d : Decl) : Prop := ∃ b : Name, d.name = Name.str b "_unsafe_
 /-- The value of {name}`d` directly mentions a loop construct. -/
 def MentionsLoop (d : Decl) : Prop := ∃ l ∈ loopConstructs, l ∈ d.valueUses
 
+/-- {name}`d` is a definition or an opaque constant whose value directly mentions {name}`Lean.Order.fix`,
+the CCPO fixpoint combinator that {lit}`partial_fixpoint` elaborates to
+({lit}`Lean/Meta/Order.lean:52-54`, {lit}`Init/Internal/Order/Basic.lean:486` at v4.35.0). A theorem
+(such as a realized {lit}`.eq_def` lemma) and {name}`Lean.Order.lfp_monotone` are not included. -/
+def MentionsOrderFix (d : Decl) : Prop :=
+  (d.kind = .definition ∨ d.kind = .opaque) ∧ ``Lean.Order.fix ∈ d.valueUses
+
 /-- RG1006: a claimed module holds a constant that is unsafe, partial or named as a recursion
-helper, without the exempted form, or a constant whose value directly mentions a loop
-construct. -/
+helper, without the exempted form, a constant whose value directly mentions a loop construct, or
+a definition or opaque constant whose value directly mentions {name}`Lean.Order.fix`. -/
 def Violates1006 (i : Input) (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧
-    (((d.safety ≠ .safe ∨ HelperNamed d) ∧ ¬ i.HelperForm d) ∨ MentionsLoop d)
+    (((d.safety ≠ .safe ∨ HelperNamed d) ∧ ¬ i.HelperForm d) ∨ MentionsLoop d ∨ MentionsOrderFix d)
 
 /-- H6, a hypothesis about Lean's kernel at v4.35.0, never an axiom: a safe constant mentions only safe constants. The kernel checks each
 theorem, opaque constant, axiom and safe definition at the safety {lit}`safe` ({lit}`src/kernel/environment.cpp:156`, `:181`, `:196`, `:215`, with
@@ -157,11 +172,13 @@ def w1006 : Witnessed Violates1006 where
   admitted_wf := wf_base
   fine := `Good.f._unsafe_rec
   fine_admitted := by
-    rintro ⟨d, hd, hn, -, ⟨-, hnot⟩ | ⟨l, -, hl⟩⟩
+    rintro ⟨d, hd, hn, -, ⟨-, hnot⟩ | ⟨l, -, hl⟩ | ⟨-, hf⟩⟩
     · rw [eq_of_name hd helper_mem (by simp [hn, helperDecl, plain])] at hnot
       exact hnot base_helper
     · rw [eq_of_name hd helper_mem (by simp [hn, helperDecl, plain])] at hl
       simp [helperDecl, plain] at hl
+    · rw [eq_of_name hd helper_mem (by simp [hn, helperDecl, plain])] at hf
+      simp [helperDecl, plain] at hf
 
 theorem rg1006_adequate : O2 rg1006 ∧ O2Run rg1006 ∧ O3 rg1006 ∧ O4 rg1006 ∧
     O5 rg1006 (.rel SameReports) := adequate w1006
@@ -199,7 +216,7 @@ def withLoop {l : Name} (hl : l ∈ loopConstructs) : Input :=
 theorem rg1006_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
     Violates1006 (withLoop hl) `Good.l :=
   ⟨loopUser l, by simp [withLoop, withDecls], rfl, claimed_withDecls,
-    .inr ⟨l, hl, by simp [loopUser]⟩⟩
+    .inr (.inl ⟨l, hl, by simp [loopUser]⟩)⟩
 
 theorem wf_withLoop {l : Name} (hl : l ∈ loopConstructs) : (withLoop hl).WellFormed := by
   simp only [loopConstructs, List.mem_cons, List.not_mem_nil, or_false] at hl
@@ -211,6 +228,97 @@ theorem rg1006_admits_type_mention :
     ¬ MentionsLoop (plain `Good.l `Good .definition [``Lean.Loop.mk]) := by
   rintro ⟨l, -, h⟩
   simp [plain] at h
+
+/-- {name}`Lean.Order.fix`, a definition of the toolchain. -/
+def orderFixDecl : Decl := toolchain ``Lean.Order.fix .definition
+
+/-- {name}`Lean.Order.lfp_monotone`, a definition of the toolchain. -/
+def lfpMonotoneDecl : Decl := toolchain ``Lean.Order.lfp_monotone .definition
+
+/-- A safe definition of a claimed module whose value mentions {name}`Lean.Order.fix`, as
+{lit}`partial_fixpoint` elaborates one. -/
+def fixDef : Decl :=
+  { plain `Good.fixDef `Good .definition [``Lean.Order.fix] with valueUses := [``Lean.Order.fix] }
+
+/-- A safe opaque constant of a claimed module whose value mentions {name}`Lean.Order.fix`. -/
+def fixOpaque : Decl :=
+  { plain `Good.fixOpaque `Good .opaque [``Lean.Order.fix] with valueUses := [``Lean.Order.fix] }
+
+/-- A theorem of a claimed module whose value mentions {name}`Lean.Order.fix`, as a realized
+dependency {lit}`.eq_def` lemma does. -/
+def fixThm : Decl :=
+  { plain `Good.fixThm `Good .theorem [``Lean.Order.fix] with valueUses := [``Lean.Order.fix] }
+
+/-- A safe definition of a claimed module whose value mentions {name}`Lean.Order.lfp_monotone`, as
+{lit}`inductive_fixpoint`, {lit}`coinductive_fixpoint` and {lit}`coinductive` elaborate one. -/
+def lfpDef : Decl :=
+  { plain `Good.lfpDef `Good .definition [``Lean.Order.lfp_monotone] with
+    valueUses := [``Lean.Order.lfp_monotone] }
+
+/-- A safe definition of a claimed module that mentions {name}`Lean.Order.fix` only in its type. -/
+def fixTypeOnly : Decl := plain `Good.fixType `Good .definition [``Lean.Order.fix]
+
+/-- {name}`base`, with computational {lit}`partial_fixpoint` witnesses ({name}`fixDef`, {name}`fixOpaque`),
+a theorem mentioning {name}`Lean.Order.fix` ({name}`fixThm`), a {name}`Lean.Order.lfp_monotone` predicate
+({name}`lfpDef`), and a type-only mention ({name}`fixTypeOnly`). -/
+def withFixpoint : Input :=
+  withDecls [orderFixDecl, lfpMonotoneDecl, fixDef, fixOpaque, fixThm, lfpDef, fixTypeOnly]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, orderFixDecl, lfpMonotoneDecl,
+      fixDef, fixOpaque, fixThm, lfpDef, fixTypeOnly])
+
+theorem wf_withFixpoint : withFixpoint.WellFormed :=
+  wf_withDecls _ _
+    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, orderFixDecl,
+      lfpMonotoneDecl, fixDef, fixOpaque, fixThm, lfpDef, fixTypeOnly]))
+
+/-- A claimed definition whose value directly mentions {name}`Lean.Order.fix` is refused. -/
+theorem rg1006_refuses_fix_def : Violates1006 withFixpoint `Good.fixDef :=
+  ⟨fixDef, by simp [withFixpoint, withDecls], rfl, claimed_withDecls,
+    .inr (.inr ⟨.inl rfl, by simp [fixDef]⟩)⟩
+
+/-- A claimed opaque constant whose value directly mentions {name}`Lean.Order.fix` is refused. -/
+theorem rg1006_refuses_fix_opaque : Violates1006 withFixpoint `Good.fixOpaque :=
+  ⟨fixOpaque, by simp [withFixpoint, withDecls], rfl, claimed_withDecls,
+    .inr (.inr ⟨.inr rfl, by simp [fixOpaque]⟩)⟩
+
+/-- A claimed theorem whose value mentions {name}`Lean.Order.fix` (such as a realized dependency
+{lit}`.eq_def` lemma) is not refused. -/
+theorem rg1006_admits_fix_theorem : ¬ Violates1006 withFixpoint `Good.fixThm := by
+  rintro ⟨d, hd, hn, -, hv⟩
+  have hmem : fixThm ∈ withFixpoint.decls := by simp [withFixpoint, withDecls]
+  rw [eq_of_name hd hmem (by simp [hn, fixThm, plain])] at hv
+  rcases hv with ⟨hflag, -⟩ | ⟨l, hl, hu⟩ | ⟨hk, -⟩
+  · rcases hflag with hs | ⟨b, hb⟩
+    · simp [fixThm, plain] at hs
+    · simp [fixThm, plain] at hb
+  · simp [fixThm, loopConstructs] at hl hu
+    rcases hl with rfl | rfl <;> simp at hu
+  · simp [fixThm, plain] at hk
+
+/-- A claimed definition whose value mentions {name}`Lean.Order.lfp_monotone` is not refused. -/
+theorem rg1006_admits_lfp_monotone : ¬ Violates1006 withFixpoint `Good.lfpDef := by
+  rintro ⟨d, hd, hn, -, hv⟩
+  have hmem : lfpDef ∈ withFixpoint.decls := by simp [withFixpoint, withDecls]
+  rw [eq_of_name hd hmem (by simp [hn, lfpDef, plain])] at hv
+  rcases hv with ⟨hflag, -⟩ | ⟨l, hl, hu⟩ | ⟨-, hu⟩
+  · rcases hflag with hs | ⟨b, hb⟩
+    · simp [lfpDef, plain] at hs
+    · simp [lfpDef, plain] at hb
+  · simp [lfpDef, loopConstructs] at hl hu
+    rcases hl with rfl | rfl <;> simp at hu
+  · simp [lfpDef] at hu
+
+/-- A claimed definition mentioning {name}`Lean.Order.fix` only in its type is not refused. -/
+theorem rg1006_admits_fix_type_mention : ¬ Violates1006 withFixpoint `Good.fixType := by
+  rintro ⟨d, hd, hn, -, hv⟩
+  have hmem : fixTypeOnly ∈ withFixpoint.decls := by simp [withFixpoint, withDecls]
+  rw [eq_of_name hd hmem (by simp [hn, fixTypeOnly, plain])] at hv
+  rcases hv with ⟨hflag, -⟩ | ⟨l, -, hu⟩ | ⟨-, hu⟩
+  · rcases hflag with hs | ⟨b, hb⟩
+    · simp [fixTypeOnly, plain] at hs
+    · simp [fixTypeOnly, plain] at hb
+  · simp [fixTypeOnly, plain] at hu
+  · simp [fixTypeOnly, plain] at hu
 
 end Witnesses
 
@@ -298,6 +406,12 @@ theorem mentionsLoop_iff (d : Regula.Closed.Decl) :
   simp [Regula.Rules.RG1006.mentionsLoop, Regula.Closed.loopConstructs, MentionsLoop, loopConstructs,
     decl]
 
+theorem mentionsOrderFix_iff (d : Regula.Closed.Decl) :
+    Regula.Rules.RG1006.mentionsOrderFix d = true ↔ MentionsOrderFix (decl d) := by
+  cases hd : d.kind <;>
+    simp [Regula.Rules.RG1006.mentionsOrderFix, Regula.Rules.RG1006.hasRunValue, MentionsOrderFix,
+      decl, constKind, hd]
+
 theorem not_safe_iff (d : Regula.Closed.Decl) :
     (d.safety != .safe) = true ↔ (decl d).safety ≠ .safe := by
   cases hd : d.safety <;> simp [decl, safety, hd]
@@ -310,25 +424,27 @@ theorem rg1006_exact (s : Name) :
     obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
     refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, ?_⟩
     simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at hc
-    rcases hc with ⟨hf, hn⟩ | hl
+    rcases hc with (⟨hf, hn⟩ | hl) | hpf
     · refine .inl ⟨?_, fun hh => by simp [(recursionHelper_iff t d).mpr hh] at hn⟩
       rcases hf with hf | hf
       · exact .inl ((not_safe_iff d).mp hf)
       · exact .inr ((namedAsHelper_iff d).mp hf)
-    · exact .inr ((mentionsLoop_iff d).mp hl)
+    · exact .inr (.inl ((mentionsLoop_iff d).mp hl))
+    · exact .inr (.inr ((mentionsOrderFix_iff d).mp hpf))
   · rintro ⟨x, hx, rfl, hm, hv⟩
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     refine ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, ?_, rfl⟩
     simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true']
-    rcases hv with ⟨hf, hh⟩ | hl
-    · refine .inl ⟨?_, ?_⟩
+    rcases hv with ⟨hf, hh⟩ | hl | hpf
+    · refine .inl (.inl ⟨?_, ?_⟩)
       · rcases hf with hf | hf
         · exact .inl ((not_safe_iff d).mpr hf)
         · exact .inr ((namedAsHelper_iff d).mpr hf)
       · cases hb : Regula.Rules.RG1006.helperForm t d with
         | false => rfl
         | true => exact absurd ((recursionHelper_iff t d).mp hb) hh
-    · exact .inr ((mentionsLoop_iff d).mpr hl)
+    · exact .inl (.inr ((mentionsLoop_iff d).mpr hl))
+    · exact .inr ((mentionsOrderFix_iff d).mpr hpf)
 
 theorem rg1006_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1006.check t) :
     ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
@@ -341,11 +457,12 @@ theorem rg1006_reports_named_not_partial {d : Regula.Closed.Decl} (hd : d ∈ i.
   (rg1006_exact t d.name).mpr ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm,
     .inl ⟨.inr hn, fun h => hp ((safety_iff d .partial).mpr h.1)⟩⟩
 
-/-- A constant with the form of a recursion helper, whose value mentions no loop construct, is not
-reported. So a rule that refuses each name of the form `b._unsafe_rec`, or all recursion, does not
-meet this. -/
+/-- A constant with the form of a recursion helper, whose value mentions neither a loop construct
+nor {name}`Lean.Order.fix` (as a definition or opaque constant), is not reported. So a rule that
+refuses each name of the form `b._unsafe_rec`, or all recursion, does not meet this. -/
 theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
-    (hh : (toSpec i).HelperForm (decl d)) (hl : ¬ MentionsLoop (decl d)) :
+    (hh : (toSpec i).HelperForm (decl d)) (hl : ¬ MentionsLoop (decl d))
+    (hpf : ¬ MentionsOrderFix (decl d)) :
     d.name ∉ (Regula.Rules.RG1006.check t).map (·.subject.name) := by
   intro h
   obtain ⟨x, hx, hxn, -, hv⟩ := (rg1006_exact t d.name).mp h
@@ -356,9 +473,10 @@ theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     rw [hn, get_of_mem t hd] at hg
     exact (Option.some.inj hg).symm
   subst hyd
-  rcases hv with ⟨-, hnot⟩ | hm
+  rcases hv with ⟨-, hnot⟩ | hm | hfix
   · exact hnot hh
   · exact hl hm
+  · exact hpf hfix
 
 end Link
 
@@ -385,5 +503,24 @@ theorem rg1006_checker_refuses_loop {l : Name} (hl : l ∈ loopConstructs) :
 theorem rg1006_checker_refuses_forged_name :
     `Good.g._unsafe_rec ∈ rg1006Checker ⟨Witnesses.withForged, Witnesses.wf_withForged⟩ :=
   ((meets_iff _).mp rg1006_meets _ _).mpr Witnesses.rg1006_refuses_forged_name
+
+/-- The checker's function refuses a claimed definition and a claimed opaque constant whose value
+directly mentions {name}`Lean.Order.fix`. -/
+theorem rg1006_checker_refuses_partial_fixpoint :
+    `Good.fixDef ∈ rg1006Checker ⟨Witnesses.withFixpoint, Witnesses.wf_withFixpoint⟩ ∧
+      `Good.fixOpaque ∈ rg1006Checker ⟨Witnesses.withFixpoint, Witnesses.wf_withFixpoint⟩ :=
+  ⟨((meets_iff _).mp rg1006_meets _ _).mpr Witnesses.rg1006_refuses_fix_def,
+    ((meets_iff _).mp rg1006_meets _ _).mpr Witnesses.rg1006_refuses_fix_opaque⟩
+
+/-- On the same input, the checker's function admits a claimed theorem mentioning
+{name}`Lean.Order.fix`, a claimed definition mentioning {name}`Lean.Order.lfp_monotone`, and a
+claimed definition mentioning {name}`Lean.Order.fix` only in its type. -/
+theorem rg1006_checker_admits_fix_theorem_and_lfp :
+    `Good.fixThm ∉ rg1006Checker ⟨Witnesses.withFixpoint, Witnesses.wf_withFixpoint⟩ ∧
+      `Good.lfpDef ∉ rg1006Checker ⟨Witnesses.withFixpoint, Witnesses.wf_withFixpoint⟩ ∧
+      `Good.fixType ∉ rg1006Checker ⟨Witnesses.withFixpoint, Witnesses.wf_withFixpoint⟩ :=
+  ⟨fun h => Witnesses.rg1006_admits_fix_theorem (((meets_iff _).mp rg1006_meets _ _).mp h),
+    fun h => Witnesses.rg1006_admits_lfp_monotone (((meets_iff _).mp rg1006_meets _ _).mp h),
+    fun h => Witnesses.rg1006_admits_fix_type_mention (((meets_iff _).mp rg1006_meets _ _).mp h)⟩
 
 end RegulaSpecification

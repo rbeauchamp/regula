@@ -163,13 +163,14 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   claims : ∃ m, a.Claimed m
   /-- Each claimed module is a {lit}`module` file. -/
   moduleFiles : ∀ m, a.Claimed m → EnvModuleFile a.env m
-  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, reaches only axioms that the profile admits,
+  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, does not mention {name}`Lean.Order.fix` when it is a definition or an opaque constant, reaches only axioms that the profile admits,
   has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
   constant, has a value that mentions no panic form. -/
   floor : ∀ n info m, a.env.constants.map₁[n]? = some info → (a.place? n).map (·.1) = some m → a.Claimed m →
     ¬ a.Axiom n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → a.Helper n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
+    ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
     (∀ e, a.Reaches n e → a.Axiom e → a.Admits p e) ∧
     Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
     ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? a.env n = none) ∧
@@ -398,6 +399,7 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       ¬ (BuildAnswer.ofFacts f).Axiom n ∧
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → (BuildAnswer.ofFacts f).Helper n info m) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
+      ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
       (∀ e, (BuildAnswer.ofFacts f).Reaches n e → (BuildAnswer.ofFacts f).Axiom e → (BuildAnswer.ofFacts f).Admits p e) ∧
       Lean.Compiler.getImplementedBy? (BuildAnswer.ofFacts f).env n = none ∧ Lean.isExtern (BuildAnswer.ofFacts f).env n = false ∧
       ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? (BuildAnswer.ofFacts f).env n = none) ∧

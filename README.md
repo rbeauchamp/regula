@@ -66,7 +66,7 @@ regula: proof verdict: fail
 
 ## The checks
 
-Eleven checks cover proof foundations, program totality, compiled code, hidden panics, module files, pre-build source admission, and kernel cone replay. RG1011, RG1012 and RG1013 are on `main` and in no release yet; `v0.13.0` has the other eight:
+Eleven checks cover proof foundations, program totality, compiled code, hidden panics, module files, pre-build source admission, and kernel cone replay. RG1011, RG1012 and RG1013 (and RG1006's `partial_fixpoint` clause) are on `main` and in no release yet; `v0.13.0` has the other eight:
 
 | Rule | Area | What it refuses |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ Eleven checks cover proof foundations, program totality, compiled code, hidden p
 | RG1003 | Proofs & axioms | A constant of a claimed module depends on an axiom other than Lean's `propext`, `Quot.sound` and `Classical.choice`, and RG1002 and RG1004 do not name it. |
 | RG1004 | Proofs & axioms | A constant of a claimed module depends on an axiom with the name form that `native_decide` gives. |
 | RG1005 | Proofs & axioms | A constant of a claimed module depends on an axiom that the project's profile does not admit. |
-| RG1006 | Totality & safety | A claimed module holds a constant that is `unsafe`, `partial` or named as a recursion helper, without the exempted form of one, or a constant whose value mentions `Lean.Loop.mk` or `repeatM`, which `while` and `repeat` compile to. |
+| RG1006 | Totality & safety | A claimed module holds a constant that is `unsafe`, `partial` or named as a recursion helper, without the exempted form of one, a constant whose value mentions `Lean.Loop.mk` or `repeatM` (which `while` and `repeat` compile to), or (on `main`, in no release yet) a definition or opaque constant whose value directly mentions `Lean.Order.fix`, which `partial_fixpoint` elaborates to. Theorems and `Lean.Order.lfp_monotone` (`inductive_fixpoint`, `coinductive_fixpoint`, `coinductive`) are not refused. |
 | RG1011 | Compiled code | A constant of a claimed module has `@[implemented_by]` or `@[extern]`, or a definition of one has an initialization function by `@[init]` or `@[builtin_init]`, so a compiled program runs other code in its place than the definition its proofs are about. An opaque constant with an initialization function, which `initialize` declares, is not refused for it, because Lean's logic states nothing of its value. `@[csimp]` is not refused; its attribute checks that the named declaration has the equality type `@f = @g`, and the kernel checks a safe declaration's proof when the claim's cone holds it. |
 | RG1012 | Totality & safety | A definition or opaque constant of a claimed module mentions in its value a panic form: `panicCore`, `panic`, `panicWithPos`, `panicWithPosWithDecl`, or a constant that is no theorem and whose name's last string component contains `!`, which `xs[i]!`, `Option.get!`, `List.head!`, `String.toNat!`, `panic!`, `unreachable!` and `assert!` give. By default a panic returns a default value and the program goes on. `xs[i]?`, `dbg_trace` and theorems are not refused. |
 | RG1013 | Module files | The file of a claimed module is not a `module` file, so what an importer of it relies on is not stated. The rule adds nothing to what a proof depends on. Each claimed file needs the `module` header, and what a proof of another file unfolds of it needs `@[expose]` or `import all`. Lean refuses a `module` file that imports a file that is not one, so a project whose claimed modules import such a file of a dependency cannot pass. |
