@@ -580,9 +580,7 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     (h : Runs (runPlain p : Prog L E UInt32) t c) : PlainRun (⟨.leanVersion, v⟩ :: t) p c := by
   unfold runPlain at h
   obtain ⟨t₁, t₂, result, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
-  obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-  obtain ⟨hc, hend, hsay⟩ := finishPlain_spec h₄
-  have hsub : t₁.Sublist (⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ t₄))) :=
+  have hsub : t₁.Sublist (⟨.leanVersion, v⟩ :: (t₁ ++ t₂)) :=
     (List.sublist_append_left _ _).trans (List.sublist_cons_self _ _)
   obtain ⟨l1, ls, hprep⟩ := loadPlain_spec (prior := [⟨.leanVersion, v⟩]) hsub (quiet_one trivial) h₁
   have hmap : (result.map (·.2)).map (·.input) = result.map (·.2.input) := by
@@ -596,49 +594,78 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
       simp only [Except.map, Except.ok.injEq] at hp
       subst hp
       exact (ls x.1 x.2 rfl).1
-  rw [hdec] at hc hend
-  have hd := sayCoverage_spec h₃
   have honly := only_loadPlain (L := L) (E := E) p _ _ h₁
-  refine ⟨result.map (·.2.input), subjectOf result, l1, hc, ?_, ?_, fun e he => ?_, (fun hzero e he => ?_), ?_⟩
-  · obtain ⟨pre, r, rfl, hn, hp⟩ := hend
-    refine ⟨⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ pre)), r, by simp, hn, fun l hl => ?_⟩
-    have hl' : l ∈ printed (t₁ ++ (t₃ ++ pre)) := hl
-    rw [printed_append, printed_append, printed_of_load (only_loadPlain _) h₁] at hl'
-    simp only [List.nil_append, List.mem_append] at hl'
-    rcases hl' with hl' | hl'
-    · exact hd.2 l hl'
-    · exact hp l hl'
-  · intro hv
-    obtain ⟨i, hi, -⟩ := RegulaSpecification.Loader.decision_pass hv
-    cases result with
-    | error why => cases hi
-    | ok x => exact (ls x.1 x.2 rfl).2.1
-  · rcases List.mem_cons.mp he with rfl | he
-    · rfl
-    rcases List.mem_append.mp he with he | he
-    · have := honly e he
-      obtain ⟨o', r'⟩ := e
-      cases o' <;> first | rfl | exact this.elim
-    · rcases List.mem_append.mp he with he | he
-      · exact acted_of_saying (hd.1 e he)
+  cases result with
+  | error why =>
+    obtain ⟨hc, hend, hsay⟩ := finishProof_spec h₂
+    have hv : (Regula.Closed.decision (.error why)).verdict = .incomplete :=
+      RegulaSpecification.Loader.decision_failed why
+    rw [hdec] at hc hend
+    simp only [Except.map] at hc hend l1
+    refine ⟨.error why, l1, hc, ?_, fun e he => ?_, fun hzero => ?_, ?_⟩
+    · rw [hv] at hend ⊢
+      obtain ⟨pre, r, rfl, hn, hp⟩ := hend
+      refine ⟨⟨.leanVersion, v⟩ :: (t₁ ++ pre), r, by simp, hn, fun l hl => ?_⟩
+      have hl' : l ∈ printed (t₁ ++ pre) := hl
+      rw [printed_append, printed_of_load (only_loadPlain _) h₁] at hl'
+      exact hp l (by simpa using hl')
+    · rcases List.mem_cons.mp he with rfl | he
+      · rfl
+      rcases List.mem_append.mp he with he | he
+      · have := honly e he
+        obtain ⟨o', r'⟩ := e
+        cases o' <;> first | rfl | exact this.elim
       · exact acted_of_saying (hsay e he)
-  · have hv : (Regula.Closed.decision (result.map (·.2.input))).verdict = .pass :=
-      (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp (hc.symm.trans hzero)
-    obtain ⟨i, hi, -⟩ := RegulaSpecification.Loader.decision_pass hv
-    have hok : ∃ x, result = .ok x := by
-      cases result with
-      | error why => cases hi
-      | ok x => exact ⟨x, rfl⟩
-    obtain ⟨x, rfl⟩ := hok
-    rcases List.mem_cons.mp he with rfl | he
-    · exact id
-    rcases List.mem_append.mp he with he | he
-    · exact (ls x.1 x.2 rfl).2.2 e he
-    · rcases List.mem_append.mp he with he | he
-      · exact details_not_failed hd e he
-      · exact not_failed_of_saying (hsay e he)
-  · simpa [List.append_assoc] using hprep.appendQuiet
-      ((quiet_of_saying hd.1).append (quiet_of_saying hsay))
+    · rw [hv] at hc
+      exact absurd (hc.symm.trans hzero) (by decide)
+    · simpa [List.append_assoc] using hprep.appendQuiet (quiet_of_saying hsay)
+  | ok x =>
+    obtain ⟨dir, prepared⟩ := x
+    obtain ⟨-, hdir, hclean⟩ := ls dir prepared rfl
+    obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
+    have hd := say_spec h₃
+    obtain ⟨hc, hend, hsay⟩ := finishPlain_spec h₄
+    rw [hdec] at hc hend
+    simp only [Except.map] at hc hend l1
+    have hend' : EndsWith (⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ t₄)))
+        ((Regula.Closed.decision (.ok prepared.input)).verdict.proofLineOn dir.toString) := by
+      obtain ⟨pre, r, rfl, hn, hp⟩ := hend
+      refine ⟨⟨.leanVersion, v⟩ :: (t₁ ++ (t₃ ++ pre)), r, by simp, hn, fun l hl => ?_⟩
+      have hl' : l ∈ printed (t₁ ++ (t₃ ++ pre)) := hl
+      rw [printed_append, printed_append, printed_of_load (only_loadPlain _) h₁] at hl'
+      simp only [List.nil_append, List.mem_append] at hl'
+      rcases hl' with hl' | hl'
+      · exact hd.2 l hl'
+      · exact hp l hl'
+    refine ⟨.ok prepared.input, l1, hc, ?_, fun e he => ?_, fun _ e he => ?_, ?_⟩
+    · cases hv : (Regula.Closed.decision (.ok prepared.input)).verdict with
+      | pass =>
+        rw [hv] at hend'
+        exact ⟨dir, hend', hdir⟩
+      | fail =>
+        rw [hv] at hend'
+        exact hend'
+      | incomplete =>
+        rw [hv] at hend'
+        exact hend'
+    · rcases List.mem_cons.mp he with rfl | he
+      · rfl
+      rcases List.mem_append.mp he with he | he
+      · have := honly e he
+        obtain ⟨o', r'⟩ := e
+        cases o' <;> first | rfl | exact this.elim
+      · rcases List.mem_append.mp he with he | he
+        · exact acted_of_saying (hd.1 e he)
+        · exact acted_of_saying (hsay e he)
+    · rcases List.mem_cons.mp he with rfl | he
+      · exact id
+      rcases List.mem_append.mp he with he | he
+      · exact hclean e he
+      · rcases List.mem_append.mp he with he | he
+        · exact details_not_failed hd e he
+        · exact not_failed_of_saying (hsay e he)
+    · simpa [List.append_assoc] using hprep.appendQuiet
+        ((quiet_of_saying hd.1).append (quiet_of_saying hsay))
 
 theorem supportsLean_iff (v : String × String) :
     supportsLean v.1 v.2 = true ↔ v = Regula.Closed.pinnedLean := by
@@ -769,11 +796,10 @@ theorem plainRun_pass {t : List (Event L E)} {p : Regula.Closed.Profile} (h : Pl
     ∃ subject : FilePath, EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
       (⟨.realPath ".", .ok subject⟩ : Event L E) ∈ t ∧
       ∃ sysroot root log, (⟨.loadWorkspace sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ PlainRoot t root := by
-  obtain ⟨result, subject, -, hc, he, hs, -⟩ := h
+  obtain ⟨result, -, hc, he, -⟩ := h
   have hv : (Regula.Closed.decision result).verdict = .pass :=
     (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm
   rw [hv] at he
-  obtain ⟨hr, sysroot, root, log, hl, hroot⟩ := hs hv
-  exact ⟨subject, he, hr, sysroot, root, log, hl, hroot⟩
+  exact he
 
 end RegulaSpecification.Effects

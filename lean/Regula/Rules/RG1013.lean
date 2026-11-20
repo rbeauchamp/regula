@@ -21,7 +21,7 @@ def check {i : Input} (_ : Tables i) : List Violation :=
   let modFiles := setOf i.moduleFiles
   i.modules.filterMap fun m =>
     if !modFiles.contains m then
-      some { subject := m, module := m, detail := "the file is not a `module` file" }
+      some { subject := .module m, detail := "the file is not a `module` file" }
     else none
 
 /-- RG1013, for the registry. Its body is exposed so that the registry reads its spelling (`Regula.Closed.spellings_nodup`). -/

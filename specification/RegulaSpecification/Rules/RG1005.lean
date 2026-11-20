@@ -109,7 +109,7 @@ theorem admits_iff (p : Regula.Closed.Profile) (a : Name) :
     simp only [Regula.Closed.Tables.admits, profile, Input.Admits, known_iff t]
 
 theorem rg1005_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1005.check t).map (·.subject) ↔ Violates1005 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1005.check t).map (·.subject.name) ↔ Violates1005 (toSpec i) s := by
   unfold Regula.Rules.RG1005.check
   dsimp only
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
@@ -128,6 +128,13 @@ theorem rg1005_exact (s : Name) :
     cases hb : t.admits i.profile a with
     | false => rfl
     | true => exact absurd ((admits_iff t i.profile a).mp hb) hn
+
+theorem rg1005_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1005.check t) :
+    ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
+  unfold Regula.Rules.RG1005.check at hv
+  dsimp only at hv
+  obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
+  exact ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
 
 end Link
 

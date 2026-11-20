@@ -68,7 +68,7 @@ namespace Link
 variable {i : Regula.Closed.Input} (t : Regula.Closed.Tables i)
 
 theorem rg1002_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1002.check t).map (·.subject) ↔ Violates1002 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1002.check t).map (·.subject.name) ↔ Violates1002 (toSpec i) s := by
   unfold Regula.Rules.RG1002.check
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
   constructor
@@ -80,6 +80,11 @@ theorem rg1002_exact (s : Name) :
     obtain ⟨d, hd, rfl, hm⟩ := claimedName_of_mem hc
     exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩,
       by simpa using (axiomSet_iff t _ _).mpr ha, rfl⟩
+
+theorem rg1002_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1002.check t) :
+    ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
+  obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
+  exact ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
 
 end Link
 

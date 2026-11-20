@@ -2,6 +2,7 @@ module
 
 public import RegulaSpecification.Rule
 public import Regula.Rules.RG1013
+import all Regula.Rule
 import all Regula.Rules.RG1013
 
 /-!
@@ -65,11 +66,17 @@ namespace Link
 variable {i : Regula.Closed.Input} (t : Regula.Closed.Tables i)
 
 theorem rg1013_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1013.check t).map (·.subject) ↔ Violates1013 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1013.check t).map (·.subject.name) ↔ Violates1013 (toSpec i) s := by
   unfold Regula.Rules.RG1013.check
   rw [mem_report (sub := id) (fun _ => rfl)]
   simp only [Bool.not_eq_true', Bool.eq_false_iff, ne_eq, Regula.Closed.mem_setOf]
   simp [Violates1013, Input.ClaimedModule, Input.ModuleFile, toSpec, toSpecDraft]
+
+theorem rg1013_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1013.check t) :
+    ∃ m ∈ i.modules, v.subject = .module m := by
+  unfold Regula.Rules.RG1013.check at hv
+  obtain ⟨m, hm, -, rfl⟩ := mem_report_violation hv
+  exact ⟨m, hm, rfl⟩
 
 end Link
 

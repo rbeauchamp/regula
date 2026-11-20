@@ -51,7 +51,7 @@ theorem plain_exit_zero {t : List (Event L E)} {p : Regula.Closed.Profile} (h : 
     ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), PlainRoot t root ∧ BuildRead t root f roots ∧
       EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) ∧
       ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ t := by
-  obtain ⟨result, -, hl, hc, -⟩ := h
+  obtain ⟨result, hl, hc, -⟩ := h
   exact loaded_pass hl ((Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm)
 
 theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} (h : FullRun t dir p 0) :

@@ -39,19 +39,29 @@ RG1006 reads it, and so does the loader's check of a constant that Lean's import
 (`Regula.Load.fitsUnshown`). -/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
-/-- What a rule reports of one subject: the subject, its module, and what the rule found. The subject is a
-constant, or for RG1013 a module, which is then its own module. -/
+/-- What a rule reports on: a constant in a module, or a module itself (for RG1013). -/
+inductive Subject where
+  /-- The constant `name` declared in `module`. -/
+  | constant (name module : Name)
+  /-- The module `name`. -/
+  | module (name : Name)
+  deriving DecidableEq, Repr
+
+/-- The name of a subject: the constant's name, or the module's name. -/
+def Subject.name : Subject → Name
+  | .constant name _ => name
+  | .module name => name
+
+/-- What a rule reports of one subject: the subject and what the rule found. -/
 structure Violation where
-  /-- The constant, or the module. -/
-  subject : Name
-  /-- The module of the constant, or the module itself. -/
-  module : Name
+  /-- The constant or module that violated the rule. -/
+  subject : Subject
   /-- What the rule found. -/
   detail : String
 
 /-- A violation by the constant `d`. -/
 def violation (d : Decl) (detail : String) : Violation :=
-  { subject := d.name, module := d.module, detail }
+  { subject := .constant d.name d.module, detail }
 
 /-- A rule: the name that its findings print, and the subjects that it reports on an input, read
 through the tables of that input. -/
@@ -61,20 +71,18 @@ structure Rule where
   /-- The subjects of the input that violate the rule. -/
   check : ∀ {i : Input}, Tables i → List Violation
 
-/-- One finding: the spelling of the rule that reports it, the subject, its module, and a detail. -/
+/-- One finding: the spelling of the rule that reports it, the subject, and a detail. -/
 structure Finding where
   /-- The spelling of the rule. -/
   rule : String
-  /-- The constant, or the module. -/
-  subject : Name
-  /-- The module of the constant, or the module itself. -/
-  module : Name
+  /-- The constant or module that violated the rule. -/
+  subject : Subject
   /-- What the rule found. -/
   detail : String
 
 /-- The finding of the rule `r` that its violation `v` gives. -/
 def Finding.of (r : Rule) (v : Violation) : Finding :=
-  { rule := r.spelling, subject := v.subject, module := v.module, detail := v.detail }
+  { rule := r.spelling, subject := v.subject, detail := v.detail }
 
 namespace Tables
 

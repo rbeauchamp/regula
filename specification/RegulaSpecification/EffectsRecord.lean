@@ -569,14 +569,17 @@ def EndsWith (t : List (Event L E)) (line : String) : Prop :=
 def Refusal (t : List (Event L E)) (c : UInt32) : Prop :=
   c = 2 ∧ EndsWith t (Regula.Closed.Verdict.proofLine .incomplete) ∧ ∀ e ∈ t, e.isOnlySaying = true
 
-/-- A run of the proof verdict: its exit code and last line are the verdict's on what the load gave, and it acts
-on nothing. -/
+/-- A run of the proof verdict: its exit code and last line are the verdict's on what the load gave, with the
+loaded directory naming the subject on a pass, and it acts on nothing. -/
 def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
-  ∃ result, ∃ subject : FilePath, Loaded PlainRoot PlainReason t p result ∧
+  ∃ result, Loaded PlainRoot PlainReason t p result ∧
     c = (Regula.Closed.decision result).verdict.exitCode ∧
-    EndsWith t ((Regula.Closed.decision result).verdict.proofLineOn subject.toString) ∧
-    ((Regula.Closed.decision result).verdict = .pass → (⟨.realPath ".", .ok subject⟩ : Event L E) ∈ t ∧
-      ∃ sysroot root log, (⟨.loadWorkspace sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ PlainRoot t root) ∧
+    (match (Regula.Closed.decision result).verdict with
+      | .pass => ∃ subject : FilePath,
+          EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
+          (⟨.realPath ".", .ok subject⟩ : Event L E) ∈ t ∧
+          ∃ sysroot root log, (⟨.loadWorkspace sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ PlainRoot t root
+      | v => EndsWith t v.proofLine) ∧
     (∀ e ∈ t, e.acted? = none) ∧ (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ PlainPreparation t
 
 /-- Every act of a run lies in the tree: either the run acted only on the

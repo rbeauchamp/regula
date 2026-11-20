@@ -253,7 +253,7 @@ theorem misjudge_fails {L E : Type} : ¬ RunMeets (misjudge : List String → Pr
   cases he
   obtain ⟨v', r, rest, he', hf⟩ := hrun rfl
   cases he'
-  obtain ⟨result, subject, hl, -⟩ := hf
+  obtain ⟨result, hl, -⟩ := hf
   have hno : ∀ {o : Op L E} {r : Resp o},
       (⟨o, r⟩ : Event L E) ∈ ([⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv "LEAN_SYSROOT", some ""⟩,
         ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] : List (Event L E)) →

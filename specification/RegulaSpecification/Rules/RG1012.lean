@@ -242,7 +242,7 @@ theorem hasRunValue_iff (d : Regula.Closed.Decl) :
   cases hd : d.kind <;> simp [Regula.Rules.RG1012.hasRunValue, decl, constKind, hd]
 
 theorem rg1012_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1012.check t).map (·.subject) ↔ Violates1012 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1012.check t).map (·.subject.name) ↔ Violates1012 (toSpec i) s := by
   unfold Regula.Rules.RG1012.check
   simp only [List.mem_map, List.mem_filterMap]
   constructor
@@ -259,6 +259,15 @@ theorem rg1012_exact (s : Name) :
     obtain ⟨w, hw⟩ : ∃ w, d.valueUses.find? (Regula.Rules.RG1012.panicForm t) = some w :=
       Option.isSome_iff_exists.mp (List.find?_isSome.mpr ⟨u, hu, (panicForm_iff t u).mpr hp⟩)
     exact ⟨_, ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, by rw [ite_eq_left ((hasRunValue_iff d).mpr hk), hw]; rfl⟩, rfl⟩
+
+theorem rg1012_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1012.check t) :
+    ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
+  unfold Regula.Rules.RG1012.check at hv
+  obtain ⟨d, hd, h⟩ := List.mem_filterMap.mp hv
+  split at h
+  · obtain ⟨_, _, rfl⟩ := Option.map_eq_some_iff.mp h
+    exact ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
+  · cases h
 
 end Link
 
