@@ -231,8 +231,7 @@ def decision (r : Reading) : Outcome :=
   else if !r.filesAdmitted then .refused
   else .admitted
 
-/-- A configuration whose toolchain is pinned, with no `lakefile.lean`, no open paths, and every key path in
-the closed set with no `require`. -/
+/-- The key paths of a `lakefile.toml`, each in the closed set and none with the root `require`. -/
 structure ClosedConfig where
   /-- The key paths of `lakefile.toml`. -/
   keys : List Name
@@ -266,7 +265,7 @@ inductive Stage where
   /-- The configuration is closed, and something failed to read. -/
   | unread (cfg : ClosedConfig) (roots reached : List Name) (unread : List (Name × String))
       (hne : unread.isEmpty = false)
-  /-- The configuration is closed, everything was read, and `lakefile.toml` has a `require` key. -/
+  /-- The configuration is closed, nothing failed to read, and `lakefile.toml` has a `require` key. -/
   | dependency (configKeys : List Name)
       (hclosed : configKeys.all (fun k => k.getRoot == `require || configKeyAdmitted k) = true)
       (hreq : configKeys.any (·.getRoot == `require) = true)
