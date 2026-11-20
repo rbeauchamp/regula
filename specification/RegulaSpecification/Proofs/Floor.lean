@@ -273,34 +273,37 @@ theorem own_ofFacts (m n : Name) (info : ConstantInfo) : (ofFacts f).Own m n inf
 end BuildAnswer
 
 theorem dedup_eq_eraseDups (all : Array Name) : (Regula.Load.dedup all).toList = all.toList.eraseDups := by
-  have key : ∀ (l : List Name) (acc : Array Name) (bs : List Name), acc.toList = bs.reverse →
-      (l.foldl (fun acc n => if acc.contains n then acc else acc.push n) acc).toList = List.eraseDupsBy.loop (· == ·) l bs := by
+  have key : ∀ (l : List Name) (seen : Std.HashSet Name) (out : Array Name) (bs : List Name),
+      out.toList = bs.reverse → (∀ x, seen.contains x = true ↔ x ∈ bs) →
+      (l.foldl Regula.Load.dedupStep (seen, out)).2.toList = List.eraseDupsBy.loop (· == ·) l bs := by
     intro l
     induction l with
     | nil =>
-      intro acc bs h
+      intro seen out bs h _
       simpa [List.eraseDupsBy.loop] using h
     | cons a l ih =>
-      intro acc bs h
-      have hc : acc.contains a = bs.any (a == ·) := by
-        have hm : a ∈ acc ↔ a ∈ bs := by rw [← Array.mem_toList_iff, h, List.mem_reverse]
-        rw [Bool.eq_iff_iff]
+      intro seen out bs h hseen
+      have hc : seen.contains a = bs.any (a == ·) := by
+        rw [Bool.eq_iff_iff, hseen]
         constructor
         · intro hx
-          exact List.any_eq_true.mpr ⟨a, hm.mp (by simpa using hx), by simp⟩
+          exact List.any_eq_true.mpr ⟨a, hx, by simp⟩
         · intro hx
           obtain ⟨x, hxm, he⟩ := List.any_eq_true.mp hx
           have hax : a = x := by simpa using he
           subst hax
-          simpa using hm.mpr hxm
-      simp only [List.foldl_cons, hc]
+          exact hxm
+      simp only [List.foldl_cons, Regula.Load.dedupStep, hc]
       rw [List.eraseDupsBy.loop]
       cases hb : bs.any (a == ·) with
-      | true => simpa using ih acc bs h
-      | false => simpa using ih (acc.push a) (a :: bs) (by simp [h])
+      | true => simpa using ih seen out bs h hseen
+      | false =>
+        refine ih (seen.insert a) (out.push a) (a :: bs) (by simp [h]) fun x => ?_
+        simp only [Std.HashSet.contains_insert, Bool.or_eq_true, beq_iff_eq, hseen, List.mem_cons]
+        exact ⟨fun h => h.elim (fun h => .inl h.symm) .inr, fun h => h.elim (fun h => .inl h.symm) .inr⟩
   simp only [Regula.Load.dedup, List.eraseDups, List.eraseDupsBy]
   rw [← Array.foldl_toList]
-  exact key _ _ _ rfl
+  exact key _ _ _ _ rfl (by simp)
 
 theorem kindOf_eq_iff (k v : ConstantInfo) :
     Regula.Load.kindOf k = Regula.Load.kindOf v ↔ ConstantKind.ofConstantInfo k = ConstantKind.ofConstantInfo v := by

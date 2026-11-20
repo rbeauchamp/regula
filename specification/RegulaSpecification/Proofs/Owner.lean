@@ -1,11 +1,14 @@
 module
 
 public import RegulaSpecification.Proofs.Language
+import all Init.Data.Array.BinSearch
+import all Init.Data.Ord.String
 import all Init.Data.String.Pattern.Basic
 import all Init.Data.String.Pattern.String
 import all Init.Data.String.Slice
 import all Init.Data.String.TakeDrop
 import all Init.Meta.Defs
+import all Lean.Data.Name
 import all Regula.Language
 import all Regula.LanguageSet
 import all Regula.Verdict

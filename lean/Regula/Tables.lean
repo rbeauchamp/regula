@@ -247,4 +247,14 @@ theorem mem_axiomSet (c a : Name) : a ∈ t.axiomSet c ↔ i.AxiomOf c a := by
 
 end Tables
 
+/-- A closed input with tables of it. `Regula.Load.Facts.prepare` gives the input that it admits with
+`Input.tables` of it, built once, and a run's rules read those tables (`decisionPrepared`). The type
+does not say that `tables` is `Input.tables`: `Regula.Load.Facts.prepare_tables` proves it of what the
+loader gives. -/
+structure Prepared where
+  /-- The closed input. -/
+  input : Input
+  /-- Tables of `input`. -/
+  tables : Tables input
+
 end Regula.Closed

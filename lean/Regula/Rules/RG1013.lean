@@ -18,8 +18,9 @@ open Regula.Closed
 
 /-- The claimed modules that are not among the loaded modules that are `module` files. -/
 def check {i : Input} (_ : Tables i) : List Violation :=
+  let modFiles := setOf i.moduleFiles
   i.modules.filterMap fun m =>
-    if !i.moduleFiles.contains m then
+    if !modFiles.contains m then
       some { subject := m, module := m, detail := "the file is not a `module` file" }
     else none
 

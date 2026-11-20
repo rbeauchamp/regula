@@ -77,9 +77,14 @@ def kindOf : ConstantInfo → Kind
   | .ctorInfo _ => .constructor
   | .recInfo _ => .recursor
 
-/-- The names of `all`, each once. -/
+/-- One step of `dedup`: record `n` in `seen` and `out` when `seen` does not yet hold it. -/
+def dedupStep (acc : Std.HashSet Name × Array Name) (n : Name) : Std.HashSet Name × Array Name :=
+  let (seen, out) := acc
+  if seen.contains n then (seen, out) else (seen.insert n, out.push n)
+
+/-- The names of `all`, each once, in the order of their first occurrence. -/
 def dedup (all : Array Name) : Array Name :=
-  all.foldl (fun acc n => if acc.contains n then acc else acc.push n) #[]
+  (all.foldl dedupStep ({}, #[])).2
 
 /-- The constants a constant mentions: what Lean's kernel checks it against when Lean replays it. That is the type of each
 constant, the value of a definition, theorem or opaque constant, the constructors and the other types of an inductive type's
@@ -332,19 +337,17 @@ def fitsUnshown (f : Facts) {i : Input} (t : Tables i) (m n : Name) (info : Cons
     loopConstructs.all (!(valueUsesOf info).contains ·) &&
     (usesOf info).all fun u => t.index.contains u && (t.axiomSet u).all (t.admits i.profile ·))
 
-/-- The first constant of a claimed module that the environment does not show and that
-`fitsUnshown` does not admit, with its module. -/
-def Facts.unread? (f : Facts) (i : Input) : Option (Name × Name) :=
-  match f.claimedConstants.filter (!f.shown ·) with
-  | [] => none
-  | unshown =>
-    let t := i.tables
-    (unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
+/-- The constants of claimed modules that the merged environment does not show to the rules. -/
+def Facts.unshown (f : Facts) : List (Name × Name × ConstantInfo) :=
+  f.claimedConstants.filter (!f.shown ·)
 
-/-- The closed input of the environment that `f` describes, under the profile `profile`. It refuses
-a module of `roots`, the default targets, that `f` does not claim, a constant with no module, a
-reading that the admission refuses (`Draft.admit`), and a constant that `Facts.unread?` gives. -/
-def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
+/-- The first constant of a claimed module that the environment does not show and that
+`fitsUnshown` does not admit through the tables `t`, with its module. -/
+def Facts.unread? (f : Facts) {i : Input} (t : Tables i) : Option (Name × Name) :=
+  (f.unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
+
+/-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
+def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
   let claimed := f.claimed
   match roots.find? (!claimed.contains ·) with
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
@@ -357,14 +360,65 @@ def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except Str
       let draft : Draft :=
         { profile, modules := claimed, moduleFiles := f.moduleFiles, decls,
           unique := f.decls_nodup (stated := (stated.getD · [])) h }
-      match draft.admit with
+      draft.admit
+
+/-- Refuses `t` when `Facts.unread?` finds an unshown constant of a claimed module that
+`fitsUnshown` does not admit. -/
+def Facts.checkUnread (f : Facts) {i : Input} (t : Tables i) : Except String Unit :=
+  match f.unread? t with
+  | some (m, n) => .error s!"the module {m} holds the constant {n}, which the merged environment \
+      does not show to the rules, and this one is no theorem within the profile or \
+      has a recursion helper's name or unread or forbidden compiled-code attributes"
+  | none => .ok ()
+
+/-- The closed input of the environment that `f` describes, under the profile `profile`, with
+`Input.tables` of it, built once. It refuses a module of `roots`, the default targets, that `f` does
+not claim, a constant with no module, a reading that the admission refuses (`Draft.admit`), and a
+constant that `Facts.unread?` gives. -/
+def Facts.prepare (f : Facts) (roots : List Name) (profile : Profile) : Except String Prepared :=
+  match f.admitDraft roots profile with
+  | .error why => .error why
+  | .ok i =>
+    let t := i.tables
+    match f.checkUnread t with
+    | .error why => .error why
+    | .ok () => .ok ⟨i, t⟩
+
+theorem Facts.prepare_tables (f : Facts) (roots : List Name) (profile : Profile) {p : Prepared}
+    (h : f.prepare roots profile = .ok p) : p.tables = p.input.tables := by
+  simp only [Facts.prepare] at h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  cases h
+  rfl
+
+/-- The closed input of the environment that `f` describes, under the profile `profile`. When every
+constant of a claimed module is shown (`Facts.unshown` is empty), this skips building `Input.tables`.
+A run calls `Facts.prepare` so its rules reuse the tables built during admission; on an input with an
+admitted unshown constant, `Input.report` on the result of `Facts.input` builds `Input.tables` again. -/
+def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
+  match f.admitDraft roots profile with
+  | .error why => .error why
+  | .ok i =>
+    if f.unshown.isEmpty then .ok i
+    else
+      match f.checkUnread i.tables with
       | .error why => .error why
-      | .ok i =>
-        match f.unread? i with
-        | some (m, n) => .error s!"the module {m} holds the constant {n}, which the merged environment \
-            does not show to the rules, and this one is no theorem within the profile or \
-            has a recursion helper's name or unread or forbidden compiled-code attributes"
-        | none => .ok i
+      | .ok () => .ok i
+
+theorem Facts.input_eq_prepare_map (f : Facts) (roots : List Name) (profile : Profile) :
+    f.input roots profile = (f.prepare roots profile).map (·.input) := by
+  simp only [Facts.input, Facts.prepare, Facts.checkUnread, Facts.unread?]
+  cases f.admitDraft roots profile with
+  | error why => rfl
+  | ok i =>
+    cases hu : f.unshown with
+    | nil => simp [Except.map]
+    | cons _ _ =>
+      simp only [List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte]
+      cases ((List.find? _ _).map _) <;> rfl
 
 /-- Whether Lean's replay is given a constant of the cone: each constant but the companions of `Quot`, `Quot.mk`,
 `Quot.lift` and `Quot.ind`, which the kernel adds with `Quot` and refuses to add again as names already taken

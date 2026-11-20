@@ -17,8 +17,12 @@ open LeanIntent
 
 open Link
 
-/-- The verdict of a reading, by the two functions that the checker runs on it: the admission, and the decision
-on what the admission gives. -/
+/-- The verdict of a reading, by the admission that the checker runs on it and {name}`Regula.Closed.decision` on what
+the admission gives. A real run admits the draft inside {lit}`Regula.Load.Facts.prepare`, checks unshown constants,
+replays the claim's cone ({lit}`Regula.Shell.replayed`), and evaluates {name}`Regula.Closed.decisionPrepared` on that
+final load result; {name}`Regula.Closed.decisionPrepared_eq` proves {name}`Regula.Closed.decisionPrepared` equal to
+{name}`Regula.Closed.decision` on the corresponding input-or-error result when its tables are
+{name}`Regula.Closed.Input.tables` of its input. -/
 def run (d : Regula.Closed.Draft) : Regula.Closed.Report :=
   Regula.Closed.decision d.admit
 
@@ -61,7 +65,8 @@ theorem admit_error_iff (d : Regula.Closed.Draft) :
 theorem run_refused {d : Regula.Closed.Draft} (h : ¬ (toSpecDraft d).WellFormed) :
     (run d).verdict = .incomplete := by
   obtain ⟨why, hw⟩ := (admit_error_iff d).mpr h
-  simp only [run, hw, Regula.Closed.decision, Regula.Closed.Report.verdict]
+  simp only [run, hw, Regula.Closed.decision, Regula.Closed.decisionPrepared, Except.map,
+    Regula.Closed.Report.verdict]
 
 theorem run_complete {d : Regula.Closed.Draft} (h : (toSpecDraft d).WellFormed) :
     (run d).verdict ≠ .incomplete ∧
@@ -69,8 +74,8 @@ theorem run_complete {d : Regula.Closed.Draft} (h : (toSpecDraft d).WellFormed) 
   obtain ⟨i, hi⟩ := (admit_ok_iff d).mpr h
   have ht := admit_toDraft hi
   subst ht
-  simp only [run, hi, Regula.Closed.decision]
-  exact report_complete i
+  simp only [run, hi, Regula.Closed.decision, Regula.Closed.decisionPrepared, Except.map]
+  exact tables_report_complete i.tables
 
 theorem run_pass_admitted {d : Regula.Closed.Draft}
     (hp : (run d).verdict = .pass) : (toSpecDraft d).WellFormed :=
