@@ -3,6 +3,7 @@ module
 public import Lean.Environment
 public import Regula.Input
 public import Regula.Rule
+import Lean.Compiler.CSimpAttr
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.ImplementedByAttr
 import Lean.Compiler.InitAttr
@@ -26,7 +27,9 @@ What it reads, and through what:
   v4.35.0). `getImplementedBy?`, `isExtern` and `getInitFnNameFor?` read the module entries of an extension
   (`getModuleEntries`), which `importModules` sets whatever `loadExts` is, and no extension's built state.
   `Facts.unreplaced` and `Facts.uninitialized` also read each claimed module's own entries, so a name that
-  two modules state cannot hide an attribute.
+  two modules state cannot hide an attribute, and `Facts.csimps` reads each claimed module's exported
+  (`global` and `scoped`) `@[csimp]` entries through `Lean.Compiler.CSimp.ext.ext.getModuleEntries`
+  (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0), refusing a claimed module with no module index.
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
@@ -346,6 +349,23 @@ def Facts.unshown (f : Facts) : List (Name × Name × ConstantInfo) :=
 def Facts.unread? (f : Facts) {i : Input} (t : Tables i) : Option (Name × Name) :=
   (f.unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
 
+/-- The exported (`global` or `scoped`) `@[csimp]` entries registered by module `m`, or an error if Lean
+gives `m` no module index. A missing module index is not an empty set of entries. Reads
+`Lean.Compiler.CSimp.ext.ext.getModuleEntries`, which `finalizeImport` populates unconditionally even
+under `loadExts := false` (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0). -/
+def Facts.moduleCSimps (f : Facts) (m : Name) : Except String (List CSimpEntry) :=
+  match f.env.getModuleIdx? m with
+  | none => .error s!"the claimed module {m} has no index in the loaded environment, so its \
+      @[csimp] entries cannot be read"
+  | some idx =>
+    .ok ((Lean.Compiler.CSimp.ext.ext.getModuleEntries f.env idx).toList.map fun e =>
+      { module := m, thm := match e with | .global ce => ce.thmName | .scoped _ ce => ce.thmName })
+
+/-- The exported (`global` or `scoped`) `@[csimp]` entries of all claimed modules, or an error if any
+claimed module has no index in the loaded environment. -/
+def Facts.csimps (f : Facts) : Except String (List CSimpEntry) :=
+  (f.claimed.mapM f.moduleCSimps).map List.flatten
+
 /-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
 def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
   let claimed := f.claimed
@@ -353,14 +373,18 @@ def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Excep
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
       package's build"
   | none =>
-    let stated := f.stated
-    match h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated.getD x.1 [])) with
+    match f.csimps with
     | .error why => .error why
-    | .ok decls =>
-      let draft : Draft :=
-        { profile, modules := claimed, moduleFiles := f.moduleFiles, decls,
-          unique := f.decls_nodup (stated := (stated.getD · [])) h }
-      draft.admit
+    | .ok csimps =>
+      let stated := f.stated
+      match h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated.getD x.1 [])) with
+      | .error why => .error why
+      | .ok decls =>
+        let draft : Draft :=
+          { profile, modules := claimed, moduleFiles := f.moduleFiles,
+            claimedConstants := f.claimedConstants.map (·.2.1), csimps, decls,
+            unique := f.decls_nodup (stated := (stated.getD · [])) h }
+        draft.admit
 
 /-- Refuses `t` when `Facts.unread?` finds an unshown constant of a claimed module that
 `fitsUnshown` does not admit. -/

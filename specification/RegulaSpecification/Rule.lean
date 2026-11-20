@@ -37,11 +37,13 @@ structure Proved where
     s ∈ (rule.check t).map (·.subject.name) ↔ Violates (Link.toSpec i) s
   /-- The case that the rule must refuse, and the case that it must admit. -/
   cases : Witnessed Violates
-  /-- Every violation of RG1013 has a module subject for a claimed module, and every violation of another rule
-  has a constant subject carrying the declaration's own name and module. -/
+  /-- Every violation of RG1013 has a module subject for a claimed module; every violation of another rule
+  has a constant subject carrying either the declaration's own name and module or, for RG1011's {attr}`@[csimp]`
+  clause, a claimed module's exported {attr}`@[csimp]` theorem name and that claimed module. -/
   subject : ∀ {i : Regula.Closed.Input} (t : Regula.Closed.Tables i), ∀ v ∈ rule.check t,
     (rule.spelling ≠ "RG1013" ∧ ∃ d ∈ i.decls, v.subject = .constant d.name d.module) ∨
-      (rule.spelling = "RG1013" ∧ ∃ m ∈ i.modules, v.subject = .module m)
+      (rule.spelling = "RG1013" ∧ ∃ m ∈ i.modules, v.subject = .module m) ∨
+      (rule.spelling = "RG1011" ∧ ∃ e ∈ i.csimps, e.module ∈ i.modules ∧ v.subject = .constant e.thm e.module)
 
 namespace Proved
 

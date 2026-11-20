@@ -4,6 +4,7 @@ public import Regula.Load
 public import Regula.Shell
 public import RegulaSpecification.Proofs.Verdict
 public import RegulaSpecification.Refinement
+public import Lean.Compiler.CSimpAttr
 public import Lean.Compiler.ExternAttr
 public import Lean.Compiler.ImplementedByAttr
 import all Lean.Declaration
@@ -263,9 +264,30 @@ def EnvModuleFile (env : Lean.Environment) (m : Name) : Prop :=
   ∃ (k : Nat) (data : Lean.ModuleData), env.header.moduleNames[k]? = some m ∧
     env.header.moduleData[k]? = some data ∧ data.isModule = true
 
-/-- What the rules state, in the terms of the environment. Each claimed module is a {lit}`module` file (RG1013).
-And what RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module: no loaded module
-states an axiom of its name (RG1001). When it is unsafe or partial, or
+/-- An exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entry of module {name}`m` in {name}`env`
+names the theorem {name}`thm`. -/
+def ModuleCSimp (env : Lean.Environment) (m thm : Name) : Prop :=
+  ∃ idx, env.getModuleIdx? m = some idx ∧
+    ∃ e : Lean.Compiler.CSimp.Entry,
+      (Lean.ScopedEnvExtension.Entry.global e ∈ Lean.Compiler.CSimp.ext.ext.getModuleEntries env idx ∨
+        ∃ ns, Lean.ScopedEnvExtension.Entry.scoped ns e ∈ Lean.Compiler.CSimp.ext.ext.getModuleEntries env idx) ∧
+      e.thmName = thm
+
+/-- Module {name}`m` has an index in {name}`env`, and each exported ({lit}`global` or {lit}`scoped`)
+{attr}`@[csimp]` entry of {name}`m` names a constant meeting {name}`Claimed`. A missing module index is
+never treated as empty entries. -/
+def ModuleCSimpIn (env : Lean.Environment) (Claimed : Name → Prop) (m : Name) : Prop :=
+  ∃ idx, env.getModuleIdx? m = some idx ∧
+    ∀ e : Lean.Compiler.CSimp.Entry,
+      (Lean.ScopedEnvExtension.Entry.global e ∈ Lean.Compiler.CSimp.ext.ext.getModuleEntries env idx ∨
+        ∃ ns, Lean.ScopedEnvExtension.Entry.scoped ns e ∈ Lean.Compiler.CSimp.ext.ext.getModuleEntries env idx) →
+      Claimed e.thmName
+
+/-- What the rules state, in the terms of the environment. Each claimed module is a {lit}`module` file (RG1013),
+and has a module index whose exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entries each name a
+constant declared in some claimed module's own {lit}`.olean` data (RG1011, with a missing index refused as
+RG2001). And what RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module: no loaded
+module states an axiom of its name (RG1001). When it is unsafe or partial, or
 has a recursion helper's name, it has the form of a recursion helper (RG1006), its value
 mentions no loop construct of Lean (RG1006), and, when it is a definition or an opaque constant,
 its value does not mention {name}`Lean.Order.fix` (RG1006). Each axiom that it reaches, through what any loaded
@@ -278,6 +300,7 @@ initialization function for it (RG1011). When it is a definition or an
 opaque constant, its value mentions no panic form (RG1012). -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   (∀ m ∈ f.claimed, EnvModuleFile f.env m) ∧
+  (∀ m ∈ f.claimed, ModuleCSimpIn f.env (fun thm => ∃ cm info, (cm, thm, info) ∈ f.claimedConstants) m) ∧
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
@@ -421,6 +444,13 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   modules : i.modules = f.claimed
   /-- The modules that are {lit}`module` files are those of the facts. -/
   moduleFiles : i.moduleFiles = f.moduleFiles
+  /-- Every claimed module has an index in the loaded environment. -/
+  indexed : ∀ m ∈ f.claimed, ∃ idx, f.env.getModuleIdx? m = some idx
+  /-- The constant names declared in claimed modules' own {lit}`.olean` data are those of
+  {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants`. -/
+  claimedConstants : i.claimedConstants = f.claimedConstants.map (·.2.1)
+  /-- The exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entries are exactly those of the claimed modules. -/
+  csimps : ∀ e, e ∈ i.csimps ↔ e.module ∈ f.claimed ∧ ModuleCSimp f.env e.module e.thm
   /-- Each module of {name}`roots` is claimed. -/
   roots : ∀ r ∈ roots, r ∈ f.claimed
   /-- Each constant of the input is a constant of the environment, with the fields it gives. -/
@@ -429,6 +459,58 @@ structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.
   /-- Each constant of the environment is in the input. -/
   whole : ∀ n info, f.env.constants.map₁[n]? = some info →
     ∃ m, f.info? n = some m ∧ f.declIn n m info (f.stated.getD n []) ∈ i.decls
+
+theorem moduleCSimps_ok {m : Name} {entries : List Regula.Closed.CSimpEntry}
+    (h : f.moduleCSimps m = .ok entries) :
+    (∃ idx, f.env.getModuleIdx? m = some idx) ∧
+      ∀ e, e ∈ entries ↔ e.module = m ∧ ModuleCSimp f.env m e.thm := by
+  simp only [Regula.Load.Facts.moduleCSimps] at h
+  cases hidx : f.env.getModuleIdx? m with
+  | none => simp [hidx] at h
+  | some idx =>
+    simp only [hidx, Except.ok.injEq] at h
+    subst h
+    refine ⟨⟨idx, rfl⟩, fun e => ?_⟩
+    simp only [List.mem_map, Array.mem_toList_iff, ModuleCSimp, hidx, Option.some.injEq,
+      exists_eq_left']
+    constructor
+    · rintro ⟨raw, hraw, rfl⟩
+      refine ⟨rfl, ?_⟩
+      cases raw with
+      | global ce => exact ⟨ce, .inl hraw, rfl⟩
+      | «scoped» ns ce => exact ⟨ce, .inr ⟨ns, hraw⟩, rfl⟩
+    · rintro ⟨hm, ce, hce, hthm⟩
+      cases e
+      simp only at hm hthm
+      subst hm
+      subst hthm
+      rcases hce with hg | ⟨ns, hs⟩
+      · exact ⟨.global ce, hg, rfl⟩
+      · exact ⟨.«scoped» ns ce, hs, rfl⟩
+
+theorem csimps_ok {entries : List Regula.Closed.CSimpEntry} (h : f.csimps = .ok entries) :
+    (∀ m ∈ f.claimed, ∃ idx, f.env.getModuleIdx? m = some idx) ∧
+      ∀ e, e ∈ entries ↔ e.module ∈ f.claimed ∧ ModuleCSimp f.env e.module e.thm := by
+  simp only [Regula.Load.Facts.csimps] at h
+  cases hmap : f.claimed.mapM f.moduleCSimps with
+  | error why => simp [hmap, Except.map] at h
+  | ok lists =>
+    simp only [hmap, Except.map, Except.ok.injEq] at h
+    subst h
+    obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok f.moduleCSimps (fun _ => .anonymous) (fun _ => .anonymous)
+      (fun _ _ _ => rfl) _ _ hmap
+    refine ⟨fun m hm => ?_, fun e => ?_⟩
+    · obtain ⟨l, -, hok⟩ := h2 m hm
+      exact (moduleCSimps_ok hok).1
+    · simp only [List.mem_flatten]
+      constructor
+      · rintro ⟨l, hl, he⟩
+        obtain ⟨m, hm, hok⟩ := h1 l hl
+        obtain ⟨rfl, hcs⟩ := ((moduleCSimps_ok hok).2 e).mp he
+        exact ⟨hm, hcs⟩
+      · rintro ⟨hm, hcs⟩
+        obtain ⟨l, hl, hok⟩ := h2 e.module hm
+        exact ⟨l, hl, ((moduleCSimps_ok hok).2 e).mpr ⟨rfl, hcs⟩⟩
 
 theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
     (h : f.decl n info s = .ok d) : ∃ m, f.info? n = some m ∧ d = f.declIn n m info s := by
@@ -481,22 +563,28 @@ theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i.tables =
   simp only [Regula.Load.Facts.unread?, Regula.Load.Facts.unshown, Option.map_eq_none_iff, List.find?_eq_none] at h
   simpa using h x hmem
 
-theorem loaded_of_parts {decls : List Regula.Closed.Decl} {i' : Regula.Closed.Input}
+theorem loaded_of_parts {csimps : List Regula.Closed.CSimpEntry} {decls : List Regula.Closed.Decl}
+    {i' : Regula.Closed.Input}
     (hfind : roots.find? (fun x => !f.claimed.contains x) = none)
+    (hcs : f.csimps = .ok csimps)
     (hm : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (f.stated.getD x.1 [])) = .ok decls)
     {unique : (decls.map (·.name)).Nodup}
-    (hadmit : ({ profile := p, modules := f.claimed, moduleFiles := f.moduleFiles, decls, unique } :
+    (hadmit : ({ profile := p, modules := f.claimed, moduleFiles := f.moduleFiles,
+                 claimedConstants := f.claimedConstants.map (·.2.1), csimps, decls, unique } :
       Regula.Closed.Draft).admit = .ok i') :
     Loaded f roots p i' := by
   have hd := admit_toDraft hadmit
   obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok
     (fun x : Name × ConstantInfo => f.decl x.1 x.2 (f.stated.getD x.1 []))
     (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ hm
+  obtain ⟨hidx, hcs'⟩ := csimps_ok hcs
   have hdecls : i'.decls = decls := by rw [hd]
   have hp : i'.profile = p := by rw [hd]
   have hmods : i'.modules = f.claimed := by rw [hd]
   have hfiles : i'.moduleFiles = f.moduleFiles := by rw [hd]
-  refine ⟨hp, hmods, hfiles, ?_, ?_, ?_⟩
+  have hcc : i'.claimedConstants = f.claimedConstants.map (·.2.1) := by rw [hd]
+  have hcsEq : i'.csimps = csimps := by rw [hd]
+  refine ⟨hp, hmods, hfiles, hidx, hcc, fun e => hcsEq ▸ hcs' e, ?_, ?_, ?_⟩
   · intro r hr
     have := List.find?_eq_none.mp hfind r hr
     simpa using this
@@ -528,8 +616,11 @@ theorem admitDraft_loaded {i' : Regula.Closed.Input} (h : f.admitDraft roots p =
   rename_i hfind
   split at h
   · cases h
+  rename_i csimps hcs
+  split at h
+  · cases h
   rename_i decls hm
-  exact loaded_of_parts hfind hm h
+  exact loaded_of_parts hfind hcs hm h
 
 theorem prepare_loaded {prep : Regula.Closed.Prepared} (h : f.prepare roots p = .ok prep) :
     Loaded f roots p prep.input := by
@@ -879,12 +970,38 @@ theorem allHold_iff (i : Input) : AllHold i ↔
   simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved,
     rg1011Proved, rg1012Proved, rg1013Proved]
 
+theorem declaredInClaimed_env (hl : Loaded f roots p i) (c : Name) :
+    (toSpec i).DeclaredInClaimed c ↔ ∃ cm info, (cm, c, info) ∈ f.claimedConstants := by
+  simp only [Input.DeclaredInClaimed, toSpec, toSpecDraft, hl.claimedConstants, List.mem_map]
+  constructor
+  · rintro ⟨⟨cm, n, info⟩, hx, rfl⟩
+    exact ⟨cm, info, hx⟩
+  · rintro ⟨cm, info, hx⟩
+    exact ⟨(cm, c, info), hx, rfl⟩
+
+theorem hasCSimp_env (hl : Loaded f roots p i) (m thm : Name) :
+    (toSpec i).HasCSimp m thm ↔ m ∈ f.claimed ∧ ModuleCSimp f.env m thm := by
+  simp only [Input.HasCSimp, toSpec, toSpecDraft, List.mem_map]
+  constructor
+  · rintro ⟨e, he, hmk⟩
+    have hmod : e.module = m := congrArg CSimpEntry.module hmk
+    have hthm : e.thm = thm := congrArg CSimpEntry.thm hmk
+    simpa [hmod, hthm] using (hl.csimps e).mp he
+  · intro h
+    exact ⟨⟨m, thm⟩, (hl.csimps ⟨m, thm⟩).mpr h, rfl⟩
+
 theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor f p := by
   rw [allHold_iff]
   constructor
   · rintro ⟨h1, -, -, -, h5, h6, h11, h12, h13⟩
     refine ⟨fun m hm => Classical.byContradiction fun hno =>
-      h13 m ⟨(claimed_iff hl m).mpr hm, fun hfile => hno ((moduleFile_env hl m).mp hfile)⟩, ?_⟩
+      h13 m ⟨(claimed_iff hl m).mpr hm, fun hfile => hno ((moduleFile_env hl m).mp hfile)⟩,
+      fun m hm => ?_, ?_⟩
+    · obtain ⟨idx, hidx⟩ := hl.indexed m hm
+      refine ⟨idx, hidx, fun ce hce => Classical.byContradiction fun hno => ?_⟩
+      exact h11 ce.thmName (.inr ⟨m, (claimed_iff hl m).mpr hm,
+        (hasCSimp_env hl m ce.thmName).mpr ⟨hm, idx, hidx, ce, hce, rfl⟩,
+        fun hd => hno ((declaredInClaimed_env hl ce.thmName).mp hd)⟩)
     intro n info m hn hm hc
     obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm
     have hx := to_mem hl hn hlm
@@ -906,17 +1023,17 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       exact hno ((admits_env hl ha).mp hadm)
     · cases hi : Lean.Compiler.getImplementedBy? f.env n with
       | none => rfl
-      | some impl => exact absurd ⟨_, hx, rfl, hcm, .inl ⟨impl, hi⟩⟩ (h11 n)
+      | some impl => exact absurd (.inl ⟨_, hx, rfl, hcm, .inl ⟨impl, hi⟩⟩) (h11 n)
     · cases he : Lean.isExtern f.env n with
       | false => rfl
-      | true => exact absurd ⟨_, hx, rfl, hcm, .inr (.inl he)⟩ (h11 n)
+      | true => exact absurd (.inl ⟨_, hx, rfl, hcm, .inr (.inl he)⟩) (h11 n)
     · cases hfn : Lean.getInitFnNameFor? f.env n with
       | none => rfl
       | some fn =>
-        exact absurd ⟨_, hx, rfl, hcm, .inr (.inr ⟨kind_definition.mpr ⟨hdef, hs⟩, fn, hfn⟩)⟩ (h11 n)
+        exact absurd (.inl ⟨_, hx, rfl, hcm, .inr (.inr ⟨kind_definition.mpr ⟨hdef, hs⟩, fn, hfn⟩)⟩) (h11 n)
     · exact h12 n ⟨_, hx, rfl, hcm, (kind_runs hs).mpr hrun, u, (mem_valueUsesOf info u).mpr hv,
         (panic_env hl u).mpr hpanic⟩
-  · rintro ⟨hfiles, hf⟩
+  · rintro ⟨hfiles, hcsimps, hf⟩
     have hmod : ∀ {x : Decl} {info m}, f.info? x.name = some m → x = decl
         (f.declIn x.name m info (f.stated.getD x.name [])) → f.moduleOf? x.name = some x.module :=
       fun {x info m} hm hv => moduleOf?_eq_some.mpr ⟨m, hm, by rw [hv]; rfl⟩
@@ -948,14 +1065,19 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       · have hs : ∀ w ∈ f.stated.getD x.name [], ¬ AxiomInfo w := fun w hw hax =>
           hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩
         exact hfix ((kind_runs hs).mp hk) ((mem_valueUsesOf info ``Lean.Order.fix).mp hu)
-    · rintro c ⟨x, hx, rfl, hcm, hr⟩
-      obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
-      obtain ⟨-, -, -, -, -, hi, he, hinit, -⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
-      rw [hd] at hr
-      rcases hr with ⟨impl, himpl⟩ | hext | ⟨hkind, fn, hfn⟩
-      · exact absurd (himpl.symm.trans hi) (by simp)
-      · exact absurd (hext.symm.trans he) (by simp)
-      · exact absurd (hfn.symm.trans (hinit (kind_definition.mp hkind).1)) (by simp)
+    · rintro c (⟨x, hx, rfl, hcm, hr⟩ | ⟨m, hcm, hcs, hnot⟩)
+      · obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
+        obtain ⟨-, -, -, -, -, hi, he, hinit, -⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
+        rw [hd] at hr
+        rcases hr with ⟨impl, himpl⟩ | hext | ⟨hkind, fn, hfn⟩
+        · exact absurd (himpl.symm.trans hi) (by simp)
+        · exact absurd (hext.symm.trans he) (by simp)
+        · exact absurd (hfn.symm.trans (hinit (kind_definition.mp hkind).1)) (by simp)
+      · obtain ⟨hm, idx, hidx, ce, hce, rfl⟩ := (hasCSimp_env hl m c).mp hcs
+        obtain ⟨idx', hidx', hall⟩ := hcsimps m hm
+        rw [hidx'] at hidx
+        cases Option.some.inj hidx
+        exact hnot ((declaredInClaimed_env hl ce.thmName).mpr (hall ce hce))
     · rintro c ⟨x, hx, rfl, hcm, hk, u, hu, hp⟩
       obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
       obtain ⟨hna, -, -, -, -, -, -, -, h12⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
@@ -1051,7 +1173,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   have hmod : f.moduleOf? n = some lm.name := moduleOf?_eq_some.mpr ⟨lm, hinfo, rfl⟩
   have hcl : lm.name ∈ f.claimed :=
     (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
-  obtain ⟨h1, h2, h3, hfix, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2.2 n k lm.name hk hmod hcl
+  obtain ⟨h1, h2, h3, hfix, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2.2.2 n k lm.name hk hmod hcl
   simp only [Regula.Load.readOf, Prod.mk.injEq] at hread
   obtain ⟨hkind, hsafety, huses, hvalue⟩ := hread
   have hsafe : k.isUnsafe = info.isUnsafe ∧ k.isPartial = info.isPartial := by
@@ -1279,6 +1401,16 @@ theorem admitDraft_of_floor (h : LoadFloor f roots p) : ∃ i, f.admitDraft root
     simp [this] at hnot
   rename_i hfind
   split
+  · rename_i why hcs
+    simp only [Regula.Load.Facts.csimps, Except.map] at hcs
+    cases hmap : f.claimed.mapM f.moduleCSimps with
+    | error why' =>
+      obtain ⟨m, hm', e', he'⟩ := mapM_error _ _ _ hmap
+      obtain ⟨idx, hidx, -⟩ := h.floor.2.1 m hm'
+      simp [Regula.Load.Facts.moduleCSimps, hidx] at he'
+    | ok _ => simp [hmap] at hcs
+  rename_i csimps hcs
+  split
   · rename_i why hm
     obtain ⟨⟨n, info⟩, hx, e', he⟩ := mapM_error _ _ _ hm
     have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hx
@@ -1289,7 +1421,8 @@ theorem admitDraft_of_floor (h : LoadFloor f roots p) : ∃ i, f.admitDraft root
     (fun x : Name × ConstantInfo => f.decl x.1 x.2 (f.stated.getD x.1 []))
     (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ hm
   have hwf : (toSpecDraft
-      { profile := p, modules := f.claimed, moduleFiles := f.moduleFiles, decls := decls,
+      { profile := p, modules := f.claimed, moduleFiles := f.moduleFiles,
+        claimedConstants := f.claimedConstants.map (·.2.1), csimps := csimps, decls := decls,
         unique := f.decls_nodup (stated := fun n => f.stated.getD n []) hm }).WellFormed := by
     rw [wf_toSpecDraft_iff]
     refine ⟨fun x hx u hu => ?_, h.form.claims⟩

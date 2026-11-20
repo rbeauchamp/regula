@@ -46,6 +46,8 @@ def base : Input where
   profile := .choiceFree
   modules := [`Good]
   moduleFiles := [`Good]
+  claimedConstants := [`Good.t, `Good.f, `Good.f._unsafe_rec]
+  csimps := []
   decls := baseDecls
   unique := by decide
 

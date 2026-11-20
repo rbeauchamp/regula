@@ -83,11 +83,13 @@ theorem registered_found (p : Proved) (hp : p ∈ registry) :
   have hr : p.rule ∈ Regula.Closed.registry := registry_rules ▸ List.mem_map_of_mem hp
   exact ⟨i, _, Regula.Closed.mem_findings.mpr ⟨p.rule, hr, v, hv, rfl⟩, rfl, hs⟩
 
-/-- Every finding of RG1013 has a module subject for a claimed module, and every finding of another registered
-rule has a constant subject carrying the declaration's own name and module. -/
+/-- Every finding of RG1013 has a module subject for a claimed module; every finding of another registered
+rule has a constant subject carrying either the declaration's own name and module or, for RG1011's {attr}`@[csimp]`
+clause, a claimed module's exported {attr}`@[csimp]` theorem name and that claimed module. -/
 theorem finding_subject {i : Regula.Closed.Input} {f : Regula.Closed.Finding} (hf : f ∈ i.findings) :
     (f.rule ≠ "RG1013" ∧ ∃ d ∈ i.decls, f.subject = .constant d.name d.module) ∨
-      (f.rule = "RG1013" ∧ ∃ m ∈ i.modules, f.subject = .module m) := by
+      (f.rule = "RG1013" ∧ ∃ m ∈ i.modules, f.subject = .module m) ∨
+      (f.rule = "RG1011" ∧ ∃ e ∈ i.csimps, e.module ∈ i.modules ∧ f.subject = .constant e.thm e.module) := by
   obtain ⟨r, hr, v, hv, rfl⟩ := Regula.Closed.mem_findings.mp hf
   rw [← registry_rules] at hr
   obtain ⟨p, -, rfl⟩ := List.mem_map.mp hr
