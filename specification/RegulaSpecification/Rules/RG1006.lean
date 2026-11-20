@@ -303,7 +303,7 @@ theorem not_safe_iff (d : Regula.Closed.Decl) :
   cases hd : d.safety <;> simp [decl, safety, hd]
 
 theorem rg1006_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1006.check t).map (·.subject) ↔ Violates1006 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1006.check t).map (·.subject.name) ↔ Violates1006 (toSpec i) s := by
   rw [Regula.Rules.RG1006.check, mem_report (sub := (·.name)) (fun _ => rfl)]
   constructor
   · rintro ⟨d, hd, hc, rfl⟩
@@ -330,9 +330,14 @@ theorem rg1006_exact (s : Name) :
         | true => exact absurd ((recursionHelper_iff t d).mp hb) hh
     · exact .inr ((mentionsLoop_iff d).mpr hl)
 
+theorem rg1006_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1006.check t) :
+    ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
+  obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
+  exact ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
+
 theorem rg1006_reports_named_not_partial {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     (hm : (toSpec i).ClaimedModule d.module) (hn : HelperNamed (decl d))
-    (hp : d.safety ≠ .partial) : d.name ∈ (Regula.Rules.RG1006.check t).map (·.subject) :=
+    (hp : d.safety ≠ .partial) : d.name ∈ (Regula.Rules.RG1006.check t).map (·.subject.name) :=
   (rg1006_exact t d.name).mpr ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm,
     .inl ⟨.inr hn, fun h => hp ((safety_iff d .partial).mpr h.1)⟩⟩
 
@@ -341,7 +346,7 @@ reported. So a rule that refuses each name of the form `b._unsafe_rec`, or all r
 meet this. -/
 theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     (hh : (toSpec i).HelperForm (decl d)) (hl : ¬ MentionsLoop (decl d)) :
-    d.name ∉ (Regula.Rules.RG1006.check t).map (·.subject) := by
+    d.name ∉ (Regula.Rules.RG1006.check t).map (·.subject.name) := by
   intro h
   obtain ⟨x, hx, hxn, -, hv⟩ := (rg1006_exact t d.name).mp h
   obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
@@ -357,8 +362,10 @@ theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
 
 end Link
 
-/-- RG1006 with its statement, its proof and its cases, for the registry. -/
-def rg1006Proved : Proved := ⟨Regula.Rules.RG1006.rule, Violates1006, Link.rg1006_exact, Witnesses.w1006⟩
+/-- RG1006 with its statement, its proofs and its cases, for the registry. -/
+def rg1006Proved : Proved :=
+  ⟨Regula.Rules.RG1006.rule, Violates1006, Link.rg1006_exact, Witnesses.w1006,
+    fun t _ hv => .inl ⟨by decide, Link.rg1006_subject t hv⟩⟩
 
 /-- The function of RG1006 over the specification's input. -/
 def rg1006Checker : Checker Input Name := rg1006Proved.checker

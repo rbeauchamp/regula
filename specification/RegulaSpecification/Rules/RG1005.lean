@@ -109,7 +109,7 @@ theorem admits_iff (p : Regula.Closed.Profile) (a : Name) :
     simp only [Regula.Closed.Tables.admits, profile, Input.Admits, known_iff t]
 
 theorem rg1005_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1005.check t).map (·.subject) ↔ Violates1005 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1005.check t).map (·.subject.name) ↔ Violates1005 (toSpec i) s := by
   unfold Regula.Rules.RG1005.check
   dsimp only
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
@@ -129,10 +129,19 @@ theorem rg1005_exact (s : Name) :
     | false => rfl
     | true => exact absurd ((admits_iff t i.profile a).mp hb) hn
 
+theorem rg1005_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1005.check t) :
+    ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
+  unfold Regula.Rules.RG1005.check at hv
+  dsimp only at hv
+  obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
+  exact ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
+
 end Link
 
-/-- RG1005 with its statement, its proof and its cases, for the registry. -/
-def rg1005Proved : Proved := ⟨Regula.Rules.RG1005.rule, Violates1005, Link.rg1005_exact, Witnesses.w1005⟩
+/-- RG1005 with its statement, its proofs and its cases, for the registry. -/
+def rg1005Proved : Proved :=
+  ⟨Regula.Rules.RG1005.rule, Violates1005, Link.rg1005_exact, Witnesses.w1005,
+    fun t _ hv => .inl ⟨by decide, Link.rg1005_subject t hv⟩⟩
 
 /-- The function of RG1005 over the specification's input. -/
 def rg1005Checker : Checker Input Name := rg1005Proved.checker

@@ -68,7 +68,7 @@ namespace Link
 variable {i : Regula.Closed.Input} (t : Regula.Closed.Tables i)
 
 theorem rg1002_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1002.check t).map (·.subject) ↔ Violates1002 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1002.check t).map (·.subject.name) ↔ Violates1002 (toSpec i) s := by
   unfold Regula.Rules.RG1002.check
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
   constructor
@@ -81,10 +81,17 @@ theorem rg1002_exact (s : Name) :
     exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩,
       by simpa using (axiomSet_iff t _ _).mpr ha, rfl⟩
 
+theorem rg1002_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1002.check t) :
+    ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
+  obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
+  exact ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
+
 end Link
 
-/-- RG1002 with its statement, its proof and its cases, for the registry. -/
-def rg1002Proved : Proved := ⟨Regula.Rules.RG1002.rule, Violates1002, Link.rg1002_exact, Witnesses.w1002⟩
+/-- RG1002 with its statement, its proofs and its cases, for the registry. -/
+def rg1002Proved : Proved :=
+  ⟨Regula.Rules.RG1002.rule, Violates1002, Link.rg1002_exact, Witnesses.w1002,
+    fun t _ hv => .inl ⟨by decide, Link.rg1002_subject t hv⟩⟩
 
 /-- The function of RG1002 over the specification's input. -/
 def rg1002Checker : Checker Input Name := rg1002Proved.checker

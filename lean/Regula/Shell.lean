@@ -54,8 +54,9 @@ def supportsLean (version commit : String) : Bool :=
 
 /-- The line of one finding. -/
 def line (f : Finding) : String :=
-  let place := if f.module == f.subject then "" else s!" (module {f.module})"
-  s!"{f.rule} {f.subject}{place}: {f.detail}"
+  match f.subject with
+  | .constant name m => s!"{f.rule} {name} (module {m}): {f.detail}"
+  | .module name => s!"{f.rule} {name}: {f.detail}"
 
 /-- What a report says beside its verdict: each finding, and how many there are or why it is incomplete. -/
 def details : Report → List String
@@ -247,17 +248,14 @@ def runFull (profile : Profile) (dir : FilePath) : Prog L E UInt32 := do
       say s!"regula: the checker could not remove its tree {tree}: {e}"
       finishFull dir report
 
-/-- The directory that a load gave. A load that gave no input names none, and its verdict is no pass. -/
-def subjectOf : Except String (FilePath × Prepared) → FilePath
-  | .ok x => x.1
-  | .error _ => "."
-
 /-- A run of the proof verdict on the workspace in the current directory. -/
 def runPlain (profile : Profile) : Prog L E UInt32 := do
   let result ← (loadPlain profile).run
-  let prepared := result.map (·.2)
-  sayCoverage prepared
-  finishPlain (subjectOf result) (decisionPrepared prepared)
+  match result with
+  | .error why => finishProof (decisionPrepared (.error why))
+  | .ok (dir, prepared) =>
+    say (coverage prepared.input)
+    finishPlain dir (decisionPrepared (.ok prepared))
 
 /-- What a run does on this Lean with these arguments: the profile, or a refusal, and then the variable says which run. -/
 def dispatch (version commit : String) (args : List String) : Prog L E UInt32 :=

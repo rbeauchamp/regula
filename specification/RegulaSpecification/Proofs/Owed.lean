@@ -310,12 +310,13 @@ theorem replayed_eq {t : List (Event L E)} {f : Regula.Load.Facts} {x result : E
 
 theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32} (h : PlainRun t p c)
     (owed : PlainOwed t p) : c = 0 ∧ ∃ subject, EndsWith t (plainPass subject) := by
-  obtain ⟨result, subject, hl, hc, he, -⟩ := h
+  obtain ⟨result, hl, hc, he, -⟩ := h
   rcases hl with ⟨root, f, roots, hg, hb, hrp⟩ | ⟨hw, -⟩
   · obtain rfl := replayed_eq hrp owed.replayed
     have hv := (pass_iff_answer f roots p).mpr (owed.floor root _ roots hg hb.answered)
     rw [hv] at hc he
-    exact ⟨hc, subject, he⟩
+    obtain ⟨subject, hend, -⟩ := he
+    exact ⟨hc, subject, hend⟩
   · exact absurd hw owed.noReason
 
 theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32} (h : FullRun t dir p c)
@@ -414,7 +415,7 @@ theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : 
   cases he
   obtain ⟨v', r, rest, he', hf⟩ := hrun rfl
   cases he'
-  obtain ⟨result, subject, hl, -⟩ := hf
+  obtain ⟨result, hl, -⟩ := hf
   have hno : ∀ {o : Op L E} {r : Resp o},
       (⟨o, r⟩ : Event L E) ∈ ([⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv name, none⟩,
         ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] : List (Event L E)) →

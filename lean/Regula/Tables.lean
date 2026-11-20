@@ -187,8 +187,10 @@ theorem mem_axiomReach (c a : Name) :
     · simp [reach_mentionedBy_iff]
     · intro n hn
       rw [Std.HashMap.mem_keys]
-      refine Classical.byContradiction fun hm => hn ?_
-      rw [Std.HashMap.getD_eq_fallback hm]
+      cases hc : i.mentionedBy.contains n with
+      | true => exact Std.HashMap.contains_iff_mem.mp hc
+      | false =>
+        exact absurd (Std.HashMap.getD_eq_fallback (Std.HashMap.contains_eq_false_iff_not_mem.mp hc)) hn
   simp only [axiomReach, List.mem_map, List.mem_filter, beq_iff_eq, Prod.mk.injEq]
   constructor
   · rintro ⟨s, ⟨d, ⟨hd, hk⟩, rfl, rfl⟩, hc⟩

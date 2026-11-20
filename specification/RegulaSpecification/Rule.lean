@@ -11,8 +11,8 @@ import all Regula.Rule
 Each rule's statement is a module of its own below {lit}`Rules/`, which imports this module, the rule's own
 check in the checker's package, and no other rule. A rule enters the specification's registry
 ({lit}`Rules.lean`) as a value of {lit}`Proved`: the rule that the checker runs, its violation predicate,
-the proof that its check reports exactly the violations, and its cases. So no rule is registered without its
-statement, its proof and its cases.
+the proof that its check reports exactly the violations, its cases, and the proof of the kind of subject that
+its violations carry. So no rule is registered without its statement, its proofs and its cases.
 
 The lemmas here are the ones that more than one rule's proof uses.
 -/
@@ -25,8 +25,8 @@ open Lean (Name)
 open LeanIntent
 
 /-- A rule of the checker with its statement: the violation predicate over the specification's input, the
-proof that the rule's check reports exactly its violations on every input and every value of its tables, and the
-cases that the rule's record needs. -/
+proof that the rule's check reports exactly its violations on every input and every value of its tables, the
+cases that the rule's record needs, and the proof of the kind of subject that its violations carry. -/
 structure Proved where
   /-- The rule that the checker runs. -/
   rule : Regula.Closed.Rule
@@ -34,9 +34,14 @@ structure Proved where
   Violates : Input → Name → Prop
   /-- The check reports exactly the violations. -/
   exact : ∀ {i : Regula.Closed.Input} (t : Regula.Closed.Tables i) (s : Name),
-    s ∈ (rule.check t).map (·.subject) ↔ Violates (Link.toSpec i) s
+    s ∈ (rule.check t).map (·.subject.name) ↔ Violates (Link.toSpec i) s
   /-- The case that the rule must refuse, and the case that it must admit. -/
   cases : Witnessed Violates
+  /-- Every violation of RG1013 has a module subject for a claimed module, and every violation of another rule
+  has a constant subject carrying the declaration's own name and module. -/
+  subject : ∀ {i : Regula.Closed.Input} (t : Regula.Closed.Tables i), ∀ v ∈ rule.check t,
+    (rule.spelling ≠ "RG1013" ∧ ∃ d ∈ i.decls, v.subject = .constant d.name d.module) ∨
+      (rule.spelling = "RG1013" ∧ ∃ m ∈ i.modules, v.subject = .module m)
 
 namespace Proved
 
@@ -46,7 +51,7 @@ variable (p : Proved)
 
 /-- The rule's check over the specification's input. -/
 def checker : Checker Input Name := fun s =>
-  (p.rule.check (ofAdmitted s).tables).map (·.subject)
+  (p.rule.check (ofAdmitted s).tables).map (·.subject.name)
 
 theorem meets (rule : String) : (ruleRecord rule p.Violates).Meets p.checker := by
   refine (meets_iff _).mpr fun s c => ?_
@@ -68,8 +73,8 @@ namespace Link
 variable {i : Regula.Closed.Input} (t : Regula.Closed.Tables i)
 
 theorem mem_report {α : Type} {l : List α} {c : α → Bool} {g : α → Regula.Closed.Violation}
-    {sub : α → Name} (hg : ∀ a, (g a).subject = sub a) (s : Name) :
-    s ∈ (l.filterMap fun a => if c a then some (g a) else none).map (·.subject) ↔
+    {sub : α → Name} (hg : ∀ a, (g a).subject.name = sub a) (s : Name) :
+    s ∈ (l.filterMap fun a => if c a then some (g a) else none).map (·.subject.name) ↔
       ∃ a ∈ l, c a = true ∧ sub a = s := by
   simp only [List.mem_map, List.mem_filterMap]
   constructor
@@ -82,12 +87,21 @@ theorem mem_report {α : Type} {l : List α} {c : α → Bool} {g : α → Regul
   · rintro ⟨a, ha, hc, rfl⟩
     exact ⟨g a, ⟨a, ha, by simp [hc]⟩, hg a⟩
 
+theorem mem_report_violation {α : Type} {l : List α} {c : α → Bool} {g : α → Regula.Closed.Violation}
+    {v : Regula.Closed.Violation}
+    (hv : v ∈ l.filterMap fun a => if c a then some (g a) else none) :
+    ∃ a ∈ l, c a = true ∧ g a = v := by
+  obtain ⟨a, ha, hf⟩ := List.mem_filterMap.mp hv
+  split at hf
+  · exact ⟨a, ha, ‹_›, Option.some.inj hf⟩
+  · cases hf
+
 theorem filter_nonempty {α : Type} {l : List α} {p : α → Bool} :
     (!(l.filter p).isEmpty) = true ↔ ∃ a ∈ l, p a = true := by
   simp only [Bool.not_eq_true', List.isEmpty_eq_false_iff_exists_mem, List.mem_filter]
 
 theorem nil_iff_no_subject (vs : List Regula.Closed.Violation) :
-    vs = [] ↔ ∀ s, s ∉ vs.map (·.subject) := by
+    vs = [] ↔ ∀ s, s ∉ vs.map (·.subject.name) := by
   cases vs with
   | nil => simp
   | cons v vs =>
@@ -95,7 +109,7 @@ theorem nil_iff_no_subject (vs : List Regula.Closed.Violation) :
     · intro h
       cases h
     · intro h
-      exact absurd (List.mem_cons_self ..) (h v.subject)
+      exact absurd (List.mem_cons_self ..) (h v.subject.name)
 
 theorem known_iff (a : Name) :
     t.known a = true ↔ (toSpec i).Known a := by

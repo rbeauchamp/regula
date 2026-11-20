@@ -42,8 +42,9 @@ theorem unseenWeight_insert (next : Name → List Name) (us : List Name) (seen :
   unfold unseenWeight
   induction us with
   | nil =>
-    have : next n = [] := Classical.byContradiction fun h => by simpa using hn h
-    simp [this]
+    cases hnext : next n with
+    | nil => simp
+    | cons _ _ => cases hn (by simp [hnext])
   | cons u us ih =>
     by_cases hun : u = n
     · subst hun

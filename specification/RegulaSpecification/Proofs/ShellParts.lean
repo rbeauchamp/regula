@@ -55,6 +55,16 @@ theorem detailText_lines (s : String) :
   rw [List.splitOn_eq_singleton (by simpa using (detailText_no_break s).1)]
   simp only [List.map_singleton, String.ofList_toList]
 
+/-- A constant finding formats with its module in parentheses, even when constant and module share a name. -/
+theorem line_constant (rule : String) (name m : Name) (detail : String) :
+    Regula.Shell.line { rule, subject := .constant name m, detail } =
+      s!"{rule} {name} (module {m}): {detail}" := by rfl
+
+/-- A module finding formats without a parenthesized module suffix. -/
+theorem line_module (rule : String) (name : Name) (detail : String) :
+    Regula.Shell.line { rule, subject := .module name, detail } =
+      s!"{rule} {name}: {detail}" := by rfl
+
 theorem details_nil : Details (L := L) (E := E) [] := by
   simp [Details, printed]
 

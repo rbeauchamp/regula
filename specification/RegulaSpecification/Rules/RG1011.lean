@@ -145,7 +145,7 @@ theorem replaced_iff (d : Regula.Closed.Decl) :
   rfl
 
 theorem rg1011_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1011.check t).map (·.subject) ↔ Violates1011 (toSpec i) s := by
+    s ∈ (Regula.Rules.RG1011.check t).map (·.subject.name) ↔ Violates1011 (toSpec i) s := by
   unfold Regula.Rules.RG1011.check
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
   constructor
@@ -156,6 +156,11 @@ theorem rg1011_exact (s : Name) :
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, (replaced_iff d).mpr hc, rfl⟩
 
+theorem rg1011_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1011.check t) :
+    ∃ d ∈ i.decls, v.subject = .constant d.name d.module := by
+  obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
+  exact ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
+
 /-- A constant with neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, that has no initialization function
 or is no definition, is not reported, whatever else it has: the input holds no other attribute,
 {attr}`@[csimp]` among them. So a rule that refuses every definition, every constant with an initialization
@@ -163,7 +168,7 @@ function, or every constant that compiled code replaces by any means, does not m
 theorem rg1011_admits_neither {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     (hi : d.implementedBy = none) (he : d.isExtern = false)
     (hinit : d.initFn = none ∨ d.kind ≠ .definition) :
-    d.name ∉ (Regula.Rules.RG1011.check t).map (·.subject) := by
+    d.name ∉ (Regula.Rules.RG1011.check t).map (·.subject.name) := by
   intro h
   obtain ⟨x, hx, hxn, -, hr⟩ := (rg1011_exact t d.name).mp h
   obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
@@ -184,8 +189,10 @@ theorem rg1011_admits_neither {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
 
 end Link
 
-/-- RG1011 with its statement, its proof and its cases, for the registry. -/
-def rg1011Proved : Proved := ⟨Regula.Rules.RG1011.rule, Violates1011, Link.rg1011_exact, Witnesses.w1011⟩
+/-- RG1011 with its statement, its proofs and its cases, for the registry. -/
+def rg1011Proved : Proved :=
+  ⟨Regula.Rules.RG1011.rule, Violates1011, Link.rg1011_exact, Witnesses.w1011,
+    fun t _ hv => .inl ⟨by decide, Link.rg1011_subject t hv⟩⟩
 
 /-- The function of RG1011 over the specification's input. -/
 def rg1011Checker : Checker Input Name := rg1011Proved.checker
