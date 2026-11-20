@@ -187,7 +187,7 @@ The full verdict stays at its built size. On 2026-11-01 the owner was shown that
 - [`lean/Regula/Tables.lean`](lean/Regula/Tables.lean) — dependent lookup tables (`Tables i`) carrying proofs of what each table holds of input `i`, alongside `Tables.axiomSet` and `Input.cone`.
 - [`lean/Regula/Effect.lean`](lean/Regula/Effect.lean) — pure effect trees (`Prog`) over a closed operation type (`Op`, `Resp`), separated from the thin IO table in [`lean/Regula/Table.lean`](lean/Regula/Table.lean).
 - [`lean/Regula/Reach.lean`](lean/Regula/Reach.lean) — total graph search (`reach`, `reachGo`) by structural recursion on fuel, without `partial` or `while`; `mem_reach` proves it sound and complete when a supplied list holds every name with a successor and the fuel's `weight` bounds their total out-degree (the measure of `unseenWeight` and `unseenWeight_insert`), a bound that the callers in `Tables.lean` derive from the input.
-- [`specification/RegulaSpecification/Rules/RG1011.lean`](specification/RegulaSpecification/Rules/RG1011.lean) — an independent rule specification (`Violates1011`), non-vacuity witnesses (`Witnesses.w1011`, `rg1011_adequate`, and `rg1011_noisy`, whose premise that the admitted subject is a candidate `t_mem_support` supplies), and a bidirectional proof over the executed check (`Link.rg1011_exact`).
+- [`specification/RegulaSpecification/Rules/RG1011.lean`](specification/RegulaSpecification/Rules/RG1011.lean) — an independent rule specification (`Violates1011`), non-vacuity witnesses (`Witnesses.w1011`, `rg1011_adequate`, and `rg1011_noisy`, which takes from `t_mem_support` its premise that the admitted subject is a candidate), and a bidirectional proof over the executed check (`Link.rg1011_exact`).
 
 ## Work on Regula
 
