@@ -434,7 +434,7 @@ theorem mathlibReached_iff (r : Reading) : r.mathlibReached = true ↔ MathlibRe
   simp [Reading.mathlibReached, MathlibReached]
 
 theorem covered_iff (r : Reading) : r.covered = true ↔ Covered r := by
-  simp [Reading.covered, Covered, closedModuleName_iff, and_assoc]
+  simp [Reading.covered, covers, Covered, closedModuleName_iff, and_assoc]
 
 theorem filesAdmitted_iff (r : Reading) : r.filesAdmitted = true ↔ FilesAdmitted r := by
   simp [Reading.filesAdmitted, FilesAdmitted, fileAdmitted_iff]

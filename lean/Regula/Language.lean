@@ -183,6 +183,12 @@ def treeRelative (base path : List String) : Option (List String) :=
     if rel.all (fun c => !c.isEmpty && c.front != '.') then some rel else none
   else none
 
+/-- Whether what was read covers a claim: there is a claim, each root is reached, each module reached has a
+name in the closed domain, and each has its file read. -/
+def covers (roots reached : List Name) (files : List FileRead) : Bool :=
+  !roots.isEmpty && roots.all reached.contains && reached.all closedModuleName &&
+    reached.all fun m => files.any (·.module == m)
+
 namespace Reading
 
 variable (r : Reading)
@@ -205,11 +211,9 @@ def requiresDependency : Bool :=
 def mathlibReached : Bool :=
   r.reached.any (·.getRoot == `Mathlib)
 
-/-- There is a claim, each root is reached, each module reached has a name in the closed domain, and each
-has its file read. -/
+/-- The roots, the modules reached and the files read cover a claim. -/
 def covered : Bool :=
-  !r.roots.isEmpty && r.roots.all r.reached.contains && r.reached.all closedModuleName &&
-    r.reached.all fun m => r.files.any (·.module == m)
+  covers r.roots r.reached r.files
 
 /-- Each file read is in the closed language. -/
 def filesAdmitted : Bool :=
@@ -272,19 +276,16 @@ inductive Stage where
   /-- The walk read in full without Mathlib and files were parsed, but coverage failed. -/
   | uncovered (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
       (hnomath : reached.any (·.getRoot == `Mathlib) = false)
-      (huncov : (!roots.isEmpty && roots.all reached.contains && reached.all closedModuleName &&
-        reached.all fun m => files.any (·.module == m)) = false)
+      (huncov : covers roots reached files = false)
   /-- Coverage holds without Mathlib, and some parsed file is outside the closed language. -/
   | filesRefused (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
       (hnomath : reached.any (·.getRoot == `Mathlib) = false)
-      (hcov : (!roots.isEmpty && roots.all reached.contains && reached.all closedModuleName &&
-        reached.all fun m => files.any (·.module == m)) = true)
+      (hcov : covers roots reached files = true)
       (hbad : files.all (·.admitted) = false)
   /-- Every phase passed and every file is in the closed language. -/
   | admitted (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
       (hnomath : reached.any (·.getRoot == `Mathlib) = false)
-      (hcov : (!roots.isEmpty && roots.all reached.contains && reached.all closedModuleName &&
-        reached.all fun m => files.any (·.module == m)) = true)
+      (hcov : covers roots reached files = true)
       (hadm : files.all (·.admitted) = true)
 
 namespace Stage
@@ -376,8 +377,7 @@ def ofConfig (toolchainFile : Option String) (keys : List Name) : Except Stage C
 /-- Classify parsed files after a full Mathlib-free walk into `uncovered`, `filesRefused` or `admitted`. -/
 def ofFiles (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
     (hnomath : reached.any (·.getRoot == `Mathlib) = false) : Stage :=
-  match hc : !roots.isEmpty && roots.all reached.contains && reached.all closedModuleName &&
-      reached.all fun m => files.any (·.module == m) with
+  match hc : covers roots reached files with
   | false => .uncovered cfg roots reached files hnomath hc
   | true =>
     match hf : files.all (·.admitted) with

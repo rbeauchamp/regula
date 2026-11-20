@@ -27,9 +27,8 @@ theorem readExact_spec {project path : FilePath} {t : List (Event L E)} {b : Exc
     (h : Runs (readExact project path : Attempt L E String).run t b) :
     (∀ text, b = .ok text → ∃ real, t = [⟨.realPath path, .ok real⟩, ⟨.readFile path, .ok text⟩] ∧
       Regula.Load.exactBelow project path real = true) ∧
-    ((∃ e, b = .error e) → (∃ e, t = [⟨.realPath path, .error e⟩]) ∨
-      (∃ real, t = [⟨.realPath path, .ok real⟩] ∧ Regula.Load.exactBelow project path real = false) ∨
-      ∃ real e, t = [⟨.realPath path, .ok real⟩, ⟨.readFile path, .error e⟩]) ∧
+    ((∃ e, b = .error e) → (∃ e ∈ t, Event.failed e ∧ (e.op = .realPath path ∨ e.op = .readFile path)) ∨
+      ∃ real, t = [⟨.realPath path, .ok real⟩] ∧ Regula.Load.exactBelow project path real = false) ∧
     Quiet t := by
   rw [readExact] at h
   obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
@@ -38,7 +37,7 @@ theorem readExact_spec {project path : FilePath} {t : List (Event L E)} {b : Exc
   cases r' with
   | error e =>
     obtain ⟨rfl, rfl⟩ := h₂
-    exact ⟨by simp, fun _ => .inl ⟨e, rfl⟩, by quiet_events⟩
+    exact ⟨by simp, fun _ => .inl ⟨⟨.realPath path, .error e⟩, by simp, ⟨e, rfl⟩, .inl rfl⟩, by quiet_events⟩
   | ok real =>
     dsimp only [Except.mapError] at h₂
     split at h₂
@@ -47,10 +46,11 @@ theorem readExact_spec {project path : FilePath} {t : List (Event L E)} {b : Exc
       obtain rfl := runs_call_iff.mp h₄
       cases r'' with
       | ok text => exact ⟨fun _ he => (by cases he; exact ⟨real, rfl, hb⟩), fun ⟨_, he⟩ => (by cases he), by quiet_events⟩
-      | error e => exact ⟨fun _ he => (by cases he), fun _ => .inr (.inr ⟨real, e, rfl⟩), by quiet_events⟩
+      | error e => exact ⟨fun _ he => (by cases he), fun _ =>
+          .inl ⟨⟨.readFile path, .error e⟩, by simp, ⟨e, rfl⟩, .inr rfl⟩, by quiet_events⟩
     · rename_i hb
       obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₂
-      exact ⟨by simp, fun _ => .inr (.inl ⟨real, rfl, by simpa using hb⟩), by quiet_events⟩
+      exact ⟨by simp, fun _ => .inr ⟨real, rfl, by simpa using hb⟩, by quiet_events⟩
 
 theorem inTree_iff (tree path : FilePath) :
     inTree tree path = true ↔ ∃ rel, TreeRelative (parts tree) (parts path) rel := by
@@ -169,10 +169,9 @@ theorem readSource_spec {project tree path : FilePath} {t : List (Event L E)} {b
       | error why =>
         obtain ⟨rfl, rfl⟩ := h₂
         refine ⟨by simp, fun _ => ?_, by simpa using e3⟩
-        rcases e2 ⟨why, rfl⟩ with ⟨e, rfl⟩ | ⟨real, rfl, hb⟩ | ⟨real, e, rfl⟩
-        · exact .inr (.inl ⟨⟨.realPath (under project rel), .error e⟩, by simp [under, joinParts], ⟨e, rfl⟩, .inl ⟨rel, hrel, .inl rfl⟩⟩)
+        rcases e2 ⟨why, rfl⟩ with ⟨e, he, hf, hop⟩ | ⟨real, rfl, hb⟩
+        · exact .inr (.inl ⟨e, by simpa using he, hf, .inl ⟨rel, hrel, hop⟩⟩)
         · exact .inr (.inr ⟨rel, real, hrel, by simp [under, joinParts], hb⟩)
-        · exact .inr (.inl ⟨⟨.readFile (under project rel), .error e⟩, by simp [under, joinParts], ⟨e, rfl⟩, .inl ⟨rel, hrel, .inr rfl⟩⟩)
       | ok text =>
         obtain ⟨real, rfl, hexact⟩ := e1 text rfl
         obtain ⟨t₇, t₈, r₇, rfl, h₇, h₈⟩ := runs_attempt_bind_iff.mp h₂
