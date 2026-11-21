@@ -614,16 +614,15 @@ theorem kindIn_axiom (k : ConstantInfo) (s : List ConstantInfo) :
   · rename_i hs; simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs; exact ⟨fun _ => .inr hs, fun _ => rfl⟩
   · rename_i hs; simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs; simp [kindOf_axiom, hs]
 
-private def kindBack : Kind → Regula.Closed.Kind
-  | .axiom => .axiom | .definition => .definition | .theorem => .theorem | .opaque => .opaque
-  | .quotient => .quotient | .inductive => .inductive | .constructor => .constructor | .recursor => .recursor
+private theorem constKind'_constKind (k : Regula.Closed.Kind) : Link.constKind' (constKind k) = k := by
+  cases k <;> rfl
 
 private theorem constKind_inj {a b : Regula.Closed.Kind} : constKind a = constKind b ↔ a = b :=
-  have hb (k : Regula.Closed.Kind) : kindBack (constKind k) = k := by cases k <;> rfl
-  ⟨fun h => (hb a).symm.trans ((congrArg kindBack h).trans (hb b)), congrArg constKind⟩
+  ⟨fun h => (constKind'_constKind a).symm.trans ((congrArg Link.constKind' h).trans (constKind'_constKind b)),
+    congrArg constKind⟩
 
-private theorem safety_inj {a b : Regula.Closed.Safety} : safety a = safety b ↔ a = b :=
-  ⟨fun h => by cases a <;> cases b <;> (first | rfl | cases h), congrArg safety⟩
+private theorem decl_safety_eq {d : Regula.Closed.Decl} {v : Regula.Closed.Safety} :
+    (decl d).safety = safety v ↔ d.safety = v := (Link.safety_iff d v).symm
 
 private theorem decl_kind_eq {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} {k : Regula.Closed.Kind} :
@@ -719,13 +718,13 @@ theorem safety_partial {n : Name} {m : Regula.Load.LoadedModule} {info : Constan
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).safety = .partial ↔
       info.isPartial = true ∧ info.isUnsafe = false :=
-  (safety_inj (b := .partial)).trans (safetyOf_partial info)
+  (decl_safety_eq (v := .partial)).trans (safetyOf_partial info)
 
 theorem safety_safe {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).safety = .safe ↔
       info.isUnsafe = false ∧ info.isPartial = false :=
-  (safety_inj (b := .safe)).trans (safetyOf_safe info)
+  (decl_safety_eq (v := .safe)).trans (safetyOf_safe info)
 
 theorem helper_env (hl : Loaded f roots p i) (n : Name) (m : Regula.Load.LoadedModule)
     (info : ConstantInfo) :
