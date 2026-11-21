@@ -193,105 +193,73 @@ theorem mem_stated {n : Name} {v : ConstantInfo} :
   simp only [Array.foldl_toList, Array.mem_toList_iff] at h
   simpa [Regula.Load.Facts.stated] using h
 
-theorem statedIndexPairs_fst (l : List (Name × ConstantInfo)) (c : Bool)
-    (acc₁ : Std.HashMap Name (List ConstantInfo))
-    (acc₂ : Std.HashMap Name (List ConstantInfo × Bool))
-    (h : ∀ x, (acc₂.getD x ([], false)).1 = acc₁.getD x []) :
-    ∀ x, ((l.foldl (fun acc x =>
-      let prev := acc.getD x.1 ([], false)
-      acc.insert x.1 (x.2 :: prev.1, prev.2 || c)) acc₂).getD x ([], false)).1 =
-      (l.foldl (fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 [])) acc₁).getD x [] := by
-  induction l generalizing acc₁ acc₂ with
-  | nil => exact h
-  | cons a l ih =>
-    rcases a with ⟨k, v⟩
-    simp only [List.foldl_cons]
-    refine ih _ _ fun x => ?_
-    simp only [Std.HashMap.getD_insert]
-    by_cases hk : k = x
-    · subst hk
-      simp [h k]
-    · have hb : (k == x) = false := by simpa using hk
-      simp [hb, h x]
-
 theorem statedIndexData_fst (l : List Lean.ModuleData) (idx : Nat)
-    (acc₁ : Std.HashMap Name (List ConstantInfo))
-    (acc₂ : Std.HashMap Name (List ConstantInfo × Bool))
-    (h : ∀ x, (acc₂.getD x ([], false)).1 = acc₁.getD x []) :
-    ∀ x, ((l.foldl (fun (k, acc) data =>
-      let claimed := (f.modules[k]?.map (·.claimed)).getD false
-      let acc' := (data.constNames.zip data.constants).foldl (init := acc) fun acc x =>
-        let prev := acc.getD x.1 ([], false)
-        acc.insert x.1 (x.2 :: prev.1, prev.2 || claimed)
-      (k + 1, acc')) (idx, acc₂)).2.getD x ([], false)).1 =
-      (l.foldl (fun acc data => (data.constNames.zip data.constants).foldl
-        (fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 [])) acc) acc₁).getD x [] := by
-  induction l generalizing idx acc₁ acc₂ with
-  | nil => exact h
+    (acc : Std.HashMap Name (List ConstantInfo)) (owned : Std.HashSet Name) :
+    (l.foldl (fun (k, acc, owned) data =>
+      let pairs := data.constNames.zip data.constants
+      (k + 1, pairs.foldl (init := acc) fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 []),
+        if (f.modules[k]?.map (·.claimed)).getD false then
+          pairs.foldl (init := owned) fun owned x => owned.insert x.1
+        else owned)) (idx, acc, owned)).2.1 =
+      l.foldl (fun acc data => (data.constNames.zip data.constants).foldl
+        (fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 [])) acc) acc := by
+  induction l generalizing idx acc owned with
+  | nil => rfl
   | cons a l ih =>
     simp only [List.foldl_cons]
-    refine ih (idx + 1) _ _ fun x => ?_
-    have hp := statedIndexPairs_fst (a.constNames.zip a.constants).toList
-      ((f.modules[idx]?.map (·.claimed)).getD false) acc₁ acc₂ h x
-    simpa only [Array.foldl_toList] using hp
+    exact ih ..
 
-/-- The constant-list component of {name (full := Regula.Load.Facts.statedIndex)}`Facts.statedIndex`
-equals {name (full := Regula.Load.Facts.stated)}`Facts.stated` for every name. -/
-theorem statedIndex_fst (n : Name) :
-    (f.statedIndex.getD n ([], false)).1 = f.stated.getD n [] := by
-  have h := statedIndexData_fst (f := f) f.env.header.moduleData.toList 0 {} {} (fun _ => by simp) n
+/-- The map of {name (full := Regula.Load.Facts.statedIndex)}`Facts.statedIndex` is
+{name (full := Regula.Load.Facts.stated)}`Facts.stated`. -/
+theorem statedIndex_fst : f.statedIndex.1 = f.stated := by
+  have h := statedIndexData_fst (f := f) f.env.header.moduleData.toList 0 {} {}
   simp only [Array.foldl_toList] at h
   simpa [Regula.Load.Facts.statedIndex, Regula.Load.Facts.stated] using h
 
 theorem statedIndexPairs_snd (l : List (Name × ConstantInfo)) (c : Bool)
-    (acc : Std.HashMap Name (List ConstantInfo × Bool)) (n : Name) :
-    ((l.foldl (fun acc x =>
-      let prev := acc.getD x.1 ([], false)
-      acc.insert x.1 (x.2 :: prev.1, prev.2 || c)) acc).getD n ([], false)).2 = true ↔
-      (acc.getD n ([], false)).2 = true ∨ (c = true ∧ ∃ info, (n, info) ∈ l) := by
-  induction l generalizing acc with
+    (owned : Std.HashSet Name) (n : Name) :
+    n ∈ (if c then l.foldl (fun owned x => owned.insert x.1) owned else owned) ↔
+      n ∈ owned ∨ (c = true ∧ ∃ info, (n, info) ∈ l) := by
+  cases c
+  · simp
+  simp only [ite_true, true_and]
+  induction l generalizing owned with
   | nil => simp
   | cons a l ih =>
     rcases a with ⟨k, v⟩
-    simp only [List.foldl_cons, ih, Std.HashMap.getD_insert, List.mem_cons, Prod.mk.injEq]
-    by_cases hk : k = n
-    · subst hk
-      simp only [beq_self_eq_true, ite_true, Bool.or_eq_true, true_and]
-      constructor
-      · rintro ((ha | hc) | ⟨hc, info, hi⟩)
-        · exact .inl ha
-        · exact .inr ⟨hc, v, .inl rfl⟩
-        · exact .inr ⟨hc, info, .inr hi⟩
-      · rintro (ha | ⟨hc, info, rfl | hi⟩)
-        · exact .inl (.inl ha)
-        · exact .inl (.inr hc)
-        · exact .inr ⟨hc, info, hi⟩
-    · have hb : (k == n) = false := by simpa using hk
-      have hne : n ≠ k := fun h => hk h.symm
-      simp [hb, hne]
+    simp only [List.foldl_cons, ih, Std.HashSet.mem_insert, List.mem_cons, Prod.mk.injEq, beq_iff_eq]
+    constructor
+    · rintro ((rfl | ho) | ⟨info, hi⟩)
+      · exact .inr ⟨v, .inl ⟨rfl, rfl⟩⟩
+      · exact .inl ho
+      · exact .inr ⟨info, .inr hi⟩
+    · rintro (ho | ⟨info, ⟨rfl, -⟩ | hi⟩)
+      · exact .inl (.inr ho)
+      · exact .inl (.inl rfl)
+      · exact .inr ⟨info, hi⟩
 
 theorem statedIndexData_snd (l : List Lean.ModuleData) (idx : Nat)
-    (acc : Std.HashMap Name (List ConstantInfo × Bool)) (n : Name) :
-    ((l.foldl (fun (k, acc) data =>
-      let claimed := (f.modules[k]?.map (·.claimed)).getD false
-      let acc' := (data.constNames.zip data.constants).foldl (init := acc) fun acc x =>
-        let prev := acc.getD x.1 ([], false)
-        acc.insert x.1 (x.2 :: prev.1, prev.2 || claimed)
-      (k + 1, acc')) (idx, acc)).2.getD n ([], false)).2 = true ↔
-      (acc.getD n ([], false)).2 = true ∨
+    (acc : Std.HashMap Name (List ConstantInfo)) (owned : Std.HashSet Name) (n : Name) :
+    n ∈ (l.foldl (fun (k, acc, owned) data =>
+      let pairs := data.constNames.zip data.constants
+      (k + 1, pairs.foldl (init := acc) fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 []),
+        if (f.modules[k]?.map (·.claimed)).getD false then
+          pairs.foldl (init := owned) fun owned x => owned.insert x.1
+        else owned)) (idx, acc, owned)).2.2 ↔
+      n ∈ owned ∨
         ∃ (i : Nat) (lm : Regula.Load.LoadedModule) (data : Lean.ModuleData),
           f.modules[idx + i]? = some lm ∧ lm.claimed = true ∧
           l[i]? = some data ∧ ∃ info, (n, info) ∈ data.constNames.zip data.constants := by
-  induction l generalizing idx acc with
+  induction l generalizing idx acc owned with
   | nil => simp
   | cons a l ih =>
     have hp := statedIndexPairs_snd (a.constNames.zip a.constants).toList
-      ((f.modules[idx]?.map (·.claimed)).getD false) acc n
+      ((f.modules[idx]?.map (·.claimed)).getD false) owned n
     simp only [Array.foldl_toList, Array.mem_toList_iff] at hp
     simp only [List.foldl_cons, ih, hp]
     constructor
-    · rintro ((ha | ⟨hc, info, hi⟩) | ⟨i, lm, data, hmod, hcl, hdat, info, hi⟩)
-      · exact .inl ha
+    · rintro ((ho | ⟨hc, info, hi⟩) | ⟨i, lm, data, hmod, hcl, hdat, info, hi⟩)
+      · exact .inl ho
       · cases hmod : f.modules[idx]? with
         | none => simp [hmod] at hc
         | some lm =>
@@ -299,8 +267,8 @@ theorem statedIndexData_snd (l : List Lean.ModuleData) (idx : Nat)
           exact .inr ⟨0, lm, a, by simpa using hmod, hc, rfl, info, hi⟩
       · exact .inr ⟨i + 1, lm, data, by simpa [Nat.add_assoc, Nat.add_comm 1 i] using hmod,
           hcl, hdat, info, hi⟩
-    · rintro (ha | ⟨i, lm, data, hmod, hcl, hdat, info, hi⟩)
-      · exact .inl (.inl ha)
+    · rintro (ho | ⟨i, lm, data, hmod, hcl, hdat, info, hi⟩)
+      · exact .inl (.inl ho)
       · cases i with
         | zero =>
           simp only [Nat.add_zero, List.getElem?_cons_zero, Option.some.injEq] at hmod hdat
@@ -311,15 +279,14 @@ theorem statedIndexData_snd (l : List Lean.ModuleData) (idx : Nat)
           exact .inr ⟨i, lm, data, by simpa [Nat.add_assoc, Nat.add_comm 1 i] using hmod,
             hcl, hdat, info, hi⟩
 
-/-- The boolean component of {name (full := Regula.Load.Facts.statedIndex)}`Facts.statedIndex`
-is true exactly when some claimed module's own {lit}`.olean` data declares a constant of that name. -/
+/-- The set of {name (full := Regula.Load.Facts.statedIndex)}`Facts.statedIndex` holds a name exactly
+when some claimed module's own {lit}`.olean` data declares a constant of that name. -/
 theorem statedIndex_snd (n : Name) :
-    (f.statedIndex.getD n ([], false)).2 = true ↔
-      ∃ cm info, (cm, n, info) ∈ f.claimedConstants := by
-  have h := statedIndexData_snd (f := f) f.env.header.moduleData.toList 0 {} n
-  simp only [Array.foldl_toList, Std.HashMap.getD_empty, Bool.false_eq_true, false_or,
+    n ∈ f.statedIndex.2 ↔ ∃ cm info, (cm, n, info) ∈ f.claimedConstants := by
+  have h := statedIndexData_snd (f := f) f.env.header.moduleData.toList 0 {} {} n
+  simp only [Array.foldl_toList, Std.HashSet.not_mem_empty, false_or,
     Nat.zero_add, Array.getElem?_toList] at h
-  rw [show (f.statedIndex.getD n ([], false)).2 = true ↔ _ from h]
+  rw [show n ∈ f.statedIndex.2 ↔ _ from h]
   simp only [Regula.Load.Facts.claimedConstants, List.mem_flatMap, List.mem_filter,
     Array.mem_toList_iff, List.mem_map, Prod.mk.injEq, Array.mem_iff_getElem?,
     Array.getElem?_zip_eq_some]
@@ -647,19 +614,15 @@ theorem csimps_ok {claimed : List Name} {entries : List Regula.Closed.CSimpEntry
         exact ⟨l, hl, ((moduleCSimps_ok hok).2 e).mpr ⟨rfl, hcs⟩⟩
 
 theorem mem_claimedFromIndex (csimps : List Regula.Closed.CSimpEntry) (c : Name) :
-    c ∈ (if csimps.isEmpty then []
-      else csimps.filterMap fun e =>
-        if (f.statedIndex.getD e.thm ([], false)).2 then some e.thm else none) ↔
+    c ∈ (csimps.filterMap fun e => if f.statedIndex.2.contains e.thm then some e.thm else none) ↔
       (∃ e ∈ csimps, e.thm = c) ∧ ∃ cm info, (cm, c, info) ∈ f.claimedConstants := by
-  split
-  · rename_i h
-    simp [List.isEmpty_iff.mp h]
-  · simp only [List.mem_filterMap, Option.ite_none_right_eq_some, Option.some.injEq, statedIndex_snd]
-    constructor
-    · rintro ⟨e, he, hcl, rfl⟩
-      exact ⟨⟨e, he, rfl⟩, hcl⟩
-    · rintro ⟨⟨e, he, rfl⟩, hcl⟩
-      exact ⟨e, he, hcl, rfl⟩
+  simp only [List.mem_filterMap, Option.ite_none_right_eq_some, Option.some.injEq,
+    Std.HashSet.contains_iff_mem, statedIndex_snd]
+  constructor
+  · rintro ⟨e, he, hcl, rfl⟩
+    exact ⟨⟨e, he, rfl⟩, hcl⟩
+  · rintro ⟨⟨e, he, rfl⟩, hcl⟩
+    exact ⟨e, he, hcl, rfl⟩
 
 theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
     (h : f.decl n info s = .ok d) : ∃ m, f.info? n = some m ∧ d = f.declIn n m info s := by
@@ -717,11 +680,11 @@ theorem loaded_of_parts {csimps : List Regula.Closed.CSimpEntry} {decls : List R
     (hfind : roots.find? (fun x => !f.claimed.contains x) = none)
     (hcs : f.csimps f.claimed = .ok csimps)
     (hm : f.env.constants.map₁.toList.mapM
-      (fun x => f.decl x.1 x.2 (f.statedIndex.getD x.1 ([], false)).1) = .ok decls)
+      (fun x => f.decl x.1 x.2 (f.statedIndex.1.getD x.1 [])) = .ok decls)
     {unique : (decls.map (·.name)).Nodup}
     (hadmit : ({ profile := p, modules := f.claimed, moduleFiles := f.moduleFiles,
-                 claimedConstants := if csimps.isEmpty then [] else csimps.filterMap fun e =>
-                   if (f.statedIndex.getD e.thm ([], false)).2 then some e.thm else none,
+                 claimedConstants := csimps.filterMap fun e =>
+                   if f.statedIndex.2.contains e.thm then some e.thm else none,
                  csimps, decls, unique } :
       Regula.Closed.Draft).admit = .ok i') :
     Loaded f roots p i' := by
@@ -736,8 +699,8 @@ theorem loaded_of_parts {csimps : List Regula.Closed.CSimpEntry} {decls : List R
   have hp : i'.profile = p := by rw [hd]
   have hmods : i'.modules = f.claimed := by rw [hd]
   have hfiles : i'.moduleFiles = f.moduleFiles := by rw [hd]
-  have hcc : i'.claimedConstants = (if csimps.isEmpty then [] else csimps.filterMap fun e =>
-      if (f.statedIndex.getD e.thm ([], false)).2 then some e.thm else none) := by rw [hd]
+  have hcc : i'.claimedConstants = (csimps.filterMap fun e =>
+      if f.statedIndex.2.contains e.thm then some e.thm else none) := by rw [hd]
   have hcsEq : i'.csimps = csimps := by rw [hd]
   refine ⟨hp, hmods, hfiles, hidx, fun c => by rw [hcc, mem_claimedFromIndex, hcsEq],
     fun e => hcsEq ▸ hcs' e, ?_, ?_, ?_⟩
@@ -1573,10 +1536,10 @@ theorem admitDraft_of_floor (h : LoadFloor f roots p) : ∃ i, f.admitDraft root
     (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ hm'
   have hwf : (toSpecDraft
       { profile := p, modules := f.claimed, moduleFiles := f.moduleFiles,
-        claimedConstants := if csimps.isEmpty then [] else csimps.filterMap fun e =>
-          if (f.statedIndex.getD e.thm ([], false)).2 then some e.thm else none,
+        claimedConstants := csimps.filterMap fun e =>
+          if f.statedIndex.2.contains e.thm then some e.thm else none,
         csimps := csimps, decls := decls,
-        unique := f.decls_nodup (stated := fun n => (f.statedIndex.getD n ([], false)).1) hm }).WellFormed := by
+        unique := f.decls_nodup (stated := fun n => f.statedIndex.1.getD n []) hm }).WellFormed := by
     rw [wf_toSpecDraft_iff]
     refine ⟨fun x hx u hu => ?_, h.form.claims⟩
     obtain ⟨⟨n, info⟩, hin, hok⟩ := h1 x hx
