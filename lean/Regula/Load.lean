@@ -10,6 +10,7 @@ import Lean.Compiler.InitAttr
 import Lean.Util.Path
 import Lean.Compiler.Old
 import Lean.Compiler.LCNF.Util
+import Lean.Meta.Constructions.CasesOn
 
 /-!
 # The loader of the closed input
@@ -56,7 +57,7 @@ public section
 
 namespace Regula.Load
 
-open Lean (ConstantInfo DefinitionVal Environment Expr InductiveVal Level Name RecursorRule
+open Lean (ConstantInfo DefinitionVal Environment Expr FVarId InductiveVal Level LocalContext Name
   TheoremVal findOLean isExtern)
 open System (FilePath)
 open Regula.Closed
@@ -141,21 +142,45 @@ def valueUsesOf : ConstantInfo → Array Name
 def safetyOf (info : ConstantInfo) : Safety :=
   if info.isUnsafe then .unsafe else if info.isPartial then .partial else .safe
 
-/-- Strips `k` leading lambda binders from `e`, returning the body when all `k` exist. -/
-def stripLams : Nat → Expr → Option Expr
+/-- Strips `k` leading forall binders from `e`, returning the remaining body when all `k` exist. -/
+def stripForalls : Nat → Expr → Option Expr
   | 0, e => some e
-  | k + 1, .lam _ _ b _ => stripLams k b
+  | k + 1, .forallE _ _ b _ => stripForalls k b
   | _ + 1, _ => none
 
-/-- Strips `k` leading forall binders from `e`, returning their binder domains in order and the
-remaining body when all `k` exist. -/
-def stripForallDomains : Nat → Expr → Option (List Expr × Expr)
-  | 0, e => some ([], e)
-  | k + 1, .forallE _ d b _ =>
-    match stripForallDomains k b with
-    | some (ds, rest) => some (d :: ds, rest)
-    | none => none
-  | _ + 1, _ => none
+/-- Reduces `e` with `Lean.Kernel.whnf` (`Lean/Environment.lean:3175-3176` at v4.36.0) as needed to
+strip `n` leading forall binders (tracking outer binders in `lctx` and `fvars`) and reach the
+resulting `.sort u`, returning each binder domain abstracted back to bound variables together with
+`u`. -/
+def stripIndTypeGo (env : Environment) :
+    Nat → LocalContext → Array Expr → Expr → Option (List Expr × Level)
+  | 0, lctx, _, e =>
+    match e with
+    | .sort u => some ([], u)
+    | _ =>
+      match Lean.Kernel.whnf env lctx e with
+      | .ok (.sort u) => some ([], u)
+      | _ => none
+  | k + 1, lctx, fvars, e =>
+    match (match e with
+      | .forallE _ _ _ _ => some e
+      | _ =>
+        match Lean.Kernel.whnf env lctx e with
+        | .ok w => some w
+        | .error _ => none) with
+    | some (.forallE nm d b bi) =>
+      let fid := FVarId.mk (.num .anonymous fvars.size)
+      let lctx' := lctx.mkLocalDecl fid nm d bi
+      let fvar : Expr := .fvar fid
+      match stripIndTypeGo env k lctx' (fvars.push fvar) (b.instantiate1 fvar) with
+      | some (ds, u) => some (d.abstract fvars :: ds, u)
+      | none => none
+    | _ => none
+
+/-- Derives the `n` parameter/index binder domains and result universe level `u` of an inductive's
+type `e`, reducing aliases via `Lean.Kernel.whnf`. -/
+def stripIndType (env : Environment) (n : Nat) (e : Expr) : Option (List Expr × Level) :=
+  stripIndTypeGo env n {} #[] e
 
 /-- Strips leading forall binders from `e` whose domains match `doms` by `Expr.eqv` (`==`),
 returning the remaining body. -/
@@ -192,85 +217,34 @@ def liftIdxDomains (shift : Nat) : Nat → List Expr → List Expr
   | _, [] => []
   | depth, d :: ds => d.liftLooseBVars depth shift :: liftIdxDomains shift (depth + 1) ds
 
-/-- Checks that for each constructor `c` at position `j` in `ind.ctors` and its matching kernel
-recursor rule `rule` in `recInfo.rules`, the minor premise that `ind.casesOn` supplies to
-`ind.rec` for `rule` wraps `c`'s fields and recursive induction hypotheses and calls only
-`ind.casesOn`'s `j`-th alternative on `c`'s fields (`Lean/Meta/Constructions/CasesOn.lean:17,71-81`). -/
-def checkCasesOnMinors (env : Environment) (ind : Name) (np nm nmin k : Nat) :
-    Nat → List Name → List RecursorRule → List Expr → Bool
-  | _, [], [], _ => true
-  | j, c :: cs, rule :: rules, coMinors =>
-    match env.find? c with
-    | some (.ctorInfo cInfo) =>
-      let nf := cInfo.numFields
-      cInfo.induct == ind && cInfo.cidx == j && rule.ctor == c && rule.nfields == nf &&
-        match stripLams (np + nm + nmin + nf) rule.rhs with
-        | some ruleBody =>
-          match ruleBody.getAppFn with
-          | .bvar idx =>
-            let totalLams := ruleBody.getAppArgs.size
-            nf ≤ idx && idx < nf + nmin && nf ≤ totalLams &&
-              let minorIdx := nmin - 1 - (idx - nf)
-              match coMinors[minorIdx]? with
-              | some minor =>
-                stripLams totalLams minor ==
-                  some (Lean.mkAppN (.bvar (k - 1 - j + totalLams))
-                    (bvarList nf (totalLams - nf)).toArray) &&
-                  checkCasesOnMinors env ind np nm nmin k (j + 1) cs rules coMinors
-              | none => false
-          | _ => false
-        | none => false
-    | _ => false
-  | _, _, _, _ => false
-
-/-- Checks that `ind.casesOn` is a safe definition whose value delegates directly to the
-kernel-checked recursor `ind.rec` (`Lean/Meta/Constructions/CasesOn.lean:17,71-81` at v4.36.0),
-forwarding parameters, `ind`'s motive slot, indices, and major premise, and routing each constructor's
-minor premise exclusively to its own `casesOn` alternative while ignoring recursive induction
-hypotheses. -/
+/-- Checks that `ind.casesOn` is a safe definition whose `levelParams`, `type`, and `value` match
+`Lean.mkCasesOnImp env.toKernelEnv ind` (`Lean/Meta/Constructions/CasesOn.lean:17`,
+`Lean/Environment.lean:730-732` at v4.36.0) with an extra universe parameter beyond
+`indInfo.levelParams` (`Lean/Meta/Constructions/CtorIdx.lean:87`). -/
 def checkCasesOn (env : Environment) (ind : Name) (indInfo : InductiveVal) : Bool :=
-  let np := indInfo.numParams
-  let ni := indInfo.numIndices
-  let k := indInfo.ctors.length
-  match env.find? (.str ind "rec"), env.find? (.str ind "casesOn"), indInfo.all.idxOf? ind with
-  | some (.recInfo recInfo), some (.defnInfo casesOnInfo), some motiveIdx =>
-    let nm := recInfo.numMotives
-    let nmin := recInfo.numMinors
-    casesOnInfo.safety == .safe && !recInfo.k &&
-      recInfo.all == indInfo.all && recInfo.numParams == np && recInfo.numIndices == ni &&
-      recInfo.levelParams.length == indInfo.levelParams.length + 1 &&
-      recInfo.levelParams.tail == indInfo.levelParams &&
-      casesOnInfo.levelParams == recInfo.levelParams &&
-      recInfo.rules.length == k && motiveIdx < nm &&
-      match stripLams (np + 1 + ni + 1 + k) casesOnInfo.value with
-      | some coBody =>
-        let coArgs := coBody.getAppArgs.toList
-        coBody.getAppFn == .const (.str ind "rec") (casesOnInfo.levelParams.map Level.param) &&
-          coArgs.length == np + nm + nmin + ni + 1 &&
-          coArgs.take np == bvarList np (1 + ni + 1 + k) &&
-          coArgs[np + motiveIdx]? == some (.bvar (ni + 1 + k)) &&
-          coArgs.drop (np + nm + nmin) == bvarList ni (1 + k) ++ [.bvar k] &&
-          checkCasesOnMinors env ind np nm nmin k 0 indInfo.ctors recInfo.rules
-            ((coArgs.drop (np + nm)).take nmin)
-      | none => false
-  | _, _, _ => false
+  match env.find? (.str ind "casesOn"), Lean.mkCasesOnImp env.toKernelEnv ind with
+  | some (.defnInfo cv), .ok (.defnDecl d) =>
+    cv.safety == .safe && d.levelParams.length > indInfo.levelParams.length &&
+      cv.levelParams == d.levelParams && cv.type == d.type && cv.value == d.value
+  | _, _ => false
 
 /-- Checks that each branch in `alts` matches its constructor in `ctors`: `cInfo.numFields` lambdas
-whose domains match `cInfo.type` with `ind`'s parameters instantiated, around the raw natural
-literal `cInfo.cidx` (`Lean/Meta/Constructions/CtorIdx.lean:108-113` at v4.36.0). -/
-def checkCtorAlts (env : Environment) (ind : Name) (np ni : Nat) (paramDoms : List Expr) :
+whose domains match `cInfo.type` after stripping and instantiating `np` constructor parameters,
+around the raw natural literal `cInfo.cidx` (`Lean/Meta/Constructions/CtorIdx.lean:108-113` at
+v4.36.0). -/
+def checkCtorAlts (env : Environment) (ind : Name) (np ni : Nat) :
     List Name → List Expr → Bool
   | [], [] => true
   | c :: cs, alt :: alts =>
     match env.find? c with
     | some (.ctorInfo cInfo) =>
       cInfo.induct == ind &&
-        match stripForallsWithDomains paramDoms cInfo.type with
+        match stripForalls np cInfo.type with
         | some cRest =>
           let cInst := cRest.instantiateRev (bvarList np (ni + 1)).toArray
           match stripLamMatchingForall cInfo.numFields alt cInst with
           | some (.lit (.natVal cidx), _) =>
-            cidx == cInfo.cidx && checkCtorAlts env ind np ni paramDoms cs alts
+            cidx == cInfo.cidx && checkCtorAlts env ind np ni cs alts
           | _ => false
         | none => false
     | _ => false
@@ -279,9 +253,9 @@ def checkCtorAlts (env : Environment) (ind : Name) (np ni : Nat) (paramDoms : Li
 /-- Whether `d` has the exact structural form of Lean's compiler-generated safe definition
 `ind.ctorIdx` (`Lean/Meta/Constructions/CtorIdx.lean:77-141` at v4.36.0): a safe definition for a
 safe, non-single-constructor, non-builtin, non-`Prop` inductive `ind`, whose parameter, index,
-discriminant, motive, and constructor-branch domains match those derived from `ind.type` and each
-constructor's type, dispatching via a verified `ind.rec`-backed `ind.casesOn.{1, us}` to each
-constructor's index literal `cInfo.cidx`. -/
+discriminant, motive, and constructor-branch field domains match those derived from `ind.type` and
+each constructor's type, dispatching via `ind.casesOn.{1, us}` verified against `Lean.mkCasesOnImp`
+to each constructor's index literal `cInfo.cidx`. -/
 def isCtorIdxDef (env : Environment) (ind : Name) (indInfo : InductiveVal) (d : DefinitionVal) :
     Bool :=
   let np := indInfo.numParams
@@ -291,15 +265,14 @@ def isCtorIdxDef (env : Environment) (ind : Name) (indInfo : InductiveVal) (d : 
   !indInfo.isUnsafe && indInfo.numCtors != 1 && !Lean.Compiler.LCNF.isRuntimeBuiltinType ind &&
     d.safety == .safe && d.levelParams == indInfo.levelParams &&
     checkCasesOn env ind indInfo &&
-    match stripForallDomains n indInfo.type with
-    | some (doms, .sort u) =>
+    match stripIndType env n indInfo.type with
+    | some (doms, u) =>
       let discrTy := Lean.mkAppN (.const ind us) (bvarList n 0).toArray
       let expectedDoms := doms ++ [discrTy]
       let motiveDiscrTy :=
         Lean.mkAppN (.const ind us) ((bvarList np (ni + 1 + ni) ++ bvarList ni 0).toArray)
       let motiveDoms := liftIdxDomains (ni + 1) 0 (doms.drop np) ++ [motiveDiscrTy]
-      let paramDoms := doms.take np
-      u.isNeverZero &&
+      u.normalize != .zero &&
         stripForallsWithDomains expectedDoms d.type == some (.const `Nat []) &&
         match stripLamsWithDomains expectedDoms d.value with
         | some body =>
@@ -314,34 +287,35 @@ def isCtorIdxDef (env : Environment) (ind : Name) (indInfo : InductiveVal) (d : 
                   stripLamsWithDomains motiveDoms motive == some (.const `Nat []) &&
                   rest2.take ni == bvarList ni 1 &&
                   discr == .bvar 0 &&
-                  checkCtorAlts env ind np ni paramDoms indInfo.ctors alts
+                  checkCtorAlts env ind np ni indInfo.ctors alts
               | [] => false
             | [] => false
         | none => false
-    | _ => false
+    | none => false
 
 /-- Whether `d` has the exact structural form of Lean's compiler-generated unsafe implementation
 `ind.ctorIdx._impl` (`Lean/Meta/Constructions/CtorIdx.lean:40-69` at v4.36.0): an unsafe definition
 matching `dDef`'s universe parameters and type verbatim, whose parameter, index, and discriminant
 domains match those derived from `ind.type`, and whose body is `n + 1` lambdas around
 `@getObjTagNat.{u} (ind.{us} #n ... #1) #0` at `ind.type`'s exact non-zero sort `u`. -/
-def isCtorIdxImpl (ind : Name) (indInfo : InductiveVal) (dDef d : DefinitionVal) : Bool :=
+def isCtorIdxImpl (env : Environment) (ind : Name) (indInfo : InductiveVal)
+    (dDef d : DefinitionVal) : Bool :=
   let n := indInfo.numParams + indInfo.numIndices
   let us := indInfo.levelParams.map Level.param
   !indInfo.isUnsafe && indInfo.numCtors != 1 && !Lean.Compiler.LCNF.isRuntimeBuiltinType ind &&
     d.safety == .unsafe &&
     d.levelParams == indInfo.levelParams && d.levelParams == dDef.levelParams &&
     d.type == dDef.type &&
-    match stripForallDomains n indInfo.type with
-    | some (doms, .sort u) =>
+    match stripIndType env n indInfo.type with
+    | some (doms, u) =>
       let expectedDoms := doms ++ [Lean.mkAppN (.const ind us) (bvarList n 0).toArray]
-      u.isNeverZero &&
+      u.normalize != .zero &&
         stripForallsWithDomains expectedDoms d.type == some (.const `Nat []) &&
         match stripLamsWithDomains expectedDoms d.value with
         | some (.app (.app (.const `getObjTagNat [uTag]) tyArg) (.bvar 0)) =>
           uTag == u && tyArg == Lean.mkAppN (.const ind us) (bvarList n 1).toArray
         | _ => false
-    | _ => false
+    | none => false
 
 /-- Classifies constant `n` with body `info` in environment `env` as neither half (`.none`), the
 safe definition `ind.ctorIdx` (`.defn ind`), or the unsafe implementation `ind.ctorIdx._impl`
@@ -351,7 +325,7 @@ def ctorIdxFormOf (env : Environment) (n : Name) (info : ConstantInfo) : CtorIdx
   | .str (.str ind "ctorIdx") "_impl", .defnInfo d =>
     match env.find? ind, env.find? (.str ind "ctorIdx") with
     | some (.inductInfo indInfo), some (.defnInfo dDef) =>
-      if isCtorIdxImpl ind indInfo dDef d then .impl ind else .none
+      if isCtorIdxImpl env ind indInfo dDef d then .impl ind else .none
     | _, _ => .none
   | .str ind "ctorIdx", .defnInfo d =>
     match env.find? ind with

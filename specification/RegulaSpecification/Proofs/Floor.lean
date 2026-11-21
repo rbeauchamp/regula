@@ -303,7 +303,8 @@ theorem helper_ofFacts (n : Name) (info : ConstantInfo) (m : Name) : (ofFacts f)
 
 theorem ctorIdxPair_ofFacts (ind : Name) (defv implv : Lean.DefinitionVal) (m : Name) :
     (ofFacts f).CtorIdxPair ind defv implv m ↔ EnvCtorIdxPair f ind defv implv m := by
-  simp only [CtorIdxPair, EnvCtorIdxPair, inToolchain_ofFacts, stated_ofFacts, placeName_ofFacts]
+  simp only [CtorIdxPair, EnvCtorIdxPair, inToolchain_ofFacts, rawToolchain_iff,
+    stated_ofFacts, noAxiomStated_iff, placeName_ofFacts, rawModule_iff]
   rfl
 
 theorem ctorIdxDef_ofFacts (n : Name) (info : ConstantInfo) (m : Name) :

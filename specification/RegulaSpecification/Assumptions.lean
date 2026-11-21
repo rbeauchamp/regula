@@ -99,8 +99,9 @@ inductive Assumption where
   Lean's runtime tag function {lit}`lean_obj_tag_nat` behind {lit}`getObjTagNat` returns the
   constructor index {lit}`cInfo.cidx` of each value of {lit}`T`, agreeing with a safe
   {lit}`T.casesOn`-based definition {lit}`T.ctorIdx` (whose {lit}`T.casesOn` the loader verifies
-  delegates directly to the kernel-checked recursor {lit}`T.rec`) of the shape Lean's
-  {lit}`mkCtorIdx` generates and replaces via {attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`. -/
+  directly against {name}`Lean.mkCasesOnImp` on {name (full := Lean.Environment.toKernelEnv)}`toKernelEnv`,
+  reducing {lit}`T.type` via {name}`Lean.Kernel.whnf`) of the shape Lean's {lit}`mkCtorIdx` generates
+  and replaces via {attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`. -/
   | ctorIdxTag
   /-- H1: the trees that the check read of a file of an admitted reading are the trees that Lean's frontend elaborates
   ({name (full := RegulaSpecification.Language.LeanBehaviour.h1)}`LeanBehaviour.h1`). The parser reads of the elaborator's state only scoped parser entries and tokens, namespace and open
@@ -263,6 +264,7 @@ def sources : Assumption → List Source
   | compiler => [.component "src/Lean/Compiler/", .component "src/runtime/", .file "src/Init/System/IO.lean" "39"]
   | ctorIdxTag => [.file "src/Lean/Meta/Constructions/CtorIdx.lean" "40-141",
       .file "src/Lean/Meta/Constructions/CasesOn.lean" "17, 28-33, 71-81",
+      .file "src/Lean/Environment.lean" "730-732, 3175-3176",
       .file "src/Lean/Compiler/LCNF/Util.lean" "40-53", .file "src/Init/Prelude.lean" "1381-1382",
       .file "src/include/lean/lean.h" "757-763"]
   | h1 => [.file "src/Lean/Language/Lean.lean" "595-601", .file "src/Lean/Parser/Extension.lean" "607-612, 765",
