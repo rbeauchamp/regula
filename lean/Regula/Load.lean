@@ -30,10 +30,11 @@ What it reads, and through what:
   two modules state cannot hide an attribute, and `Facts.csimps` reads each claimed module's exported
   (`global` and `scoped`) `@[csimp]` entries through `Lean.Compiler.CSimp.ext.ext.getModuleEntries`
   (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0), refusing a claimed module with no module index.
-  `Facts.statedIndex` records, in the single existing pass over `header.moduleData`, the names that a
-  claimed module's own data declares, at one test for each loaded module and one insertion for each
-  constant of a claimed module, so checking claimed ownership of exported `@[csimp]` entries adds one
-  lookup for each entry.
+  `Facts.claimedCSimpTargets` checks claimed ownership of exported `@[csimp]` entries in O(1) per entry
+  via `Facts.claimedShown` (`constants.map₁` and `info?`), falling back to `Facts.unshown` (reused by
+  `Facts.prepare` and `Facts.input` without a second scan of `Facts.claimedConstants`) only when an entry
+  misses `claimedShown` (a foreign theorem or a merged claimed theorem whose `const2ModIdx` selects an
+  unclaimed dependency). `Facts.stated` is unchanged.
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
@@ -202,16 +203,15 @@ def Facts.stated (f : Facts) : Std.HashMap Name (List ConstantInfo) :=
     (data.constNames.zip data.constants).foldl (init := acc) fun acc x =>
       acc.insert x.1 (x.2 :: acc.getD x.1 [])
 
-/-- `Facts.stated`, with the names that a claimed module's own data states, both built in one pass over
-`f.env.header.moduleData`. A constant of an unclaimed module costs what it costs `Facts.stated`, and a
-constant of a claimed module one insertion more. -/
-def Facts.statedIndex (f : Facts) : Std.HashMap Name (List ConstantInfo) × Std.HashSet Name :=
-  (f.env.header.moduleData.foldl (init := (0, {}, {})) fun (k, acc, owned) data =>
-    let pairs := data.constNames.zip data.constants
-    (k + 1, pairs.foldl (init := acc) fun acc x => acc.insert x.1 (x.2 :: acc.getD x.1 []),
-      if (f.modules[k]?.map (·.claimed)).getD false then
-        pairs.foldl (init := owned) fun owned x => owned.insert x.1
-      else owned)).2
+/-- Whether the merged environment already shows `n` as a constant of a claimed module.
+When this holds, `n` is a claimed declaration of `Input.decls`, so RG1001–RG1006, RG1011, RG1012,
+and kernel cone replay already check `n`. Any constant declared in a claimed module's own `moduleData`
+for which this is `false` (such as a merged theorem whose `const2ModIdx` selects an unclaimed
+dependency) lies in `Facts.unshown`. -/
+def Facts.claimedShown (f : Facts) (n : Name) : Bool :=
+  match f.env.constants.map₁[n]?, f.info? n with
+  | some _, some m => m.claimed
+  | _, _ => false
 
 /-- The constant `n` of the module `m`, as the closed input states it: `info` is the constant that
 the environment keeps, and `stated` those of its name that the loaded modules state. -/
@@ -359,10 +359,16 @@ def fitsUnshown (f : Facts) {i : Input} (t : Tables i) (m n : Name) (info : Cons
 def Facts.unshown (f : Facts) : List (Name × Name × ConstantInfo) :=
   f.claimedConstants.filter (!f.shown ·)
 
+/-- The first constant in `unshown` that `fitsUnshown` does not admit through the tables `t`,
+with its module. -/
+def Facts.unreadIn? (f : Facts) (unshown : List (Name × Name × ConstantInfo)) {i : Input}
+    (t : Tables i) : Option (Name × Name) :=
+  (unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
+
 /-- The first constant of a claimed module that the environment does not show and that
 `fitsUnshown` does not admit through the tables `t`, with its module. -/
 def Facts.unread? (f : Facts) {i : Input} (t : Tables i) : Option (Name × Name) :=
-  (f.unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
+  f.unreadIn? f.unshown t
 
 /-- The exported (`global` or `scoped`) `@[csimp]` entries registered by module `m`, or an error if Lean
 gives `m` no module index. A missing module index is not an empty set of entries. Reads
@@ -381,8 +387,33 @@ of them has no index in the loaded environment. -/
 def Facts.csimps (f : Facts) (claimed : List Name) : Except String (List CSimpEntry) :=
   (claimed.mapM f.moduleCSimps).map List.flatten
 
-/-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
-def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
+/-- Which target theorem names of `csimps` belong to a claimed module: checked in O(1) per entry via
+`Facts.claimedShown`, falling back to `Facts.unshown` only when some entry misses `claimedShown`
+(a foreign target or a merged claimed theorem whose `const2ModIdx` selects an unclaimed dependency).
+Returns `some f.unshown` when `f.unshown` was computed so `Facts.prepare` and `Facts.input` reuse it
+without rescanning `Facts.claimedConstants`. -/
+def Facts.claimedCSimpTargets (f : Facts) (csimps : List CSimpEntry) :
+    List Name × Option (List (Name × Name × ConstantInfo)) :=
+  if csimps.all (f.claimedShown ·.thm) then
+    (csimps.map (·.thm), none)
+  else
+    let u := f.unshown
+    let unshownNames := u.foldl (init := ({} : Std.HashSet Name)) fun s x => s.insert x.2.1
+    let found := csimps.filterMap fun e =>
+      if f.claimedShown e.thm || unshownNames.contains e.thm then some e.thm else none
+    (found, some u)
+
+theorem Facts.claimedCSimpTargets_cached (f : Facts) (csimps : List CSimpEntry) :
+    (f.claimedCSimpTargets csimps).2 = none ∨ (f.claimedCSimpTargets csimps).2 = some f.unshown := by
+  simp only [Facts.claimedCSimpTargets]
+  cases csimps.all (f.claimedShown ·.thm)
+  · exact .inr rfl
+  · exact .inl rfl
+
+/-- The closed input admitted from the draft that `f` builds, paired with `some f.unshown` when
+`Facts.claimedCSimpTargets` had to compute `f.unshown` so callers can reuse it. -/
+def Facts.admitDraftCore (f : Facts) (roots : List Name) (profile : Profile) :
+    Except String (Input × Option (List (Name × Name × ConstantInfo))) :=
   let claimed := f.claimed
   match roots.find? (!claimed.contains ·) with
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
@@ -391,39 +422,83 @@ def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Excep
     match f.csimps claimed with
     | .error why => .error why
     | .ok csimps =>
-      let index := f.statedIndex
-      let stated := index.1
+      let stated := f.stated
       match h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated.getD x.1 [])) with
       | .error why => .error why
       | .ok decls =>
+        let targets := f.claimedCSimpTargets csimps
         let draft : Draft :=
           { profile, modules := claimed, moduleFiles := f.moduleFiles,
-            claimedConstants := csimps.filterMap fun e =>
-              if index.2.contains e.thm then some e.thm else none,
-            csimps, decls, unique := f.decls_nodup (stated := fun n => stated.getD n []) h }
-        draft.admit
+            claimedConstants := targets.1, csimps, decls,
+            unique := f.decls_nodup (stated := (stated.getD · [])) h }
+        match draft.admit with
+        | .error why => .error why
+        | .ok i => .ok (i, targets.2)
 
-/-- Refuses `t` when `Facts.unread?` finds an unshown constant of a claimed module that
-`fitsUnshown` does not admit. -/
-def Facts.checkUnread (f : Facts) {i : Input} (t : Tables i) : Except String Unit :=
-  match f.unread? t with
+theorem Facts.admitDraftCore_cached (f : Facts) {roots : List Name} {profile : Profile}
+    {i : Input} {cached : Option (List (Name × Name × ConstantInfo))}
+    (h : f.admitDraftCore roots profile = .ok (i, cached)) :
+    cached = none ∨ cached = some f.unshown := by
+  simp only [Facts.admitDraftCore] at h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  split at h
+  · cases h
+  cases h
+  exact f.claimedCSimpTargets_cached _
+
+/-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
+def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
+  (f.admitDraftCore roots profile).map (·.1)
+
+/-- Refuses `t` when `Facts.unreadIn?` finds a constant in `unshown` that `fitsUnshown` does not
+admit. -/
+def Facts.checkUnreadIn (f : Facts) (unshown : List (Name × Name × ConstantInfo)) {i : Input}
+    (t : Tables i) : Except String Unit :=
+  match f.unreadIn? unshown t with
   | some (m, n) => .error s!"the module {m} holds the constant {n}, which the merged environment \
       does not show to the rules, and this one is no theorem within the profile or \
       has a recursion helper's name or unread or forbidden compiled-code attributes"
   | none => .ok ()
+
+/-- Refuses `t` when `Facts.unread?` finds an unshown constant of a claimed module that
+`fitsUnshown` does not admit. -/
+def Facts.checkUnread (f : Facts) {i : Input} (t : Tables i) : Except String Unit :=
+  f.checkUnreadIn f.unshown t
 
 /-- The closed input of the environment that `f` describes, under the profile `profile`, with
 `Input.tables` of it, built once. It refuses a module of `roots`, the default targets, that `f` does
 not claim, a constant with no module, a reading that the admission refuses (`Draft.admit`), and a
 constant that `Facts.unread?` gives. -/
 def Facts.prepare (f : Facts) (roots : List Name) (profile : Profile) : Except String Prepared :=
-  match f.admitDraft roots profile with
+  match f.admitDraftCore roots profile with
   | .error why => .error why
-  | .ok i =>
+  | .ok (i, cached) =>
     let t := i.tables
-    match f.checkUnread t with
+    let u := match cached with | some u => u | none => f.unshown
+    match f.checkUnreadIn u t with
     | .error why => .error why
     | .ok () => .ok ⟨i, t⟩
+
+theorem Facts.prepare_eq (f : Facts) (roots : List Name) (profile : Profile) :
+    f.prepare roots profile =
+      match f.admitDraft roots profile with
+      | .error why => .error why
+      | .ok i =>
+        let t := i.tables
+        match f.checkUnread t with
+        | .error why => .error why
+        | .ok () => .ok ⟨i, t⟩ := by
+  simp only [Facts.prepare, Facts.admitDraft]
+  cases hc : f.admitDraftCore roots profile with
+  | error why => rfl
+  | ok pair =>
+    rcases pair with ⟨i, cached⟩
+    rcases f.admitDraftCore_cached hc with rfl | rfl <;> rfl
 
 theorem Facts.prepare_tables (f : Facts) (roots : List Name) (profile : Profile) {p : Prepared}
     (h : f.prepare roots profile = .ok p) : p.tables = p.input.tables := by
@@ -440,26 +515,29 @@ constant of a claimed module is shown (`Facts.unshown` is empty), this skips bui
 A run calls `Facts.prepare` so its rules reuse the tables built during admission; on an input with an
 admitted unshown constant, `Input.report` on the result of `Facts.input` builds `Input.tables` again. -/
 def Facts.input (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
-  match f.admitDraft roots profile with
+  match f.admitDraftCore roots profile with
   | .error why => .error why
-  | .ok i =>
-    if f.unshown.isEmpty then .ok i
+  | .ok (i, cached) =>
+    let u := match cached with | some u => u | none => f.unshown
+    if u.isEmpty then .ok i
     else
-      match f.checkUnread i.tables with
+      match f.checkUnreadIn u i.tables with
       | .error why => .error why
       | .ok () => .ok i
 
 theorem Facts.input_eq_prepare_map (f : Facts) (roots : List Name) (profile : Profile) :
     f.input roots profile = (f.prepare roots profile).map (·.input) := by
-  simp only [Facts.input, Facts.prepare, Facts.checkUnread, Facts.unread?]
-  cases f.admitDraft roots profile with
+  simp only [Facts.input, Facts.prepare, Facts.checkUnreadIn, Facts.unreadIn?]
+  cases hc : f.admitDraftCore roots profile with
   | error why => rfl
-  | ok i =>
-    cases hu : f.unshown with
-    | nil => simp [Except.map]
-    | cons _ _ =>
-      simp only [List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte]
-      cases ((List.find? _ _).map _) <;> rfl
+  | ok pair =>
+    rcases pair with ⟨i, cached⟩
+    rcases f.admitDraftCore_cached hc with rfl | rfl <;>
+    · cases f.unshown with
+      | nil => simp [Except.map]
+      | cons _ _ =>
+        simp only [List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte]
+        cases ((List.find? _ _).map _) <;> rfl
 
 /-- Whether Lean's replay is given a constant of the cone: each constant but the companions of `Quot`, `Quot.mk`,
 `Quot.lift` and `Quot.ind`, which the kernel adds with `Quot` and refuses to add again as names already taken
