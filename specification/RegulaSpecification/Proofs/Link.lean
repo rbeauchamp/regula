@@ -97,11 +97,23 @@ def decl' (d : Decl) : Regula.Closed.Decl where
   initFn := d.initFn
   inToolchain := d.inToolchain
 
+/-- The implementation's exported {attr}`@[csimp]` entry in the specification. -/
+def csimp (e : Regula.Closed.CSimpEntry) : CSimpEntry where
+  module := e.module
+  thm := e.thm
+
+/-- The specification's exported {attr}`@[csimp]` entry in the implementation. -/
+def csimp' (e : CSimpEntry) : Regula.Closed.CSimpEntry where
+  module := e.module
+  thm := e.thm
+
 /-- A reading of the checker as the specification's input. -/
 def toSpecDraft (d : Regula.Closed.Draft) : Input where
   profile := profile d.profile
   modules := d.modules
   moduleFiles := d.moduleFiles
+  claimedConstants := d.claimedConstants
+  csimps := d.csimps.map csimp
   decls := d.decls.map decl
   unique := by
     have h := d.unique
@@ -115,6 +127,8 @@ def ofSpec (s : Input) : Regula.Closed.Draft where
   profile := profile' s.profile
   modules := s.modules
   moduleFiles := s.moduleFiles
+  claimedConstants := s.claimedConstants
+  csimps := s.csimps.map csimp'
   decls := s.decls.map decl'
   unique := by
     have h := s.unique
@@ -136,10 +150,14 @@ theorem decl_decl' (d : Decl) : decl (decl' d) = d := by
   rcases d with ⟨_, _, k, s, _, _, _, _, _⟩
   cases k <;> cases s <;> rfl
 
+theorem csimp_csimp' (e : CSimpEntry) : csimp (csimp' e) = e := by
+  cases e
+  rfl
+
 theorem toSpecDraft_ofSpec (s : Input) : toSpecDraft (ofSpec s) = s := by
-  rcases s with ⟨p, m, mf, ds, u⟩
+  rcases s with ⟨p, m, mf, cc, cs, ds, u⟩
   simp only [toSpecDraft, ofSpec, profile_surj, List.map_map, Function.comp_def, decl_decl',
-    List.map_id']
+    csimp_csimp', List.map_id']
 
 theorem toSpec_ofAdmitted (s : Admitted Input) : toSpec (ofAdmitted s) = s.1 :=
   toSpecDraft_ofSpec s.1

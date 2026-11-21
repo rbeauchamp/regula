@@ -129,6 +129,15 @@ theorem ofSpelling?_eq_some {text : String} {p : Profile} :
 
 end Profile
 
+/-- An exported (`global` or `scoped`) `@[csimp]` entry registered in a module
+(`Lean.Compiler.CSimp.ext.ext.getModuleEntries`). -/
+structure CSimpEntry where
+  /-- The module whose extension entries hold this registration. -/
+  module : Name
+  /-- The theorem or declaration that `@[csimp]` names (`Lean.Compiler.CSimp.Entry.thmName`). -/
+  thm : Name
+  deriving DecidableEq, Repr
+
 /-- What the loader reads of an environment, before the admission. No name is that of two constants:
 the constants of an environment are the keys of a hash map, so the loader constructs this. -/
 structure Draft where
@@ -140,6 +149,15 @@ structure Draft where
   /-- The loaded modules whose `.olean` states that Lean read the file as a `module` file
   (`ModuleData.isModule`). -/
   moduleFiles : List Name
+  /-- Of the names that the entries of `csimps` give, those that a claimed module's own `.olean` data
+  declares (`ModuleData.constNames`). On merged theorems, `Environment.getModuleIdxFor?` keeps the first
+  module (`Lean/Environment.lean:2345` at v4.35.0), which can be unclaimed even when a claimed module
+  declared the theorem, and `:2346-2348` also inserts IR `extraConstNames` into `const2ModIdx`; RG1011
+  reads this list so claimed-module ownership comes strictly from claimed modules' own `moduleData`. -/
+  claimedConstants : List Name
+  /-- Exported (`global` or `scoped`) `@[csimp]` entries of claimed modules
+  (`Lean.Compiler.CSimp.ext.ext.getModuleEntries`). -/
+  csimps : List CSimpEntry
   /-- The constants of the environment. -/
   decls : List Decl
   /-- Each name is the name of one constant. -/

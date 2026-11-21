@@ -41,7 +41,8 @@ def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
 /-- What a rule reports on: a constant in a module, or a module itself (for RG1013). -/
 inductive Subject where
-  /-- The constant `name` declared in `module`. -/
+  /-- The constant `name` associated with `module` (its declaring module, or for RG1011's `@[csimp]`
+  clause, the claimed module that registered it). -/
   | constant (name module : Name)
   /-- The module `name`. -/
   | module (name : Name)

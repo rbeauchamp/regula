@@ -83,15 +83,31 @@ theorem registered_found (p : Proved) (hp : p ∈ registry) :
   have hr : p.rule ∈ Regula.Closed.registry := registry_rules ▸ List.mem_map_of_mem hp
   exact ⟨i, _, Regula.Closed.mem_findings.mpr ⟨p.rule, hr, v, hv, rfl⟩, rfl, hs⟩
 
-/-- Every finding of RG1013 has a module subject for a claimed module, and every finding of another registered
-rule has a constant subject carrying the declaration's own name and module. -/
+/-- Every finding of RG1013 has a module subject for a claimed module. Every finding of RG1011 has a constant
+subject carrying the name and the module of a declaration of a claimed module or, for its {attr}`@[csimp]`
+clause, the theorem of a claimed module's exported {attr}`@[csimp]` entry that no claimed module declares, with
+that claimed module. Every finding of another registered rule has a constant subject carrying the declaration's
+own name and module. -/
 theorem finding_subject {i : Regula.Closed.Input} {f : Regula.Closed.Finding} (hf : f ∈ i.findings) :
-    (f.rule ≠ "RG1013" ∧ ∃ d ∈ i.decls, f.subject = .constant d.name d.module) ∨
-      (f.rule = "RG1013" ∧ ∃ m ∈ i.modules, f.subject = .module m) := by
+    (f.rule ∉ ["RG1011", "RG1013"] ∧ ∃ d ∈ i.decls, f.subject = .constant d.name d.module) ∨
+      (f.rule = "RG1013" ∧ ∃ m ∈ i.modules, f.subject = .module m) ∨
+      (f.rule = "RG1011" ∧
+        ((∃ d ∈ i.decls, d.module ∈ i.modules ∧ f.subject = .constant d.name d.module) ∨
+          ∃ e ∈ i.csimps, e.module ∈ i.modules ∧ e.thm ∉ i.claimedConstants ∧
+            f.subject = .constant e.thm e.module)) := by
   obtain ⟨r, hr, v, hv, rfl⟩ := Regula.Closed.mem_findings.mp hf
   rw [← registry_rules] at hr
   obtain ⟨p, -, rfl⟩ := List.mem_map.mp hr
   exact p.subject i.tables v hv
+
+open Link in
+/-- Each claimed module that registers an exported {attr}`@[csimp]` entry on a theorem that no claimed module
+declares has a finding of RG1011 among the run's findings, on that theorem with that module. -/
+theorem foreignCSimp_found {i : Regula.Closed.Input} {c m : Name} (h : ForeignCSimpIn (toSpec i) m c) :
+    ∃ f ∈ i.findings, f.rule = "RG1011" ∧ f.subject = .constant c m := by
+  obtain ⟨v, hv, hs⟩ := List.mem_map.mp ((rg1011_attributed i.tables c m).mpr (.inr h))
+  exact ⟨_, Regula.Closed.mem_findings.mpr
+    ⟨Regula.Rules.RG1011.rule, by simp [Regula.Closed.registry], v, hv, rfl⟩, rfl, hs⟩
 
 /-- The spellings of the registered rules. RG1010 and RG2001 are no rules of the registry: the language check
 and the refusal of a build that the checker cannot read print them ({lit}`proof_verdict_lines`, {lit}`full_gate_lines`). -/

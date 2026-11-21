@@ -83,7 +83,7 @@ end Link
 /-- RG1013 with its statement, its proofs and its cases, for the registry. -/
 def rg1013Proved : Proved :=
   ⟨Regula.Rules.RG1013.rule, Violates1013, Link.rg1013_exact, Witnesses.w1013,
-    fun t _ hv => .inr ⟨rfl, Link.rg1013_subject t hv⟩⟩
+    fun t _ hv => .inr (.inl ⟨rfl, Link.rg1013_subject t hv⟩)⟩
 
 /-- The function of RG1013 over the specification's input. -/
 def rg1013Checker : Checker Input Name := rg1013Proved.checker

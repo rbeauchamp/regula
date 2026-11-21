@@ -127,7 +127,7 @@ theorem pass_occurs (hused : UsedConstantsComplete)
     (∀ l ∈ loopConstructs, ¬ ValueOccurs info l) ∧
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueOccurs info ``Lean.Order.fix) ∧
       ∀ a, OccursReaches f n a → EnvAxiom f a → EnvAdmits f p a := by
-  obtain ⟨-, h6, h7, hfix, h8, -⟩ := (pass_floor h).2.2.2.2.2 n info m hn hm hc
+  obtain ⟨-, h6, h7, hfix, h8, -⟩ := (pass_floor h).2.2.2.2.2.2 n info m hn hm hc
   exact ⟨fun l hl ho => h7 l hl (valueMentions_of_occurs hused ho),
     fun hrun ho => hfix hrun (valueMentions_of_occurs hused ho),
     fun a hr hax => h8 a (envReaches_of_occurs hused hr) hax⟩

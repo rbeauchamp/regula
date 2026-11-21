@@ -3,6 +3,7 @@ module
 public import Lean.Environment
 public import Regula.Input
 public import Regula.Rule
+import Lean.Compiler.CSimpAttr
 import Lean.Compiler.ExternAttr
 import Lean.Compiler.ImplementedByAttr
 import Lean.Compiler.InitAttr
@@ -26,7 +27,17 @@ What it reads, and through what:
   v4.35.0). `getImplementedBy?`, `isExtern` and `getInitFnNameFor?` read the module entries of an extension
   (`getModuleEntries`), which `importModules` sets whatever `loadExts` is, and no extension's built state.
   `Facts.unreplaced` and `Facts.uninitialized` also read each claimed module's own entries, so a name that
-  two modules state cannot hide an attribute.
+  two modules state cannot hide an attribute, and `Facts.csimps` reads each claimed module's exported
+  (`global` and `scoped`) `@[csimp]` entries through `Lean.Compiler.CSimp.ext.ext.getModuleEntries`
+  (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0), refusing a claimed module with no module index.
+  `Facts.claimedCSimpTargets` checks claimed ownership of exported `@[csimp]` entries strictly against
+  claimed modules' own `moduleData` (`Facts.claimedConstants`), skipping all declaration work when no
+  claimed module registers an entry and building only a set of the entry target names when entries are
+  present (leaving `Facts.stated` unchanged and reading no dependency module's constants;
+  `Facts.claimedConstants` steps once over the loaded modules, dependencies included, to select the
+  claimed ones). `const2ModIdx` cannot decide
+  ownership in either direction because `finalizeImport` keeps the first module on merged theorems and
+  also inserts IR `extraConstNames` (`Lean/Environment.lean:2345-2348` at v4.35.0).
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
@@ -346,6 +357,36 @@ def Facts.unshown (f : Facts) : List (Name × Name × ConstantInfo) :=
 def Facts.unread? (f : Facts) {i : Input} (t : Tables i) : Option (Name × Name) :=
   (f.unshown.find? fun x => !fitsUnshown f t x.1 x.2.1 x.2.2).map fun x => (x.1, x.2.1)
 
+/-- The exported (`global` or `scoped`) `@[csimp]` entries registered by module `m`, or an error if Lean
+gives `m` no module index. A missing module index is not an empty set of entries. Reads
+`Lean.Compiler.CSimp.ext.ext.getModuleEntries`, which `finalizeImport` populates unconditionally even
+under `loadExts := false` (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0). -/
+def Facts.moduleCSimps (f : Facts) (m : Name) : Except String (List CSimpEntry) :=
+  match f.env.getModuleIdx? m with
+  | none => .error s!"the claimed module {m} has no index in the loaded environment, so its \
+      @[csimp] entries cannot be read"
+  | some idx =>
+    .ok ((Lean.Compiler.CSimp.ext.ext.getModuleEntries f.env idx).toList.map fun e =>
+      { module := m, thm := match e with | .global ce => ce.thmName | .scoped _ ce => ce.thmName })
+
+/-- The exported (`global` or `scoped`) `@[csimp]` entries of the modules `claimed`, or an error if any
+of them has no index in the loaded environment. -/
+def Facts.csimps (f : Facts) (claimed : List Name) : Except String (List CSimpEntry) :=
+  (claimed.mapM f.moduleCSimps).map List.flatten
+
+/-- Of the target theorem names in `csimps`, those declared in any claimed module's own `moduleData`
+(`Facts.claimedConstants`). Returns `[]` immediately when `csimps` is empty; when `csimps` is
+nonempty, builds a hash set of the `csimps` target names only and collects hits from
+`Facts.claimedConstants`, each name once (leaving `Facts.stated` unchanged and reading no dependency
+module's constants; `Facts.claimedConstants` steps once over the loaded modules, dependencies
+included, to select the claimed ones). -/
+def Facts.claimedCSimpTargets (f : Facts) (csimps : List CSimpEntry) : List Name :=
+  if csimps.isEmpty then []
+  else
+    let targets := setOf (csimps.map (·.thm))
+    (f.claimedConstants.foldl (init := ({} : Std.HashSet Name)) fun acc x =>
+      if targets.contains x.2.1 then acc.insert x.2.1 else acc).toList
+
 /-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
 def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
   let claimed := f.claimed
@@ -353,14 +394,18 @@ def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Excep
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
       package's build"
   | none =>
-    let stated := f.stated
-    match h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated.getD x.1 [])) with
+    match f.csimps claimed with
     | .error why => .error why
-    | .ok decls =>
-      let draft : Draft :=
-        { profile, modules := claimed, moduleFiles := f.moduleFiles, decls,
-          unique := f.decls_nodup (stated := (stated.getD · [])) h }
-      draft.admit
+    | .ok csimps =>
+      let stated := f.stated
+      match h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated.getD x.1 [])) with
+      | .error why => .error why
+      | .ok decls =>
+        let draft : Draft :=
+          { profile, modules := claimed, moduleFiles := f.moduleFiles,
+            claimedConstants := f.claimedCSimpTargets csimps, csimps, decls,
+            unique := f.decls_nodup (stated := (stated.getD · [])) h }
+        draft.admit
 
 /-- Refuses `t` when `Facts.unread?` finds an unshown constant of a claimed module that
 `fitsUnshown` does not admit. -/
