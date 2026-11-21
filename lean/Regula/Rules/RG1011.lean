@@ -41,16 +41,17 @@ def replacement (d : Decl) : String :=
 
 /-- Fix guidance for an exported claimed-module `@[csimp]` entry targeting a foreign theorem. -/
 def foreignCSimpGuidance : Guidance :=
-  { text := "remove @[csimp] on the foreign theorem, or under the proof verdict define a claimed \
-      @[csimp] theorem or one-line claimed alias (@[csimp] public theorem alias : @f = @g := Dep.thm) \
-      in a claimed module (RG1010 refuses @[csimp] in the full gate)"
+  { text := "remove the @[csimp] registration on the foreign theorem, or replace it under the proof \
+      verdict with a claimed @[csimp] theorem or one-line claimed alias (@[csimp] public theorem \
+      alias : @f = @g := Dep.thm) in a claimed module when the dependency proof is safe and fits \
+      the project's profile (RG1010 refuses @[csimp] in the full gate)"
     nonblank := by simp [Char.isWhitespace] }
 
 /-- Fix guidance for `@[implemented_by]`. -/
 def implementedByGuidance : Guidance :=
   { text := "remove @[implemented_by] and simplify the definition so compiled code matches the proved \
-      definition, or under the proof verdict use a proved claimed @[csimp] theorem (@f = @g) (RG1010 \
-      refuses @[csimp] in the full gate)"
+      definition, or replace it under the proof verdict with a proved claimed @[csimp] theorem \
+      (@f = @g) (RG1010 refuses @[csimp] in the full gate)"
     nonblank := by simp [Char.isWhitespace] }
 
 /-- Fix guidance for `@[extern]`. -/
@@ -61,17 +62,18 @@ def externGuidance : Guidance :=
 
 /-- Fix guidance for `@[init]`/`@[builtin_init]` naming an initialization function on a `def`. -/
 def initDefGuidance : Guidance :=
-  { text := "remove @[init]/@[builtin_init] from the def (pass state explicitly, or under the proof \
-      verdict declare runtime-initialized state with initialize/opaque; RG1010 refuses initialize and \
-      opaque in the full gate)"
+  { text := "remove @[init]/@[builtin_init] from the def and pass state explicitly, or replace the \
+      def under the proof verdict with initialize (which declares an opaque constant with a named \
+      initializer; RG1010 refuses initialize in the full gate)"
     nonblank := by simp [Char.isWhitespace] }
 
 /-- Fix guidance when a declaration combines multiple replacement attributes. -/
 def combinedReplacementGuidance : Guidance :=
   { text := "remove @[implemented_by], @[extern], and @[init]/@[builtin_init] from the declaration so \
-      compiled code matches the proved definition (under the proof verdict, use a proved claimed \
-      @[csimp] theorem for optimizations or initialize/opaque for runtime state; RG1010 refuses both \
-      in the full gate)"
+      compiled code matches the proved definition (or isolate foreign bindings outside claimed \
+      modules; under the proof verdict, replace @[implemented_by] with a proved claimed @[csimp] \
+      theorem or replace an @[init]/@[builtin_init] def with initialize, which declares an opaque \
+      constant with a named initializer; RG1010 refuses @[csimp] and initialize in the full gate)"
     nonblank := by simp [Char.isWhitespace] }
 
 /-- Fix guidance for a replaced declaration `d`, tailored to which replacement attributes are present. -/

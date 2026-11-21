@@ -67,12 +67,12 @@ theorem line_module (rule : String) (name : Name) (detail : String)
     Regula.Shell.line { rule, subject := .module name, detail, guidance } =
       s!"{rule} {name}: {detail}" := by rfl
 
-/-- The indented fix-guidance line emitted beneath a finding carries the finding's guidance text
-after a two-space indent and {lit}`fix: `. -/
+/-- The fix-guidance line emitted beneath a finding carries the finding's guidance text
+after {lit}`fix: `. -/
 theorem guidanceLine_eq (f : Regula.Closed.Finding) :
-    Regula.Shell.guidanceLine f = "  fix: " ++ f.guidance.text := by rfl
+    Regula.Shell.guidanceLine f = "fix: " ++ f.guidance.text := by rfl
 
-/-- Each finding emits its primary finding line followed immediately by its indented guidance line. -/
+/-- Each finding emits its primary finding line followed immediately by its guidance line. -/
 theorem findingLines_eq (f : Regula.Closed.Finding) :
     Regula.Shell.findingLines f = [Regula.Shell.line f, Regula.Shell.guidanceLine f] := by rfl
 
@@ -87,12 +87,12 @@ theorem detailText_append (a b : String) :
   simp [detailText, String.toList_append, List.flatMap_append, String.ofList_append]
 
 /-- Passing a finding's guidance line through {name}`Regula.Reader.say` renders a single physical
-line starting with four spaces ({lit}`    fix: `) followed by the escaped guidance text. -/
+line starting with two spaces ({lit}`  fix: `) followed by the escaped guidance text. -/
 theorem detailText_guidanceLine (f : Regula.Closed.Finding) :
     "  " ++ detailText (Regula.Shell.guidanceLine f) =
-      "    fix: " ++ detailText f.guidance.text := by
+      "  fix: " ++ detailText f.guidance.text := by
   rw [guidanceLine_eq, detailText_append]
-  have hp : detailText "  fix: " = "  fix: " := by decide
+  have hp : detailText "fix: " = "fix: " := by decide
   rw [hp, ← String.append_assoc]
   rfl
 
@@ -130,10 +130,10 @@ theorem say_spec {s : String} {t : List (Event L E)} {u : Unit} (h : Runs (say s
     exact ⟨detailText s, List.mem_singleton.mp hl'⟩
 
 /-- Running {name}`Regula.Reader.say` on a finding's guidance line prints exactly one physical line,
-indented four spaces with {lit}`fix: `, with LF and CR escaped, satisfying {name}`Details` (hence {name}`IsDetail`). -/
+indented two spaces with {lit}`fix: `, with LF and CR escaped, satisfying {name}`Details` (hence {name}`IsDetail`). -/
 theorem say_guidanceLine_spec {f : Regula.Closed.Finding} {t : List (Event L E)} {u : Unit}
     (h : Runs (say (Regula.Shell.guidanceLine f) : Prog L E Unit) t u) :
-    printed t = ["    fix: " ++ detailText f.guidance.text] ∧ Details t := by
+    printed t = ["  fix: " ++ detailText f.guidance.text] ∧ Details t := by
   have hd := say_spec h
   refine ⟨?_, hd⟩
   unfold say at h

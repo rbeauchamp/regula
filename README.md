@@ -58,19 +58,19 @@ theorem twice (n : Nat) : 2 * n = n + n := (double n).symm
 ```text
   regula: read 1 claimed modules and 2 of their constants
   RG1002 twice (module Demo): depends on sorryAx
-    fix: complete the proof or remove the unfinished declaration rather than leaving sorry or admit; if inherited from a dependency, complete that declaration first
+  fix: complete the proof or remove the unfinished declaration rather than leaving sorry or admit; if inherited from a dependency, complete that declaration first
   RG1002 double (module Demo): depends on sorryAx
-    fix: complete the proof or remove the unfinished declaration rather than leaving sorry or admit; if inherited from a dependency, complete that declaration first
+  fix: complete the proof or remove the unfinished declaration rather than leaving sorry or admit; if inherited from a dependency, complete that declaration first
   RG1005 twice (module Demo): depends on [sorryAx], outside the profile
-    fix: remove the dependency on axioms outside the configured profile (kernel-only, choice-free, or standard-logical); sorryAx, native-proof, and non-standard axioms are refused by every profile
+  fix: remove the dependency on axioms outside the configured profile (kernel-only, choice-free, or standard-logical); sorryAx, native-proof, and non-standard axioms are refused by every profile
   RG1005 double (module Demo): depends on [sorryAx], outside the profile
-    fix: remove the dependency on axioms outside the configured profile (kernel-only, choice-free, or standard-logical); sorryAx, native-proof, and non-standard axioms are refused by every profile
+  fix: remove the dependency on axioms outside the configured profile (kernel-only, choice-free, or standard-logical); sorryAx, native-proof, and non-standard axioms are refused by every profile
   4 findings
 regula: proof verdict: fail
 ```
 
 - **Exit codes:** 0 for `pass`, 1 for `fail`, 2 for `incomplete`.
-- **Output format:** Diagnostic lines start with two spaces (and on `main`, each finding's indented `fix:` line starts with four spaces beneath it) and escape newlines and carriage returns as `\n` and `\r`, so neither findings nor fix guidance can forge the final verdict line. A `pass` ends its last line with the audited directory (the full gate also prints Lake's build output beforehand).
+- **Output format:** Diagnostic lines—including, on `main`, each finding's `fix:` guidance line beneath it—start with two spaces and escape newlines and carriage returns as `\n` and `\r`, so neither findings nor fix guidance can forge the final verdict line. A `pass` ends its last line with the audited directory (the full gate also prints Lake's build output beforehand).
 
 ## The checks
 

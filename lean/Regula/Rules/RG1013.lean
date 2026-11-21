@@ -18,9 +18,10 @@ open Regula.Closed
 
 /-- Fix guidance for RG1013 findings. -/
 def fixGuidance : Guidance :=
-  { text := "add a `module` header (use `public section` / `@[expose]` for bodies downstream proofs \
-      unfold, or `import all` in a downstream proof package under the proof verdict; RG1010 refuses \
-      `import all` in the full gate) and ensure imported files are `module` files"
+  { text := "add a `module` header (make declarations `public`—for example in a `public section`—and \
+      mark bodies `@[expose]` when downstream proofs unfold them, or use `import all` in a downstream \
+      proof package under the proof verdict; RG1010 refuses `import all` in the full gate) and ensure \
+      imported files are `module` files"
     nonblank := by simp [Char.isWhitespace] }
 
 /-- The claimed modules that are not among the loaded modules that are `module` files. -/

@@ -58,12 +58,12 @@ def line (f : Finding) : String :=
   | .constant name m => s!"{f.rule} {name} (module {m}): {f.detail}"
   | .module name => s!"{f.rule} {name}: {f.detail}"
 
-/-- The indented fix-guidance line beneath one finding. `say` prepends two more spaces and escapes
-line breaks, so the rendered line starts with four spaces (`    fix: ...`). -/
+/-- The fix-guidance line beneath one finding. `say` prepends two spaces and escapes line breaks, so
+the rendered line starts with two spaces (`  fix: ...`). -/
 def guidanceLine (f : Finding) : String :=
-  "  fix: " ++ f.guidance.text
+  "fix: " ++ f.guidance.text
 
-/-- The lines emitted for one finding: its primary line followed by its indented guidance line. -/
+/-- The lines emitted for one finding: its primary line followed by its guidance line. -/
 def findingLines (f : Finding) : List String :=
   [line f, guidanceLine f]
 
