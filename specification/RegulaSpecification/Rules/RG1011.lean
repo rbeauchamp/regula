@@ -19,11 +19,14 @@ has no parameter, and nothing proves any of them equal to the definition that th
 about. The input reads those three through the queries that the compiler reads
 ({lit}`Lean.Compiler.getImplementedBy?`, {lit}`Lean.isExtern` and {lit}`Lean.getInitFnNameFor?`).
 
-For {lit}`T.ctorIdx` on every safe, non-single-constructor, non-builtin, non-{lit}`Prop` inductive
-type {lit}`T`, Lean v4.36.0 generates a safe {lit}`T.casesOn`-based definition {lit}`T.ctorIdx` and
-attaches {attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`, where the unsafe {lit}`T.ctorIdx._impl`
-reads the runtime tag via {lit}`getObjTagNat` ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141`
-at v4.36.0). RG1011 exempts {lit}`T.ctorIdx`'s {attr}`@[implemented_by]` when the pair meets
+When {lit}`genCtorIdx` is enabled, {lit}`T.ctorIdx` is not already declared, and {lit}`Nat` is in
+the environment, for a safe, non-single-constructor, non-builtin, non-{lit}`Prop` inductive type
+{lit}`T` whose {lit}`T.casesOn` eliminates into an extra universe parameter, Lean v4.36.0's
+{lit}`mkCtorIdx` generates a safe {lit}`T.casesOn`-based definition {lit}`T.ctorIdx` and attaches
+{attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`, where the unsafe {lit}`T.ctorIdx._impl` reads the
+runtime tag via {lit}`getObjTagNat` ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141`,
+{lit}`Lean/Elab/MutualInductive.lean:1552-1557` at v4.36.0). RG1011 exempts {lit}`T.ctorIdx`'s
+{attr}`@[implemented_by]` when the pair meets
 {name (full := RegulaSpecification.Input.CtorIdxDef)}`Input.CtorIdxDef` (and refuses it if it also carries {attr}`@[extern]` or an initialization
 function, or fails any structural or pairing check).
 

@@ -97,10 +97,10 @@ inductive Assumption where
   /-- For every safe, non-single-constructor, non-builtin, non-{lit}`Prop` inductive type {lit}`T`
   (outside the fifteen runtime builtin types of {lit}`Lean.Compiler.LCNF.builtinRuntimeTypes`),
   Lean's runtime tag function {lit}`lean_obj_tag_nat` behind {lit}`getObjTagNat` returns the
-  constructor index {lit}`cInfo.cidx` of each value of {lit}`T`, agreeing with the safe
+  constructor index {lit}`cInfo.cidx` of each value of {lit}`T`, agreeing with a safe
   {lit}`T.casesOn`-based definition {lit}`T.ctorIdx` (whose {lit}`T.casesOn` the loader verifies
-  delegates directly to the kernel-checked recursor {lit}`T.rec`) that Lean's {lit}`mkCtorIdx`
-  generates and replaces via {attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`. -/
+  delegates directly to the kernel-checked recursor {lit}`T.rec`) of the shape Lean's
+  {lit}`mkCtorIdx` generates and replaces via {attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`. -/
   | ctorIdxTag
   /-- H1: the trees that the check read of a file of an admitted reading are the trees that Lean's frontend elaborates
   ({name (full := RegulaSpecification.Language.LeanBehaviour.h1)}`LeanBehaviour.h1`). The parser reads of the elaborator's state only scoped parser entries and tokens, namespace and open
