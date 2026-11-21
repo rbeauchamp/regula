@@ -104,7 +104,7 @@ Each failure class below can slip past a plain `lake build` (or invalidate what 
 
 ## Enforcement status
 
-Each item in this standard falls into one of four categories: enforced in `v0.13.0` and `main`, enforced on `main` (in no release yet), planned, or manual engineering discipline. Rules RG1001–RG1006 and RG1011–RG1013 report only constants and modules of the claim that the opening of this document defines. Every check but RG1010 runs under both verdicts; under the proof verdict each holds only for a project that places no file or code aimed at the checker or the toolchain.
+Each item in this standard falls into one of four categories: enforced in `v0.13.0` and `main`, enforced on `main` (in no release yet), planned, or manual engineering discipline. RG1001–RG1006, RG1011 and RG1012 report claimed declarations. RG1013 reports claimed modules. When a claimed module exports a `global` or `scoped` `@[csimp]` entry for a theorem that no claimed module declares, RG1011 also reports that theorem with the module that registered it. Every check but RG1010 runs under both verdicts; under the proof verdict each holds only for a project that places no file or code aimed at the checker or the toolchain.
 
 | Practice or requirement | Status | Check or mechanism | Scope and limits |
 | --- | --- | --- | --- |
