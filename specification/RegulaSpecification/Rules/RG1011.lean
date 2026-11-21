@@ -36,8 +36,9 @@ whose theorem is declared in a claimed module (including a merged theorem whose 
 points to an unclaimed dependency), because every such theorem enters the claim's kernel replay cone and
 is checked by RG1001 to RG1006 and the loader's unshown-constant check. {lit}`attribute [local csimp]` is
 never persisted to {lit}`.olean` ({lit}`Lean/ScopedEnvExtension.lean:17-19, 96-112, 191-193`) and
-dependency-registered {attr}`@[csimp]` entries are not read under the proof verdict; RG1010 closes all
-{attr}`@[csimp]` forms under the full verdict. {name (full := Regula.Rules.RG1011.check)}`Regula.Rules.RG1011.check`
+dependency-registered {attr}`@[csimp]` entries are not read under the proof verdict. Under the full verdict
+RG1010 refuses {lit}`csimp` in each file it reads, a project with a {lit}`require` has only the proof
+verdict, and the toolchain's own {attr}`@[csimp]` registrations stay trusted. {name (full := Regula.Rules.RG1011.check)}`Regula.Rules.RG1011.check`
 is the function that the checker runs.
 -/
 
