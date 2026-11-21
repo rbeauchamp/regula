@@ -276,7 +276,7 @@ def sources : Assumption → List Source
       .file "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean" "648", .file "src/Lean/Compiler/LCNF/PassManager.lean" "217",
       .file "src/Lean/Compiler/IR/Meta.lean" "52, 56-59", .file "src/Lean/Environment.lean" "2537, 2618, 2620, 2627"]
   | usedConstants => [.file "src/Lean/Util/FoldConsts.lean" "51-56"]
-  | leanImport => [.file "src/Lean/Environment.lean" "109-111, 155-167, 1211-1212, 1666-1678, 1871, 1883-1886, 1902-1918, 2017-2034, 2079-2080, 2094-2095, 2181-2183, 2308-2309, 2313-2317, 2333-2345, 2367-2370, 2377, 2404",
+  | leanImport => [.file "src/Lean/Environment.lean" "109-111, 155-167, 1211-1212, 1666-1678, 1871, 1883-1886, 1902-1918, 2017-2034, 2079-2080, 2094-2095, 2181-2183, 2308-2309, 2313-2317, 2333-2348, 2367-2370, 2377, 2404",
       .file "src/Lean/Compiler/CSimpAttr.lean" "18-55, 71-80",
       .file "src/Lean/Compiler/ImplementedByAttr.lean" "67-68", .file "src/Lean/Compiler/ExternAttr.lean" "75-76, 119-120",
       .file "src/Lean/Compiler/InitAttr.lean" "50-79, 101, 110, 112-127",

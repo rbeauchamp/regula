@@ -141,12 +141,6 @@ def Own (m n : Name) (info : ConstantInfo) : Prop :=
   ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧ StrictlyBelow a.rootDir olean ∧
     a.env.header.moduleData[k]? = some data ∧ (n, info) ∈ data.constNames.zip data.constants
 
-/-- A constant owned by a claimed module: either shown in the merged environment as a constant of a
-claimed module, or held in a claimed module's own {lit}`.olean` data ({name}`Own`). -/
-def ClaimedDecl (n : Name) : Prop :=
-  (∃ info x, a.env.constants.map₁[n]? = some info ∧ a.place? n = some x ∧ StrictlyBelow a.rootDir x.2) ∨
-    ∃ cm info, a.Own cm n info
-
 /-- A claimed module's own constant represented by the rules, including the absence of its own
 replacement attributes or a represented replacement that RG1011 refuses, and, of a definition, the absence of
 its own initialization function or a represented one. -/
@@ -170,8 +164,9 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   /-- Each claimed module is a {lit}`module` file. -/
   moduleFiles : ∀ m, a.Claimed m → EnvModuleFile a.env m
   /-- Each claimed module has an index in the environment, and each of its exported ({lit}`global` or
-  {lit}`scoped`) {attr}`@[csimp]` entries names a constant owned by a claimed module ({name}`ClaimedDecl`). -/
-  csimps : ∀ m, a.Claimed m → ModuleCSimpIn a.env a.ClaimedDecl m
+  {lit}`scoped`) {attr}`@[csimp]` entries names a constant declared in some claimed module's own
+  {lit}`.olean` data. -/
+  csimps : ∀ m, a.Claimed m → ModuleCSimpIn a.env (fun thm => ∃ cm info, a.Own cm thm info) m
   /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, has a value that does not mention {name}`Lean.Order.fix` when it is a definition or an opaque constant, reaches only axioms that the profile admits,
   has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
   constant, has a value that mentions no panic form. -/
@@ -279,18 +274,6 @@ theorem own_ofFacts (m n : Name) (info : ConstantInfo) : (ofFacts f).Own m n inf
     have hp := f.placed lm (mem_modules_of_getElem hm)
     rw [hp] at hc
     exact (below_eq_true_iff _ _).mp hc
-
-theorem claimedDecl_ofFacts (n : Name) : (ofFacts f).ClaimedDecl n ↔ EnvClaimedDecl f n := by
-  simp only [ClaimedDecl, EnvClaimedDecl, place_ofFacts, Option.map_eq_some_iff, own_ofFacts]
-  refine or_congr ?_ Iff.rfl
-  constructor
-  · rintro ⟨info, x, hmap, ⟨lm, hinfo, rfl⟩, hb⟩
-    have hp := f.placed lm (mem_modules_of_info hinfo)
-    exact ⟨info, lm, hmap, hinfo, by rw [hp]; exact (below_eq_true_iff _ _).mpr hb⟩
-  · rintro ⟨info, lm, hmap, hinfo, hc⟩
-    have hp := f.placed lm (mem_modules_of_info hinfo)
-    rw [hp] at hc
-    exact ⟨info, (lm.name, lm.olean), hmap, ⟨lm, hinfo, rfl⟩, (below_eq_true_iff _ _).mp hc⟩
 
 end BuildAnswer
 
@@ -416,7 +399,7 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       | cons x xs => exact ⟨x, by simp⟩
   have hfloor : ((∀ m, (BuildAnswer.ofFacts f).Claimed m → EnvModuleFile (BuildAnswer.ofFacts f).env m) ∧
       (∀ m, (BuildAnswer.ofFacts f).Claimed m →
-        ModuleCSimpIn (BuildAnswer.ofFacts f).env (BuildAnswer.ofFacts f).ClaimedDecl m) ∧
+        ModuleCSimpIn (BuildAnswer.ofFacts f).env (fun thm => ∃ cm info, (BuildAnswer.ofFacts f).Own cm thm info) m) ∧
       ∀ n info m, (BuildAnswer.ofFacts f).env.constants.map₁[n]? = some info → ((BuildAnswer.ofFacts f).place? n).map (·.1) = some m →
       (BuildAnswer.ofFacts f).Claimed m →
       ¬ (BuildAnswer.ofFacts f).Axiom n ∧
@@ -429,8 +412,7 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ (BuildAnswer.ofFacts f).Panic u)) ↔
       EnvFloor f p := by
     simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts, BuildAnswer.helper_ofFacts,
-      BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts, BuildAnswer.panic_ofFacts,
-      ModuleCSimpIn, BuildAnswer.claimedDecl_ofFacts]
+      BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts, BuildAnswer.panic_ofFacts, BuildAnswer.own_ofFacts]
     rfl
   have hunshown : (∀ m n info, (BuildAnswer.ofFacts f).Own m n info → ¬ (BuildAnswer.ofFacts f).Shown m n info →
       ModuleUnreplaced (BuildAnswer.ofFacts f).env m n ∧
