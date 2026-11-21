@@ -2,6 +2,7 @@ module
 
 public import Regula.Load
 public import Regula.Shell
+public import RegulaSpecification.Effects
 public import RegulaSpecification.Proofs.Verdict
 public import RegulaSpecification.Refinement
 public import Lean.Compiler.CSimpAttr
@@ -240,7 +241,7 @@ def stripIndTypeGoSpec (env : Lean.Environment) :
       let lctx' := lctx.mkLocalDecl fid nm d bi
       let fvar : Lean.Expr := .fvar fid
       match stripIndTypeGoSpec env k lctx' (fvars.push fvar) (b.instantiate1 fvar) with
-      | some (ds, u) => some (d.abstract fvars :: ds, u)
+      | some (ds, u) => some (d.headBeta.abstract fvars :: ds, u)
       | none => none
     | _ => none
 
@@ -265,11 +266,12 @@ def stripLamsWithDomainsSpec : List Lean.Expr → Lean.Expr → Option Lean.Expr
   | _ :: _, _ => none
 
 /-- Strips {lit}`k` leading lambda binders from {lit}`val` and {lit}`k` leading forall binders from
-{lit}`ty` in lockstep, checking {lit}`Expr.eqv` ({lit}`==`) on each binder domain. -/
+{lit}`ty` in lockstep, checking {lit}`Expr.eqv` ({lit}`==`) on each lambda domain against the
+head-beta-reduced forall domain. -/
 def stripLamMatchingForallSpec : Nat → Lean.Expr → Lean.Expr → Option (Lean.Expr × Lean.Expr)
   | 0, v, t => some (v, t)
   | k + 1, .lam _ vd vb _, .forallE _ td tb _ =>
-    if vd == td then stripLamMatchingForallSpec k vb tb else none
+    if vd == td.headBeta then stripLamMatchingForallSpec k vb tb else none
   | _ + 1, _, _ => none
 
 /-- The list of {lit}`n` consecutive bound variables down to {lit}`offset`. -/
@@ -366,10 +368,12 @@ def ctorIdxImplShape (env : Lean.Environment) (ind : Name) (indInfo : Lean.Induc
     d.type == dDef.type &&
     match stripIndTypeSpec env n indInfo.type with
     | some (doms, u) =>
-      let expectedDoms := doms ++ [Lean.mkAppN (.const ind us) (bvarListSpec n 0).toArray]
+      let discrTy := Lean.mkAppN (.const ind us) (bvarListSpec n 0).toArray
+      let expectedDoms := doms ++ [discrTy]
+      let expectedValDoms := doms.map Lean.Expr.headBeta ++ [discrTy]
       u.normalize != .zero &&
         stripForallsWithDomainsSpec expectedDoms d.type == some (.const `Nat []) &&
-        match stripLamsWithDomainsSpec expectedDoms d.value with
+        match stripLamsWithDomainsSpec expectedValDoms d.value with
         | some (.app (.app (.const `getObjTagNat [uTag]) tyArg) (.bvar 0)) =>
           uTag == u && tyArg == Lean.mkAppN (.const ind us) (bvarListSpec n 1).toArray
         | _ => false
@@ -478,13 +482,61 @@ theorem checkCtorAlts_eq (env : Lean.Environment) (ind : Name) (np ni : Nat)
         bvarList_eq, stripLamMatchingForall_eq, ih]
       rfl
 
+theorem checkCtorAltsSpec_length (env : Lean.Environment) (ind : Name) (np ni : Nat)
+    (cs : List Name) (alts : List Lean.Expr)
+    (h : checkCtorAltsSpec env ind np ni cs alts = true) :
+    alts.length = cs.length := by
+  induction cs generalizing alts with
+  | nil =>
+    cases alts with
+    | nil => rfl
+    | cons _ _ => cases h
+  | cons c cs ih =>
+    cases alts with
+    | nil => cases h
+    | cons a alts =>
+      simp only [checkCtorAltsSpec] at h
+      split at h <;> try cases h
+      simp only [Bool.and_eq_true] at h
+      have h2 := h.2
+      split at h2 <;> try cases h2
+      split at h2 <;> try cases h2
+      simp only [Bool.and_eq_true] at h2
+      simp [ih alts h2.2]
+
 theorem isCtorIdxDef_eq (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal)
     (d : Lean.DefinitionVal) :
     Regula.Load.isCtorIdxDef env ind indInfo d = ctorIdxDefShape env ind indInfo d := by
   simp only [Regula.Load.isCtorIdxDef, ctorIdxDefShape, isRuntimeBuiltinType_eq,
     checkCasesOn_eq, stripIndType_eq, bvarList_eq, liftIdxDomains_eq,
     stripForallsWithDomains_eq, stripLamsWithDomains_eq, checkCtorAlts_eq]
-  rfl
+  cases stripIndTypeSpec env (indInfo.numParams + indInfo.numIndices) indInfo.type with
+  | none => rfl
+  | some p =>
+    rcases p with ⟨doms, u⟩
+    dsimp only
+    cases stripLamsWithDomainsSpec
+        (doms ++ [Lean.mkAppN (.const ind (indInfo.levelParams.map Lean.Level.param))
+          (bvarListSpec (indInfo.numParams + indInfo.numIndices) 0).toArray]) d.value with
+    | none => rfl
+    | some body =>
+      dsimp only
+      generalize hargs : body.getAppArgs.toList = args
+      cases hd1 : args.drop indInfo.numParams with
+      | nil => simp
+      | cons motive rest2 =>
+        cases hd2 : rest2.drop indInfo.numIndices with
+        | nil => simp [hd2]
+        | cons discr alts =>
+          cases hca : checkCtorAltsSpec env ind indInfo.numParams indInfo.numIndices indInfo.ctors alts with
+          | false => simp [hd2, hca]
+          | true =>
+            have hl1 := congrArg List.length hd1
+            have hl2 := congrArg List.length hd2
+            have hl3 := checkCtorAltsSpec_length env ind indInfo.numParams indInfo.numIndices indInfo.ctors alts hca
+            simp only [List.length_drop, List.length_cons] at hl1 hl2
+            have hlen : args.length = indInfo.numParams + 1 + indInfo.numIndices + 1 + indInfo.ctors.length := by omega
+            simp [hd2, hca, hlen]
 
 theorem isCtorIdxImpl_eq (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal)
     (dDef d : Lean.DefinitionVal) :
@@ -514,16 +566,6 @@ theorem ctorIdxFormOf_eq_iff (env : Lean.Environment) (n : Name) (k v : Constant
       ctorIdxShape env n k = ctorIdxShape env n v := by
   rw [← ctorIdxForm_inj, ctorIdxFormOf_eq_shape, ctorIdxFormOf_eq_shape]
 
-/-- The components of a path, using Lean's {name}`System.FilePath.normalize` and
-{name}`System.FilePath.components`, stated apart from {lit}`Regula.Load`. -/
-def pathParts (p : System.FilePath) : List String :=
-  p.normalize.components.filter fun c => c != "" && c != "."
-
-/-- {name}`path` lies strictly below {name}`dir` by components, stated apart from
-{lit}`Regula.Load`. -/
-def PathStrictlyBelow (dir path : System.FilePath) : Prop :=
-  pathParts dir <+: pathParts path ∧ pathParts dir ≠ pathParts path
-
 /-- The compiler-generated {lit}`T.ctorIdx` / {lit}`T.ctorIdx._impl` pair for safe inductive
 {name}`ind` in module {name}`m`, stated over raw {lit}`f.env`, {lit}`f.modules`, and
 {lit}`f.toolchainDir` without calling {lit}`Regula.Load` functions. -/
@@ -534,7 +576,7 @@ def EnvCtorIdxPair (f : Regula.Load.Facts) (ind : Name) (defv implv : Lean.Defin
   (∃ k, f.env.constants.map₁[`getObjTagNat]? = some k) ∧
   (∃ (idx : Lean.ModuleIdx) (lm : Regula.Load.LoadedModule),
     f.env.getModuleIdxFor? `getObjTagNat = some idx ∧
-    f.modules[idx.toNat]? = some lm ∧ PathStrictlyBelow f.toolchainDir lm.olean) ∧
+    f.modules[idx.toNat]? = some lm ∧ Effects.StrictlyBelow f.toolchainDir lm.olean) ∧
   (∃ indv, f.env.constants.map₁[ind]? = some (.inductInfo indv) ∧
     (∀ data ∈ f.env.header.moduleData, ∀ w,
       (ind, w) ∈ data.constNames.zip data.constants → ¬ AxiomInfo w) ∧
@@ -765,10 +807,9 @@ theorem rawToolchain_iff (f : Regula.Load.Facts) (n : Name) :
     EnvToolchain f n ↔
       ∃ (idx : Lean.ModuleIdx) (lm : Regula.Load.LoadedModule),
         f.env.getModuleIdxFor? n = some idx ∧ f.modules[idx.toNat]? = some lm ∧
-          PathStrictlyBelow f.toolchainDir lm.olean := by
+          Effects.StrictlyBelow f.toolchainDir lm.olean := by
   rw [toolchain_place]
   simp only [Regula.Load.below, Bool.and_eq_true, List.isPrefixOf_iff_prefix, bne_iff_ne]
-  rfl
 
 theorem not_unsafe_of_partial (info : ConstantInfo) (h : info.isPartial = true) :
     info.isUnsafe = false := by

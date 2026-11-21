@@ -150,8 +150,8 @@ def stripForalls : Nat → Expr → Option Expr
 
 /-- Reduces `e` with `Lean.Kernel.whnf` (`Lean/Environment.lean:3175-3176` at v4.36.0) as needed to
 strip `n` leading forall binders (tracking outer binders in `lctx` and `fvars`) and reach the
-resulting `.sort u`, returning each binder domain abstracted back to bound variables together with
-`u`. -/
+resulting `.sort u`, returning each binder domain head-beta-reduced and abstracted back to bound
+variables (`Lean/MetavarContext.lean:1358` at v4.36.0) together with `u`. -/
 def stripIndTypeGo (env : Environment) :
     Nat → LocalContext → Array Expr → Expr → Option (List Expr × Level)
   | 0, lctx, _, e =>
@@ -173,7 +173,7 @@ def stripIndTypeGo (env : Environment) :
       let lctx' := lctx.mkLocalDecl fid nm d bi
       let fvar : Expr := .fvar fid
       match stripIndTypeGo env k lctx' (fvars.push fvar) (b.instantiate1 fvar) with
-      | some (ds, u) => some (d.abstract fvars :: ds, u)
+      | some (ds, u) => some (d.headBeta.abstract fvars :: ds, u)
       | none => none
     | _ => none
 
@@ -199,11 +199,12 @@ def stripLamsWithDomains : List Expr → Expr → Option Expr
   | _ :: _, _ => none
 
 /-- Strips `k` leading lambda binders from `val` and `k` leading forall binders from `ty` in lockstep,
-checking `Expr.eqv` (`==`) on each binder domain. -/
+checking `Expr.eqv` (`==`) on each lambda domain against the head-beta-reduced forall domain
+(`Lean/MetavarContext.lean:1358` at v4.36.0). -/
 def stripLamMatchingForall : Nat → Expr → Expr → Option (Expr × Expr)
   | 0, v, t => some (v, t)
   | k + 1, .lam _ vd vb _, .forallE _ td tb _ =>
-    if vd == td then stripLamMatchingForall k vb tb else none
+    if vd == td.headBeta then stripLamMatchingForall k vb tb else none
   | _ + 1, _, _ => none
 
 /-- The list `[.bvar (n - 1 + offset), ..., .bvar offset]`. -/
@@ -278,7 +279,6 @@ def isCtorIdxDef (env : Environment) (ind : Name) (indInfo : InductiveVal) (d : 
         | some body =>
           let args := body.getAppArgs.toList
           body.getAppFn == .const (Name.str ind "casesOn") (.succ .zero :: us) &&
-            args.length == np + 1 + ni + 1 + indInfo.ctors.length &&
             match args.drop np with
             | motive :: rest2 =>
               match rest2.drop ni with
@@ -296,7 +296,9 @@ def isCtorIdxDef (env : Environment) (ind : Name) (indInfo : InductiveVal) (d : 
 /-- Whether `d` has the exact structural form of Lean's compiler-generated unsafe implementation
 `ind.ctorIdx._impl` (`Lean/Meta/Constructions/CtorIdx.lean:40-69` at v4.36.0): an unsafe definition
 matching `dDef`'s universe parameters and type verbatim, whose parameter, index, and discriminant
-domains match those derived from `ind.type`, and whose body is `n + 1` lambdas around
+domains match those derived from `ind.type` (with the second `headBeta` pass `mkCtorIdxImpl`'s
+`mkLambdaFVars` applies to value binder domains, `Lean/Meta/Constructions/CtorIdx.lean:44-48`,
+`Lean/MetavarContext.lean:1358` at v4.36.0), and whose body is `n + 1` lambdas around
 `@getObjTagNat.{u} (ind.{us} #n ... #1) #0` at `ind.type`'s exact non-zero sort `u`. -/
 def isCtorIdxImpl (env : Environment) (ind : Name) (indInfo : InductiveVal)
     (dDef d : DefinitionVal) : Bool :=
@@ -308,10 +310,12 @@ def isCtorIdxImpl (env : Environment) (ind : Name) (indInfo : InductiveVal)
     d.type == dDef.type &&
     match stripIndType env n indInfo.type with
     | some (doms, u) =>
-      let expectedDoms := doms ++ [Lean.mkAppN (.const ind us) (bvarList n 0).toArray]
+      let discrTy := Lean.mkAppN (.const ind us) (bvarList n 0).toArray
+      let expectedDoms := doms ++ [discrTy]
+      let expectedValDoms := doms.map Expr.headBeta ++ [discrTy]
       u.normalize != .zero &&
         stripForallsWithDomains expectedDoms d.type == some (.const `Nat []) &&
-        match stripLamsWithDomains expectedDoms d.value with
+        match stripLamsWithDomains expectedValDoms d.value with
         | some (.app (.app (.const `getObjTagNat [uTag]) tyArg) (.bvar 0)) =>
           uTag == u && tyArg == Lean.mkAppN (.const ind us) (bvarList n 1).toArray
         | _ => false
