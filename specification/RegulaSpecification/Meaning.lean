@@ -119,13 +119,16 @@ structure Meaning : Prop where
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
         info.isPartial = true ∧ info.isUnsafe = false) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
+      ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u) ∧
       ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a
   /-- {name}`Loader.pass_occurs`, under {name}`UsedConstantsComplete`: the floor over the constants that occur. -/
   occurs : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile}, UsedConstantsComplete →
     (Regula.Closed.decision (f.input roots p)).verdict = .pass → ∀ {n m : Name} {info : ConstantInfo},
       f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
-      (∀ l ∈ loopConstructs, ¬ ValueOccurs info l) ∧ ∀ a, OccursReaches f n a → EnvAxiom f a → EnvAdmits f p a
+      (∀ l ∈ loopConstructs, ¬ ValueOccurs info l) ∧
+      ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueOccurs info ``Lean.Order.fix) ∧
+      ∀ a, OccursReaches f n a → EnvAxiom f a → EnvAdmits f p a
   /-- {name}`Loader.claimedConstants_complete`, under {name (full := RegulaSpecification.Assumptions.Assumption.ModuleDataComplete)}`ModuleDataComplete`: each constant of each claimed module is read. -/
   claimed : ∀ {f : Regula.Load.Facts}, Assumption.ModuleDataComplete f → ∀ {k : Nat} {lm : Regula.Load.LoadedModule},
     f.modules[k]? = some lm → lm.claimed = true →

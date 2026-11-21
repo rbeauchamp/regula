@@ -266,8 +266,9 @@ def EnvModuleFile (env : Lean.Environment) (m : Name) : Prop :=
 /-- What the rules state, in the terms of the environment. Each claimed module is a {lit}`module` file (RG1013).
 And what RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module: no loaded module
 states an axiom of its name (RG1001). When it is unsafe or partial, or
-has a recursion helper's name, it has the form of a recursion helper (RG1006), and its value
-mentions no loop construct of Lean (RG1006). Each axiom that it reaches, through what any loaded
+has a recursion helper's name, it has the form of a recursion helper (RG1006), its value
+mentions no loop construct of Lean (RG1006), and, when it is a definition or an opaque constant,
+its value does not mention {name}`Lean.Order.fix` (RG1006). Each axiom that it reaches, through what any loaded
 module's own
 data states, is one that the profile admits (RG1005), which also excludes {name}`sorryAx` (RG1002), a
 native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_hole`,
@@ -282,6 +283,7 @@ def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
       EnvHelper f n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
+    ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
     (∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a) ∧
     Lean.Compiler.getImplementedBy? f.env n = none ∧ Lean.isExtern f.env n = false ∧
     ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? f.env n = none) ∧
@@ -889,13 +891,15 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
     have hcm := (claimed_iff hl _).mpr hc
     have hs : ∀ w ∈ f.stated.getD n [], ¬ AxiomInfo w := fun w hw hax =>
       h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr ⟨info, hn, .inr ⟨w, hw, hax⟩⟩⟩
-    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun a hr hax => ?_, ?_, ?_, fun hdef => ?_,
-      fun hrun u hv hpanic => ?_⟩
+    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun hrun hv => ?_, fun a hr hax => ?_, ?_, ?_,
+      fun hdef => ?_, fun hrun u hv hpanic => ?_⟩
     · exact h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr hax⟩
     · refine Classical.byContradiction fun hno =>
         h6 n ⟨_, hx, rfl, hcm, .inl ⟨flagged_iff.mpr hflag, fun hh => ?_⟩⟩
       exact hno ((helper_env hl n lm info).mp hh)
-    · exact h6 n ⟨_, hx, rfl, hcm, .inr ⟨l, hl', (mem_valueUsesOf info l).mpr hv⟩⟩
+    · exact h6 n ⟨_, hx, rfl, hcm, .inr (.inl ⟨l, hl', (mem_valueUsesOf info l).mpr hv⟩)⟩
+    · exact h6 n ⟨_, hx, rfl, hcm, .inr (.inr ⟨(kind_runs hs).mpr hrun,
+        (mem_valueUsesOf info ``Lean.Order.fix).mpr hv⟩)⟩
     · obtain ⟨k, ha, -⟩ := id hax
       refine Classical.byContradiction fun hno => h5 n ⟨⟨_, hx, rfl, hcm⟩, a,
         ⟨(reaches_env hl n a).mpr hr, (isAxiom_env hl a).mpr hax⟩, fun hadm => ?_⟩
@@ -922,7 +926,7 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       have hax' := (isAxiom_env hl a).mp hax
       obtain ⟨k, ha, -⟩ := id hax'
       exact hna ((admits_env hl ha).mpr
-        ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2.1 a
+        ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2.2.1 a
           ((reaches_env hl _ a).mp hr) hax'))
     refine ⟨?_, fun c h => no5 c (rg1005_of_hole h), fun c h => no5 c (rg1005_of_unknown h),
       fun c h => no5 c (rg1005_of_compiler h), no5, ?_, ?_, ?_,
@@ -935,15 +939,18 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
     · rintro c ⟨x, hx, rfl, hcm, hv⟩
       obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
       have hmd := hmod hm hd
-      obtain ⟨-, h6, h7, -⟩ := hf _ _ _ hn hmd ((claimed_iff hl _).mp hcm)
+      obtain ⟨hna, h6, h7, hfix, -⟩ := hf _ _ _ hn hmd ((claimed_iff hl _).mp hcm)
       have hmn : m.name = x.module := by rw [hd]; rfl
       rw [hd] at hv
-      rcases hv with ⟨hflag, hno⟩ | ⟨l, hl', hu⟩
+      rcases hv with ⟨hflag, hno⟩ | ⟨l, hl', hu⟩ | ⟨hk, hu⟩
       · exact hno ((helper_env hl _ m info).mpr (hmn ▸ h6 (flagged_iff.mp hflag)))
       · exact h7 l hl' ((mem_valueUsesOf info l).mp hu)
+      · have hs : ∀ w ∈ f.stated.getD x.name [], ¬ AxiomInfo w := fun w hw hax =>
+          hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩
+        exact hfix ((kind_runs hs).mp hk) ((mem_valueUsesOf info ``Lean.Order.fix).mp hu)
     · rintro c ⟨x, hx, rfl, hcm, hr⟩
       obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
-      obtain ⟨-, -, -, -, hi, he, hinit, -⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
+      obtain ⟨-, -, -, -, -, hi, he, hinit, -⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
       rw [hd] at hr
       rcases hr with ⟨impl, himpl⟩ | hext | ⟨hkind, fn, hfn⟩
       · exact absurd (himpl.symm.trans hi) (by simp)
@@ -951,7 +958,7 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       · exact absurd (hfn.symm.trans (hinit (kind_definition.mp hkind).1)) (by simp)
     · rintro c ⟨x, hx, rfl, hcm, hk, u, hu, hp⟩
       obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
-      obtain ⟨hna, -, -, -, -, -, -, h12⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
+      obtain ⟨hna, -, -, -, -, -, -, -, h12⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
       have hs : ∀ w ∈ f.stated.getD x.name [], ¬ AxiomInfo w := fun w hw hax =>
         hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩
       rw [hd] at hk hu
@@ -1007,6 +1014,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
       info.isPartial = true ∧ info.isUnsafe = false) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
+    ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u) ∧
     ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
   obtain ⟨i, hi, hp⟩ := decision_pass h
@@ -1016,7 +1024,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
       List.all_eq_true, Array.all_eq_true_iff_forall_mem] at hfits
     obtain ⟨hattrs, ⟨⟨⟨⟨hkind, hsafety⟩, hname⟩, hloop⟩, huses⟩⟩ := hfits
     obtain ⟨hunsafe, hpartial⟩ := (safetyOf_safe info).mp hsafety
-    refine ⟨(unreplaced_iff _ _).mp hattrs, ?_, ?_, fun hflag => ?_, ?_, ?_, ?_⟩
+    refine ⟨(unreplaced_iff _ _).mp hattrs, ?_, ?_, fun hflag => ?_, ?_, ?_, ?_, ?_⟩
     · rintro ⟨v, rfl⟩
       simp [Regula.Load.kindOf] at hkind
     · rintro v rfl
@@ -1032,6 +1040,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
       have hc' : l ∉ Regula.Load.valueUsesOf info := by simpa using hc
       exact hc' (by simpa using (mem_valueUsesOf info l).mpr hv)
     · rintro (⟨v, rfl⟩ | ⟨v, rfl⟩) <;> simp [Regula.Load.kindOf] at hkind
+    · rintro (⟨v, rfl⟩ | ⟨v, rfl⟩) <;> simp [Regula.Load.kindOf] at hkind
     · intro u hu a hr hea
       have hall := (huses u (by simpa using (mem_usesOf info u).mpr hu)).2
       have hax : a ∈ i.tables.axiomSet u :=
@@ -1042,7 +1051,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   have hmod : f.moduleOf? n = some lm.name := moduleOf?_eq_some.mpr ⟨lm, hinfo, rfl⟩
   have hcl : lm.name ∈ f.claimed :=
     (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
-  obtain ⟨h1, h2, h3, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2.2 n k lm.name hk hmod hcl
+  obtain ⟨h1, h2, h3, hfix, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2.2 n k lm.name hk hmod hcl
   simp only [Regula.Load.readOf, Prod.mk.injEq] at hread
   obtain ⟨hkind, hsafety, huses, hvalue⟩ := hread
   have hsafe : k.isUnsafe = info.isUnsafe ∧ k.isPartial = info.isPartial := by
@@ -1054,7 +1063,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
       exact absurd (not_unsafe_of_partial c hq) (by simp [hu])
     rw [(hb k).1, (hb k).2, (hb info).1, (hb info).2, hsafety]
     exact ⟨rfl, rfl⟩
-  refine ⟨shown_unreplaced hshown himpl hext, fun hdef => ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨shown_unreplaced hshown himpl hext, fun hdef => ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · have hki : Regula.Load.kindOf info = .definition := (kindOf_definition info).mpr hdef
     exact shown_uninitialized hshown hki (hinit ((kindOf_definition k).mp (hkind.trans hki)))
   · rintro v rfl
@@ -1067,6 +1076,11 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
     exact ⟨hsafe.2 ▸ hpart, hsafe.1 ▸ hsf⟩
   · intro l hl' hv
     exact h3 l hl' ((mem_valueUsesOf k l).mp (hvalue ▸ (mem_valueUsesOf info l).mpr hv))
+  · intro hrun hv
+    have hrun' : (∃ v, k = .defnInfo v) ∨ (∃ v, k = .opaqueInfo v) := by
+      rcases hrun with ⟨v, rfl⟩ | ⟨v, rfl⟩ <;> cases k <;> simp [Regula.Load.kindOf] at hkind ⊢
+    exact hfix hrun' ((mem_valueUsesOf k ``Lean.Order.fix).mp
+      (hvalue ▸ (mem_valueUsesOf info ``Lean.Order.fix).mpr hv))
   · intro hrun u hv
     have hrun' : (∃ v, k = .defnInfo v) ∨ (∃ v, k = .opaqueInfo v) := by
       rcases hrun with ⟨v, rfl⟩ | ⟨v, rfl⟩ <;> cases k <;> simp [Regula.Load.kindOf] at hkind ⊢

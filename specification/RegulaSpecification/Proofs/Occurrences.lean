@@ -10,7 +10,7 @@ statement names what it rests on ({lit}`pass_occurs`, {lit}`claimedConstants_com
 
 {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` runs an `opaque` function that {attr}`@[implemented_by]` replaces
 ({lit}`Lean/Util/FoldConsts.lean`), so no proof can read its body. {name (full := RegulaSpecification.Loader.pass_iff)}`pass_iff` is therefore stated over
-what that function gives. {lit}`pass_occurs` states the RG1005 and loop parts of the floor over the constants that occur in
+what that function gives. {lit}`pass_occurs` states the RG1005, loop and {name}`Lean.Order.fix` parts of the floor over the constants that occur in
 an expression, {lit}`OccursIn`, which reads no Lean function, with the fact about Lean as a
 hypothesis. {lit}`UsedConstantsComplete` is that fact, so a reader sees it in the theorem's statement.
 -/
@@ -125,9 +125,11 @@ theorem pass_occurs (hused : UsedConstantsComplete)
     {info : ConstantInfo} (hn : f.env.constants.map₁[n]? = some info)
     (hm : f.moduleOf? n = some m) (hc : m ∈ f.claimed) :
     (∀ l ∈ loopConstructs, ¬ ValueOccurs info l) ∧
+      ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueOccurs info ``Lean.Order.fix) ∧
       ∀ a, OccursReaches f n a → EnvAxiom f a → EnvAdmits f p a := by
-  obtain ⟨-, h6, h7, h8, -⟩ := (pass_floor h).2.2.2.2.2 n info m hn hm hc
+  obtain ⟨-, h6, h7, hfix, h8, -⟩ := (pass_floor h).2.2.2.2.2 n info m hn hm hc
   exact ⟨fun l hl ho => h7 l hl (valueMentions_of_occurs hused ho),
+    fun hrun ho => hfix hrun (valueMentions_of_occurs hused ho),
     fun a hr hax => h8 a (envReaches_of_occurs hused hr) hax⟩
 
 /-- Each pair of {lit}`constNames.zip constants` of each claimed module is one that {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants` lists, and so one that
