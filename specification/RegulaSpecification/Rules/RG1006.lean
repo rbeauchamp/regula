@@ -19,12 +19,12 @@ needs no `partial` of the module that uses it: it compiles through a private `pa
 either: the compiler reads `f._unsafe_rec` in place of {lit}`f` by its name alone ({lit}`getDeclInfo?`,
 {lit}`Lean/Compiler/LCNF/ToDecl.lean:25-27`). A {lit}`partial_fixpoint` definition elaborates
 as a safe definition whose value mentions {name}`Lean.Order.fix` ({lit}`Lean/Meta/Order.lean:52-54`,
-{lit}`Init/Internal/Order/Basic.lean:486`), and, unless it is marked {lit}`noncomputable`, its executable
-code compiles through a `partial` {lit}`._unsafe_rec` helper
+{lit}`Init/Internal/Order/Basic.lean:486`), and, when no definition in the block is a theorem or marked
+{lit}`noncomputable`, its executable code compiles through a `partial` {lit}`._unsafe_rec` helper
 ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:103-111,191,220`,
 {lit}`Lean/Elab/PreDefinition/Basic.lean:134-135,280-296`). The fourth clause reads only definitions and
 opaque constants, so that mention alone refuses no theorem, such as a realized dependency {lit}`.eq_def`
-lemma ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Eqns.lean:52-120`), and it reads
+lemma ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Eqns.lean:28-44,52-120`), and it reads
 {name}`Lean.Order.fix` alone, so it refuses no mention of {name}`Lean.Order.lfp_monotone`, which
 {lit}`inductive_fixpoint`, {lit}`coinductive_fixpoint` and {lit}`coinductive` predicates use. The other
 three clauses read each claimed constant, whatever its kind.
@@ -35,7 +35,8 @@ exempts it from those two only: one whose value mentions a loop construct, or th
 constant whose value mentions {name}`Lean.Order.fix`, is refused. It is
 the form of what Lean's elaborator adds for a safe recursive definition, which is why it is exempted, and it
 is a form and nothing else. The input holds nothing of who produced a constant, so one of this form that a
-module's own code adds during the build is admitted too, and no rule reads what it computes.
+module's own code adds during the build (whose value mentions neither a loop construct nor
+{name}`Lean.Order.fix`) is admitted by RG1006 too, and no rule reads what else it computes.
 {lit}`helperForm_unreached` states why it cannot change what the proof verdict claims, under H6.
 {name (full := Regula.Rules.RG1006.check)}`Regula.Rules.RG1006.check` is the function that the checker runs.
 -/
@@ -234,12 +235,6 @@ theorem rg1006_admits_type_mention :
   rintro ⟨l, -, h⟩
   simp [plain] at h
 
-/-- {name}`Lean.Order.fix`, a definition of the toolchain. -/
-def orderFixDecl : Decl := toolchain ``Lean.Order.fix .definition
-
-/-- {name}`Lean.Order.lfp_monotone`, a definition of the toolchain. -/
-def lfpMonotoneDecl : Decl := toolchain ``Lean.Order.lfp_monotone .definition
-
 /-- A safe definition of a claimed module whose value mentions {name}`Lean.Order.fix`, as
 {lit}`partial_fixpoint` elaborates one. -/
 def fixDef : Decl :=
@@ -267,14 +262,15 @@ def fixTypeOnly : Decl := plain `Good.fixType `Good .definition [``Lean.Order.fi
 a theorem mentioning {name}`Lean.Order.fix` ({name}`fixThm`), a {name}`Lean.Order.lfp_monotone` predicate
 ({name}`lfpDef`), and a type-only mention ({name}`fixTypeOnly`). -/
 def withFixpoint : Input :=
-  withDecls [orderFixDecl, lfpMonotoneDecl, fixDef, fixOpaque, fixThm, lfpDef, fixTypeOnly]
-    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, orderFixDecl, lfpMonotoneDecl,
-      fixDef, fixOpaque, fixThm, lfpDef, fixTypeOnly])
+  withDecls [toolchain ``Lean.Order.fix .definition, toolchain ``Lean.Order.lfp_monotone .definition,
+      fixDef, fixOpaque, fixThm, lfpDef, fixTypeOnly]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, fixDef, fixOpaque, fixThm,
+      lfpDef, fixTypeOnly])
 
 theorem wf_withFixpoint : withFixpoint.WellFormed :=
   wf_withDecls _ _
-    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, orderFixDecl,
-      lfpMonotoneDecl, fixDef, fixOpaque, fixThm, lfpDef, fixTypeOnly]))
+    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, fixDef, fixOpaque,
+      fixThm, lfpDef, fixTypeOnly]))
 
 /-- A claimed definition whose value directly mentions {name}`Lean.Order.fix` is refused. -/
 theorem rg1006_refuses_fix_def : Violates1006 withFixpoint `Good.fixDef :=

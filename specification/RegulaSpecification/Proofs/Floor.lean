@@ -163,7 +163,7 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   claims : ∃ m, a.Claimed m
   /-- Each claimed module is a {lit}`module` file. -/
   moduleFiles : ∀ m, a.Claimed m → EnvModuleFile a.env m
-  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, does not mention {name}`Lean.Order.fix` when it is a definition or an opaque constant, reaches only axioms that the profile admits,
+  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, has a value that does not mention {name}`Lean.Order.fix` when it is a definition or an opaque constant, reaches only axioms that the profile admits,
   has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
   constant, has a value that mentions no panic form. -/
   floor : ∀ n info m, a.env.constants.map₁[n]? = some info → (a.place? n).map (·.1) = some m → a.Claimed m →
