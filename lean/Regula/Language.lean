@@ -183,6 +183,23 @@ def treeRelative (base path : List String) : Option (List String) :=
     if rel.all (fun c => !c.isEmpty && c.front != '.') then some rel else none
   else none
 
+/-- Whether each key path of `lakefile.toml` either has root `require` or lies in the closed set. -/
+def configKeysClosed (keys : List Name) : Bool :=
+  keys.all fun k => k.getRoot == `require || configKeyAdmitted k
+
+/-- Whether a project's configuration is closed: the pinned toolchain, no `lakefile.lean`, no path outside
+the closed domain, and each key whose root is not `require` in the closed set. -/
+def configIsClosed (toolchainFile : Option String) (leanConfig : Bool) (openPaths : List String)
+    (configKeys : List Name) : Bool :=
+  toolchainFile == some leanToolchain && !leanConfig && openPaths.isEmpty &&
+    configKeysClosed configKeys
+
+/-- Whether what was read covers a claim: there is a claim, each root is reached, each module reached has a
+name in the closed domain, and each has its file read. -/
+def covers (roots reached : List Name) (files : List FileRead) : Bool :=
+  !roots.isEmpty && roots.all reached.contains && reached.all closedModuleName &&
+    reached.all fun m => files.any (·.module == m)
+
 namespace Reading
 
 variable (r : Reading)
@@ -190,8 +207,7 @@ variable (r : Reading)
 /-- The pinned toolchain, no `lakefile.lean`, no path outside the closed domain, and each key whose root is
 not `require` in the closed set. -/
 def configClosed : Bool :=
-  r.toolchainFile == some leanToolchain && !r.leanConfig && r.openPaths.isEmpty &&
-    r.configKeys.all fun k => k.getRoot == `require || configKeyAdmitted k
+  configIsClosed r.toolchainFile r.leanConfig r.openPaths r.configKeys
 
 /-- Nothing failed to read. -/
 def readInFull : Bool :=
@@ -205,11 +221,9 @@ def requiresDependency : Bool :=
 def mathlibReached : Bool :=
   r.reached.any (·.getRoot == `Mathlib)
 
-/-- There is a claim, each root is reached, each module reached has a name in the closed domain, and each
-has its file read. -/
+/-- The roots, the modules reached and the files read cover a claim. -/
 def covered : Bool :=
-  !r.roots.isEmpty && r.roots.all r.reached.contains && r.reached.all closedModuleName &&
-    r.reached.all fun m => r.files.any (·.module == m)
+  covers r.roots r.reached r.files
 
 /-- Each file read is in the closed language. -/
 def filesAdmitted : Bool :=
@@ -226,6 +240,155 @@ def decision (r : Reading) : Outcome :=
   else if !r.covered then .incomplete
   else if !r.filesAdmitted then .refused
   else .admitted
+
+/-- The key paths of a `lakefile.toml`, each in the closed set and none with the root `require`. -/
+structure ClosedConfig where
+  /-- The key paths of `lakefile.toml`. -/
+  keys : List Name
+  /-- Each key path is in the closed set. -/
+  admitted : keys.all configKeyAdmitted = true
+  /-- No key path has root `require`. -/
+  noRequire : keys.any (·.getRoot == `require) = false
+
+namespace ClosedConfig
+
+/-- The empty closed configuration, with no key paths. -/
+def empty : ClosedConfig := ⟨[], rfl, rfl⟩
+
+theorem keys_closed (cfg : ClosedConfig) : configKeysClosed cfg.keys = true := by
+  simp only [configKeysClosed, List.all_eq_true, Bool.or_eq_true]
+  intro k hk
+  exact .inr (List.all_eq_true.mp cfg.admitted k hk)
+
+end ClosedConfig
+
+/-- The phased result of reading a project before compiling it. Each constructor fixes its outcome by its own
+invariant, so early exits cannot construct half-populated `Reading` records whose phase `decision` must later
+reconstruct (`Stage.decision_toReading`). -/
+inductive Stage where
+  /-- The configuration is outside the closed set (wrong toolchain, `lakefile.lean`, open path or bad key). -/
+  | configRefused (toolchainFile : Option String) (leanConfig : Bool) (configKeys : List Name)
+      (openPaths : List String) (unread : List (Name × String))
+      (h : configIsClosed toolchainFile leanConfig openPaths configKeys = false)
+  /-- The configuration is closed, and something failed to read. -/
+  | unread (cfg : ClosedConfig) (roots reached : List Name) (unread : List (Name × String))
+      (hne : unread.isEmpty = false)
+  /-- The configuration is closed, nothing failed to read, and `lakefile.toml` has a `require` key. -/
+  | dependency (configKeys : List Name)
+      (hclosed : configKeysClosed configKeys = true)
+      (hreq : configKeys.any (·.getRoot == `require) = true)
+  /-- The configuration is closed with no dependency, the walk read in full, and Mathlib was reached. -/
+  | mathlib (cfg : ClosedConfig) (roots reached : List Name)
+      (hmathlib : reached.any (·.getRoot == `Mathlib) = true)
+  /-- The walk read in full without Mathlib and files were parsed, but coverage failed. -/
+  | uncovered (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
+      (hnomath : reached.any (·.getRoot == `Mathlib) = false)
+      (huncov : covers roots reached files = false)
+  /-- Coverage holds without Mathlib, and some parsed file is outside the closed language. -/
+  | filesRefused (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
+      (hnomath : reached.any (·.getRoot == `Mathlib) = false)
+      (hcov : covers roots reached files = true)
+      (hbad : files.all (·.admitted) = false)
+  /-- Every phase passed and every file is in the closed language. -/
+  | admitted (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
+      (hnomath : reached.any (·.getRoot == `Mathlib) = false)
+      (hcov : covers roots reached files = true)
+      (hadm : files.all (·.admitted) = true)
+
+namespace Stage
+
+/-- The `Reading` that a phased stage represents. -/
+def toReading : Stage → Reading
+  | .configRefused toolchainFile leanConfig configKeys openPaths errs _ =>
+    { toolchainFile, leanConfig, configKeys, openPaths, roots := [], reached := [], files := [], unread := errs }
+  | .unread cfg roots reached errs _ =>
+    { toolchainFile := some leanToolchain, leanConfig := false, configKeys := cfg.keys,
+      openPaths := [], roots, reached, files := [], unread := errs }
+  | .dependency configKeys _ _ =>
+    { toolchainFile := some leanToolchain, leanConfig := false, configKeys,
+      openPaths := [], roots := [], reached := [], files := [], unread := [] }
+  | .mathlib cfg roots reached _ =>
+    { toolchainFile := some leanToolchain, leanConfig := false, configKeys := cfg.keys,
+      openPaths := [], roots, reached, files := [], unread := [] }
+  | .uncovered cfg roots reached files _ _
+  | .filesRefused cfg roots reached files _ _ _
+  | .admitted cfg roots reached files _ _ _ =>
+    { toolchainFile := some leanToolchain, leanConfig := false, configKeys := cfg.keys,
+      openPaths := [], roots, reached, files, unread := [] }
+
+/-- The outcome fixed by the stage constructor alone. -/
+def outcome : Stage → Outcome
+  | .configRefused .. | .filesRefused .. => .refused
+  | .unread .. | .uncovered .. => .incomplete
+  | .dependency .. | .mathlib .. => .proofOnly
+  | .admitted .. => .admitted
+
+theorem decision_toReading (s : Stage) : decision s.toReading = s.outcome := by
+  cases s with
+  | configRefused _ _ _ _ _ h =>
+    simp [toReading, outcome, decision, Reading.configClosed, h]
+  | unread cfg _ _ _ hne =>
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull, cfg.keys_closed, hne]
+  | dependency _ hc hr =>
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
+      Reading.requiresDependency, hc, hr]
+  | mathlib cfg _ _ hm =>
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
+      Reading.requiresDependency, Reading.mathlibReached, cfg.keys_closed, cfg.noRequire, hm]
+  | uncovered cfg _ _ _ hm hc =>
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
+      Reading.requiresDependency, Reading.mathlibReached, Reading.covered,
+      cfg.keys_closed, cfg.noRequire, hm, hc]
+  | filesRefused cfg _ _ _ hm hc hf =>
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
+      Reading.requiresDependency, Reading.mathlibReached, Reading.covered, Reading.filesAdmitted,
+      cfg.keys_closed, cfg.noRequire, hm, hc, hf]
+  | admitted cfg _ _ _ hm hc hf =>
+    simp [toReading, outcome, decision, Reading.configClosed, configIsClosed, Reading.readInFull,
+      Reading.requiresDependency, Reading.mathlibReached, Reading.covered, Reading.filesAdmitted,
+      cfg.keys_closed, cfg.noRequire, hm, hc, hf]
+
+/-- Early unread stop before TOML keys are parsed: `incomplete` when `lean-toolchain` is pinned,
+and `refused` otherwise. -/
+def earlyUnread (toolchainFile : Option String) (why : String) : Stage :=
+  match ht : toolchainFile == some leanToolchain with
+  | true => .unread ClosedConfig.empty [] [] [(`config, why)] rfl
+  | false => .configRefused toolchainFile false [] [] [(`config, why)] (by simp [configIsClosed, ht])
+
+/-- Stop because `lakefile.lean` exists. -/
+def mkLeanConfig (toolchainFile : Option String) : Stage :=
+  .configRefused toolchainFile true [] [] [] (by simp [configIsClosed])
+
+/-- Stop because the loaded configuration names an open path, non-single glob or non-library target. -/
+def mkOpenPaths (cfg : ClosedConfig) (paths : List String) (hne : paths.isEmpty = false) : Stage :=
+  .configRefused (some leanToolchain) false cfg.keys paths [] (by simp [configIsClosed, hne])
+
+/-- Classify the toolchain and TOML key paths into either a stopping stage (`refused` or `proofOnly`)
+or a closed configuration with no dependency. -/
+def ofConfig (toolchainFile : Option String) (keys : List Name) : Except Stage ClosedConfig :=
+  match hc : configIsClosed toolchainFile false [] keys with
+  | false => .error (.configRefused toolchainFile false keys [] [] hc)
+  | true =>
+    match hr : keys.any (·.getRoot == `require) with
+    | true => .error (.dependency keys (by simp only [configIsClosed, Bool.and_eq_true] at hc; exact hc.2) hr)
+    | false => .ok ⟨keys, by
+        simp only [configIsClosed, configKeysClosed, Bool.and_eq_true, List.all_eq_true, List.any_eq_false] at hc hr ⊢
+        intro k hk
+        cases hreq : k.getRoot == `require with
+        | true => exact absurd hreq (hr k hk)
+        | false => simpa [hreq] using hc.2 k hk, hr⟩
+
+/-- Classify parsed files after a full Mathlib-free walk into `uncovered`, `filesRefused` or `admitted`. -/
+def ofFiles (cfg : ClosedConfig) (roots reached : List Name) (files : List FileRead)
+    (hnomath : reached.any (·.getRoot == `Mathlib) = false) : Stage :=
+  match hc : covers roots reached files with
+  | false => .uncovered cfg roots reached files hnomath hc
+  | true =>
+    match hf : files.all (·.admitted) with
+    | false => .filesRefused cfg roots reached files hnomath hc hf
+    | true => .admitted cfg roots reached files hnomath hc hf
+
+end Stage
 
 /-- The order of the full gate, over any monad: `read` first, and `build` and `rules` only for an
 admitted project. -/

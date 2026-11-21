@@ -29,14 +29,10 @@ variable {L E : Type}
 def Clean (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, ¬ e.failed
 
-theorem clean_nil : Clean (L := L) (E := E) [] := by
-  intro e he
-  cases he
+theorem clean_nil : Clean (L := L) (E := E) [] := fun _ h => nomatch h
 
 theorem clean_one {e : Event L E} (h : ¬ e.failed) : Clean [e] := by
-  intro x hx
-  obtain rfl := List.mem_singleton.mp hx
-  exact h
+  intro x hx; rw [List.mem_singleton.mp hx]; exact h
 
 /-- No event of a literal list of events with successful answers failed. -/
 macro "clean_events" : tactic =>
@@ -46,21 +42,40 @@ macro "clean_events" : tactic =>
     (repeat' rcases hx with rfl | hx) <;> subst_vars <;> (rintro ⟨y, hy⟩; cases hy)))
 
 theorem Clean.append {a b : List (Event L E)} (ha : Clean a) (hb : Clean b) : Clean (a ++ b) := by
-  intro e he
-  rcases List.mem_append.mp he with he | he
+  intro e he; rcases List.mem_append.mp he with he | he
   · exact ha e he
   · exact hb e he
+
+theorem mem_of_lookup {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β)} {a : α} {b : β}
+    (h : l.lookup a = some b) : (a, b) ∈ l := by
+  induction l with
+  | nil => simp at h
+  | cons x xs ih =>
+    obtain ⟨k, v⟩ := x
+    simp only [List.lookup_cons] at h
+    cases hk : a == k <;> simp_all [List.mem_cons]
+
+theorem lookup_of_mem {α β : Type} [BEq α] [LawfulBEq α] {l : List (α × β)} {a : α} {b : β}
+    (hn : (l.map (·.1)).Nodup) (h : (a, b) ∈ l) : l.lookup a = some b := by
+  induction l with
+  | nil => cases h
+  | cons x xs ih =>
+    obtain ⟨k, v⟩ := x
+    simp only [List.map_cons, List.nodup_cons, List.lookup_cons, List.mem_cons] at hn h ⊢
+    rcases h with he | h
+    · cases he; simp
+    · have hne : (a == k) = false := by
+        simp only [beq_eq_false_iff_ne]
+        rintro rfl
+        exact hn.1 (List.mem_map.mpr ⟨(a, b), h, rfl⟩)
+      rw [hne]; exact ih hn.2 h
 
 theorem mem_tablesIn {xs : Array Lake.Toml.Value} {sub : Lake.Toml.Table} :
     sub ∈ tablesIn xs ↔ ∃ r, Lake.Toml.Value.table r sub ∈ xs := by
   simp only [tablesIn, List.mem_filterMap, Array.mem_toList_iff]
   constructor
-  · rintro ⟨x, hx, h⟩
-    cases x <;> simp at h
-    subst h
-    exact ⟨_, hx⟩
-  · rintro ⟨r, h⟩
-    exact ⟨_, h, rfl⟩
+  · rintro ⟨x, hx, h⟩; cases x <;> simp_all; exact ⟨_, hx⟩
+  · rintro ⟨r, h⟩; exact ⟨_, h, rfl⟩
 
 theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
     (h : k ∈ keysOf fuel pre t) : KeyPath pre t k ∨ Deeper fuel t := by
@@ -69,20 +84,11 @@ theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
   | succ fuel ih =>
     simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff] at h
     obtain ⟨⟨tk, v⟩, hm, hk⟩ := h
-    have under_sound : ∀ (sub : Lake.Toml.Table),
-        k ∈ (if sub.items.isEmpty then [pre ++ tk] else keysOf fuel (pre ++ tk) sub) →
+    have under_sound (sub : Lake.Toml.Table)
+        (hs : k ∈ if sub.items.isEmpty then [pre ++ tk] else keysOf fuel (pre ++ tk) sub) :
         (sub.items.isEmpty = true ∧ k = pre ++ tk) ∨ KeyPath (pre ++ tk) sub k ∨
           (sub.items.isEmpty = false ∧ Deeper fuel sub) := by
-      intro sub hs
-      cases he : sub.items.isEmpty with
-      | true =>
-        simp only [he, ite_true, List.mem_singleton] at hs
-        exact .inl ⟨rfl, hs⟩
-      | false =>
-        simp only [he, Bool.false_eq_true, ite_false] at hs
-        rcases ih _ _ _ hs with h' | h'
-        · exact .inr (.inl h')
-        · exact .inr (.inr ⟨rfl, h'⟩)
+      cases he : sub.items.isEmpty <;> simp_all
     cases v with
     | table' r sub =>
       rcases under_sound sub hk with ⟨he, rfl⟩ | h' | ⟨he, h'⟩
@@ -93,25 +99,22 @@ theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
       simp only at hk
       split at hk
       · rename_i hempty
-        have hk' : k = pre ++ tk := by simpa using hk
-        subst hk'
+        have : k = pre ++ tk := by simpa using hk
+        subst this
         refine .inl (.leaf hm (by simp) ?_)
-        rintro r' xs' he r'' sub hin
+        rintro _ _ he _ sub hin
         cases he
-        have hmem : sub ∈ tablesIn xs := mem_tablesIn.mpr ⟨_, hin⟩
-        rw [List.isEmpty_iff.mp hempty] at hmem
-        cases hmem
-      · simp only [List.mem_flatMap] at hk
-        obtain ⟨sub, hsub, hu⟩ := hk
-        obtain ⟨r2, hx⟩ := mem_tablesIn.mp hsub
+        have hmem := mem_tablesIn.mpr ⟨_, hin⟩
+        rw [List.isEmpty_iff.mp hempty] at hmem; cases hmem
+      · obtain ⟨sub, hsub, hu⟩ := List.mem_flatMap.mp hk
+        obtain ⟨_, hx⟩ := mem_tablesIn.mp hsub
         rcases under_sound _ hu with ⟨he, rfl⟩ | h' | ⟨he, h'⟩
         · exact .inl (.emptyIn hm hx he)
         · exact .inl (.underIn hm hx h')
         · exact .inr (.array hm hx he h')
-    | string r s | integer r i | float r f | boolean r b | dateTime r d =>
-      have hk' : k = pre ++ tk := by simpa using hk
-      subst hk'
-      exact .inl (.leaf hm (by simp) (by simp))
+    | string _ _ | integer _ _ | float _ _ | boolean _ _ | dateTime _ _ =>
+      have : k = pre ++ tk := by simpa using hk
+      subst this; exact .inl (.leaf hm (by simp) (by simp))
 
 /-- What the reader adds for a table deeper than it follows: a key whose last component is {lit}`too deep`. -/
 def IsDeepKey (k : Name) : Prop :=
@@ -121,111 +124,74 @@ theorem keysOf_deep {fuel : Nat} {pre : Name} {t : Lake.Toml.Table} (h : Deeper 
     ∃ k ∈ keysOf fuel pre t, IsDeepKey k := by
   induction h generalizing pre with
   | zero => exact ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
-  | @table n k r sub t hm he _ ih =>
+  | @table _ k r sub _ hm he _ ih =>
     obtain ⟨d, hd, hdeep⟩ := ih (pre := pre ++ k)
+    exact ⟨d, by simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]; exact ⟨(k, .table r sub), hm, by simpa [he] using hd⟩, hdeep⟩
+  | @array _ k r xs _ sub _ hm hx he _ ih =>
+    obtain ⟨d, hd, hdeep⟩ := ih (pre := pre ++ k)
+    have hsub := mem_tablesIn.mpr ⟨_, hx⟩
+    have hne : (tablesIn xs).isEmpty = false := by cases hl : tablesIn xs <;> simp_all
     refine ⟨d, ?_, hdeep⟩
     simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
-    exact ⟨(k, .table r sub), hm, by simpa [he] using hd⟩
-  | @array n k r xs r' sub t hm hx he _ ih =>
-    obtain ⟨d, hd, hdeep⟩ := ih (pre := pre ++ k)
-    refine ⟨d, ?_, hdeep⟩
-    simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
-    refine ⟨(k, .array r xs), hm, ?_⟩
-    have hsub : sub ∈ tablesIn xs := mem_tablesIn.mpr ⟨_, hx⟩
-    have hne : (tablesIn xs).isEmpty = false := by
-      cases hl : tablesIn xs with
-      | nil => rw [hl] at hsub; cases hsub
-      | cons _ _ => rfl
-    simp only [hne, Bool.false_eq_true, ite_false, List.mem_flatMap]
-    exact ⟨sub, hsub, by simpa [he] using hd⟩
+    exact ⟨(k, .array r xs), hm, by simp only [hne, Bool.false_eq_true, ite_false, List.mem_flatMap]; exact ⟨sub, hsub, by simpa [he] using hd⟩⟩
 
 theorem KeyPath.nonempty {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPath pre t n) : t.items.isEmpty = false := by
   cases he : t.items.isEmpty with
   | false => rfl
-  | true =>
-    have hnil : t.items = #[] := Array.isEmpty_iff.mp he
-    cases h <;> simp_all
+  | true => have := Array.isEmpty_iff.mp he; cases h <;> simp_all
 
 theorem keysOf_complete {pre : Name} {t : Lake.Toml.Table} {n : Name} (h : KeyPath pre t n) :
     ∀ fuel, n ∈ keysOf fuel pre t ∨ ∃ k ∈ keysOf fuel pre t, IsDeepKey k := by
-  have zero : ∀ {pre : Name} {t : Lake.Toml.Table}, ∃ k ∈ keysOf 0 pre t, IsDeepKey k :=
-    fun {pre} _ => ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
+  have zero {pre : Name} {t : Lake.Toml.Table} : ∃ k ∈ keysOf 0 pre t, IsDeepKey k :=
+    ⟨.str pre "too deep", by simp [keysOf], pre, rfl⟩
   induction h with
   | @leaf pre k v t hm hv ha =>
-    intro fuel
-    cases fuel with
-    | zero => exact .inr zero
-    | succ fuel =>
-      left
-      simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
-      refine ⟨(k, v), hm, ?_⟩
+    rintro (_ | fuel)
+    · exact .inr zero
+    · left; simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]; refine ⟨(k, v), hm, ?_⟩
       cases v with
       | table' r sub => exact absurd rfl (hv r sub)
       | array r xs =>
-        have hnone : tablesIn xs = [] := by
-          apply List.eq_nil_iff_forall_not_mem.mpr
-          intro sub hsub
-          obtain ⟨r2, hx⟩ := mem_tablesIn.mp hsub
-          exact ha r xs rfl _ _ hx
+        have hnone : tablesIn xs = [] := List.eq_nil_iff_forall_not_mem.mpr fun _ hs =>
+          let ⟨_, hx⟩ := mem_tablesIn.mp hs; ha r xs rfl _ _ hx
         simp [hnone]
       | string | integer | float | boolean | dateTime => simp
   | @empty pre k r sub t hm he =>
-    intro fuel
-    cases fuel with
-    | zero => exact .inr zero
-    | succ fuel =>
-      left
-      simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
-      exact ⟨(k, .table r sub), hm, by simp [he]⟩
+    rintro (_ | fuel)
+    · exact .inr zero
+    · exact .inl (by simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]; exact ⟨(k, .table r sub), hm, by simp [he]⟩)
   | @under pre k r sub t n hm hn ih =>
-    intro fuel
-    cases fuel with
-    | zero => exact .inr zero
-    | succ fuel =>
-      have hin {x : Name} (hx : x ∈ keysOf fuel (pre ++ k) sub) : x ∈ keysOf (fuel + 1) pre t := by
+    rintro (_ | fuel)
+    · exact .inr zero
+    · have hin {x} (hx : x ∈ keysOf fuel (pre ++ k) sub) : x ∈ keysOf (fuel + 1) pre t := by
         simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
         exact ⟨(k, .table r sub), hm, by simpa [hn.nonempty] using hx⟩
       exact (ih fuel).imp hin fun ⟨d, hd, hdeep⟩ => ⟨d, hin hd, hdeep⟩
-  | @emptyIn pre k r xs r' sub t hm hx he =>
-    intro fuel
-    cases fuel with
-    | zero => exact .inr zero
-    | succ fuel =>
-      left
-      simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
-      refine ⟨(k, .array r xs), hm, ?_⟩
-      have hsub : sub ∈ tablesIn xs := mem_tablesIn.mpr ⟨_, hx⟩
-      simp only
+  | @emptyIn pre k r xs _ sub t hm hx he =>
+    rintro (_ | fuel)
+    · exact .inr zero
+    · left; simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]; refine ⟨(k, .array r xs), hm, ?_⟩
+      have hsub := mem_tablesIn.mpr ⟨_, hx⟩
+      dsimp only
       split
       · simp
-      · simp only [List.mem_flatMap]
-        exact ⟨sub, hsub, by simp [he]⟩
-  | @underIn pre k r xs r' sub t n hm hx hn ih =>
-    intro fuel
-    cases fuel with
-    | zero => exact .inr zero
-    | succ fuel =>
-      have hsub : sub ∈ tablesIn xs := mem_tablesIn.mpr ⟨_, hx⟩
-      have hin {x : Name} (hx' : x ∈ keysOf fuel (pre ++ k) sub) : x ∈ keysOf (fuel + 1) pre t := by
-        simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]
-        refine ⟨(k, .array r xs), hm, ?_⟩
-        simp only
-        split
-        · rename_i hempty
-          rw [List.isEmpty_iff.mp hempty] at hsub
-          cases hsub
-        · simp only [List.mem_flatMap]
-          exact ⟨sub, hsub, by simpa [hn.nonempty] using hx'⟩
+      · exact List.mem_flatMap.mpr ⟨sub, hsub, by simp [he]⟩
+  | @underIn pre k r xs _ sub t n hm hx hn ih =>
+    rintro (_ | fuel)
+    · exact .inr zero
+    · have hsub := mem_tablesIn.mpr ⟨_, hx⟩
+      have hin {x} (hx' : x ∈ keysOf fuel (pre ++ k) sub) : x ∈ keysOf (fuel + 1) pre t := by
+        simp only [keysOf, List.mem_flatMap, Array.mem_toList_iff]; refine ⟨(k, .array r xs), hm, ?_⟩
+        dsimp only; split
+        · rename_i he; rw [List.isEmpty_iff.mp he] at hsub; cases hsub
+        · exact List.mem_flatMap.mpr ⟨sub, hsub, by simpa [hn.nonempty] using hx'⟩
       exact (ih fuel).imp hin fun ⟨d, hd, hdeep⟩ => ⟨d, hin hd, hdeep⟩
 
 theorem deepKey_not_admitted {k : Name} (h : IsDeepKey k) : ¬ ConfigKeyAdmitted k := by
   obtain ⟨pre, rfl⟩ := h
-  have hlast : ∀ q : Name, (Name.str q "too deep").getString! = "too deep" := fun _ => rfl
   rintro (h | ⟨o, ho, he⟩)
-  · have : ∀ k ∈ configKeys, k.getString! ≠ "too deep" := by decide +kernel
-    exact this _ h (hlast pre)
-  · have : ∀ o ∈ options, (`leanOptions ++ o).getString! ≠ "too deep" := by decide +kernel
-    exact this o ho (he ▸ hlast pre)
+  · exact (by decide +kernel : ∀ k ∈ configKeys, k.getString! ≠ "too deep") _ h rfl
+  · exact (by decide +kernel : ∀ o ∈ options, (`leanOptions ++ o).getString! ≠ "too deep") o ho (he ▸ rfl)
 
 /-- What the imports of the modules outside {lit}`seen` can still add to the search. -/
 def remaining : List (Name × Array Import) → List Name → Nat
@@ -236,25 +202,13 @@ theorem remaining_nil (hs : List (Name × Array Import)) :
     remaining hs [] = (hs.map (·.2.size)).sum := by
   induction hs with
   | nil => rfl
-  | cons x hs ih =>
-    obtain ⟨k, v⟩ := x
-    simp [remaining, ih]
+  | cons x hs ih => simp [remaining, ih]
 
 theorem remaining_mono (hs : List (Name × Array Import)) (seen : List Name) (m : Name) :
     remaining hs (m :: seen) ≤ remaining hs seen := by
   induction hs with
   | nil => exact Nat.le_refl _
-  | cons x hs ih =>
-    obtain ⟨k, v⟩ := x
-    simp only [remaining]
-    by_cases h1 : seen.contains k = true
-    · have h2 : (m :: seen).contains k = true := by
-        simp only [List.contains_cons, Bool.or_eq_true]
-        exact .inr h1
-      simp only [h1, h2, ite_true]
-      omega
-    · simp only [h1, Bool.false_eq_true, ite_false]
-      split <;> omega
+  | cons x hs ih => simp only [remaining]; split <;> split <;> simp_all <;> omega
 
 theorem remaining_step (hs : List (Name × Array Import)) (seen : List Name) (m : Name)
     (hm : seen.contains m = false) :
@@ -263,27 +217,13 @@ theorem remaining_step (hs : List (Name × Array Import)) (seen : List Name) (m 
   | nil => simp [remaining]
   | cons x hs ih =>
     obtain ⟨k, v⟩ := x
-    simp only [remaining]
+    simp only [remaining, List.lookup_cons]
     by_cases hk : m = k
-    · subst hk
-      have h2 : (m :: seen).contains m = true := by simp
-      simp only [List.lookup_cons_self, Option.getD_some, hm, h2, ite_true, Bool.false_eq_true, ite_false]
-      have := remaining_mono hs seen m
-      omega
+    · subst hk; have := remaining_mono hs seen m
+      simp only [Option.getD_some, List.contains_cons, beq_self_eq_true, Bool.true_or,
+        ite_true, hm, Bool.false_eq_true, ite_false]; omega
     · have hne : (m == k) = false := by simpa using hk
-      simp only [List.lookup_cons, hne]
-      by_cases h1 : seen.contains k = true
-      · have h2 : (m :: seen).contains k = true := by
-          simp only [List.contains_cons, Bool.or_eq_true]
-          exact .inr h1
-        simp only [h1, h2, ite_true]
-        omega
-      · have h2 : (m :: seen).contains k = false := by
-          simp only [List.contains_cons, Bool.or_eq_false_iff]
-          have hk2 : ¬k = m := fun h => hk h.symm
-          exact ⟨by simp [hk2], by simpa using h1⟩
-        simp only [h1, h2, Bool.false_eq_true, ite_false]
-        omega
+      rw [hne]; split <;> split <;> simp_all <;> omega
 
 theorem visible_closed (hs : List (Name × Array Import)) (held : List Name) (fuel : Nat)
     (todo seen : List Name) (hf : todo.length + remaining hs seen ≤ fuel) :
@@ -295,51 +235,30 @@ theorem visible_closed (hs : List (Name × Array Import)) (held : List Name) (fu
           i.module ∈ S := by
   induction fuel generalizing todo seen with
   | zero =>
-    have : todo = [] := by
-      cases todo with
-      | nil => rfl
-      | cons _ _ => simp at hf
-    subst this
-    exact ⟨by simp [visibleToolchain], seen, fun _ h => h, by simp, fun _ h h' => absurd h h'⟩
+    cases todo with
+    | nil => exact ⟨by simp [visibleToolchain], seen, fun _ h => h, by simp, fun _ h h' => absurd h h'⟩
+    | cons _ _ => simp at hf
   | succ fuel ih =>
     cases todo with
-    | nil =>
-      exact ⟨by simp [visibleToolchain], seen, fun _ h => h, by simp, fun _ h h' => absurd h h'⟩
+    | nil => exact ⟨by simp [visibleToolchain], seen, fun _ h => h, by simp, fun _ h h' => absurd h h'⟩
     | cons m rest =>
       simp only [List.length_cons] at hf
       simp only [visibleToolchain]
       by_cases hm : held.contains m = true
       · simp only [hm, ite_true]
         obtain ⟨h1, S, h2, h3, h4⟩ := ih rest seen (by omega)
-        refine ⟨?_, S, h2, ?_, ?_⟩
-        · intro x hx
-          rcases List.mem_cons.mp hx with rfl | hx
-          · simpa using hm
-          · exact h1 x hx
-        · intro n hn
-          rcases List.mem_cons.mp hn with rfl | hn
-          · exact .inl (List.mem_cons_self ..)
-          · rcases h3 n hn with h | h
-            · exact .inl (List.mem_cons_of_mem _ h)
-            · exact .inr h
-        · intro s hs' hns
-          obtain ⟨h5, h6⟩ := h4 s hs' hns
-          refine ⟨h5, fun i hi he => ?_⟩
-          rcases h6 i hi he with h | h
-          · exact .inl (List.mem_cons_of_mem _ h)
-          · exact .inr h
+        refine ⟨List.forall_mem_cons.mpr ⟨List.contains_iff_mem.mp hm, h1⟩, S, h2,
+          List.forall_mem_cons.mpr ⟨.inl (List.mem_cons_self ..),
+            fun n hn => (h3 n hn).imp_left (List.mem_cons_of_mem m)⟩, fun s hs' hns => ?_⟩
+        obtain ⟨h5, h6⟩ := h4 s hs' hns
+        exact ⟨h5, fun i hi he => (h6 i hi he).imp_left (List.mem_cons_of_mem m)⟩
       · simp only [hm, Bool.false_eq_true, ite_false]
         by_cases hsn : seen.contains m = true
         · simp only [hsn, ite_true]
           obtain ⟨h1, S, h2, h3, h4⟩ := ih rest seen (by omega)
-          refine ⟨h1, S, h2, ?_, h4⟩
-          intro n hn
-          rcases List.mem_cons.mp hn with rfl | hn
-          · exact .inr (h2 _ (by simpa using hsn))
-          · exact h3 n hn
+          exact ⟨h1, S, h2, List.forall_mem_cons.mpr ⟨.inr (h2 m (List.contains_iff_mem.mp hsn)), h3⟩, h4⟩
         · simp only [hsn, Bool.false_eq_true, ite_false]
-          have hsn' : seen.contains m = false := by simpa using hsn
-          have hstep := remaining_step hs seen m hsn'
+          have hstep := remaining_step hs seen m (by simpa using hsn)
           have hlen : (((hs.lookup m).getD #[]).toList.filter (·.isExported) |>.map (·.module)).length ≤
               ((hs.lookup m).getD #[]).size := by
             simp only [List.length_map]
@@ -347,19 +266,14 @@ theorem visible_closed (hs : List (Name × Array Import)) (held : List Name) (fu
           obtain ⟨h1, S, h2, h3, h4⟩ := ih
             ((((hs.lookup m).getD #[]).toList.filter (·.isExported) |>.map (·.module)) ++ rest) (m :: seen)
             (by simp only [List.length_append]; omega)
-          refine ⟨h1, S, fun n hn => h2 n (List.mem_cons_of_mem _ hn), ?_, ?_⟩
-          · intro n hn
-            rcases List.mem_cons.mp hn with rfl | hn
-            · exact .inr (h2 _ (List.mem_cons_self ..))
-            · exact h3 n (List.mem_append_right _ hn)
-          · intro s hs' hns
-            by_cases hsm : s = m
-            · subst hsm
-              refine ⟨by simpa using hm, fun i hi he => ?_⟩
-              refine h3 _ (List.mem_append_left _ ?_)
-              simp only [List.mem_map, List.mem_filter]
-              exact ⟨i, ⟨Array.mem_toList_iff.mpr hi, he⟩, rfl⟩
-            · exact h4 s hs' (by simpa [hsm] using hns)
+          refine ⟨h1, S, fun n hn => h2 n (List.mem_cons_of_mem m hn),
+            List.forall_mem_cons.mpr ⟨.inr (h2 m (List.mem_cons_self ..)),
+              fun n hn => h3 n (List.mem_append_right _ hn)⟩, fun s hs' hns => ?_⟩
+          by_cases hsm : s = m
+          · subst hsm
+            refine ⟨by simpa using hm, fun i hi he => h3 _ (List.mem_append_left _ ?_)⟩
+            exact List.mem_map.mpr ⟨i, List.mem_filter.mpr ⟨Array.mem_toList_iff.mpr hi, he⟩, rfl⟩
+          · exact h4 s hs' (by simpa [hsm] using hns)
 
 theorem visible_sound (hs : List (Name × Array Import)) (held : List Name) (fuel : Nat)
     (todo seen : List Name) (x : Name)
@@ -376,13 +290,11 @@ theorem visible_sound (hs : List (Name × Array Import)) (held : List Name) (fue
       · simp only [hm, ite_true] at h
         rcases List.mem_cons.mp h with rfl | h
         · exact ⟨x, List.mem_cons_self .., .self (by simpa using hm)⟩
-        · obtain ⟨n, hn, hs'⟩ := ih rest seen h
-          exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
+        · obtain ⟨n, hn, hs'⟩ := ih rest seen h; exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
       · simp only [hm, Bool.false_eq_true, ite_false] at h
         by_cases hsn : seen.contains m = true
         · simp only [hsn, ite_true] at h
-          obtain ⟨n, hn, hs'⟩ := ih rest seen h
-          exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
+          obtain ⟨n, hn, hs'⟩ := ih rest seen h; exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
         · simp only [hsn, Bool.false_eq_true, ite_false] at h
           obtain ⟨n, hn, hs'⟩ := ih _ _ h
           rcases List.mem_append.mp hn with hn | hn
@@ -404,23 +316,16 @@ theorem mem_visible_iff (hs : List (Name × Array Import)) (held direct : List N
       ∃ m ∈ direct, Sees hs held m x := by
   refine ⟨visible_sound hs held fuel direct [] x, ?_⟩
   rintro ⟨m, hm, hsees⟩
-  have hr : remaining hs [] = (hs.map (·.2.size)).sum := remaining_nil hs
-  obtain ⟨h1, S, -, h3, h4⟩ := visible_closed hs held fuel direct [] (by rw [hr]; exact hf)
+  obtain ⟨h1, S, -, h3, h4⟩ := visible_closed hs held fuel direct [] (by rw [remaining_nil]; exact hf)
   have key : ∀ a b, Sees hs held a b →
       (a ∈ visibleToolchain (fun n => hs.lookup n) held.contains direct [] fuel ∨ a ∈ S) →
       b ∈ visibleToolchain (fun n => hs.lookup n) held.contains direct [] fuel := by
     intro a b hab
     induction hab with
-    | self hn =>
-      rintro (h | h)
-      · exact h
-      · exact absurd hn (h4 _ h (by simp)).1
+    | self hn => rintro (h | h); exact h; exact absurd hn (h4 _ h (by simp)).1
     | @through a imports i b hna hl hi he _ ih =>
-      rintro (h | h)
-      · exact absurd (h1 _ h) hna
-      · refine ih ?_
-        have := (h4 _ h (by simp)).2 i (by simp [hl, hi]) he
-        exact this
+      rintro (h | h); exact absurd (h1 _ h) hna
+      exact ih ((h4 _ h (by simp)).2 i (by simp [hl, hi]) he)
   exact key _ _ hsees (h3 m hm)
 
 theorem parseAll_parsed (input : InputContext) (env : E) (state : ModuleParserState) (messages : MessageLog)
@@ -428,23 +333,16 @@ theorem parseAll_parsed (input : InputContext) (env : E) (state : ModuleParserSt
     (h : Runs (parseAll input env state messages fuel) t (commands, final)) :
     Parsed input env fuel state messages commands final t := by
   induction fuel generalizing state messages t commands final with
-  | zero =>
-    obtain ⟨rfl, he⟩ := runs_pure_iff.mp h
-    cases he
-    exact .stop
+  | zero => obtain ⟨rfl, he⟩ := runs_pure_iff.mp h; cases he; exact .stop
   | succ fuel ih =>
     obtain ⟨t₁, t₂, ⟨stx, state', messages'⟩, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
     obtain rfl := runs_call_iff.mp h₁
     dsimp only at h₂
     split at h₂
-    · rename_i hterm
-      obtain ⟨rfl, he⟩ := runs_pure_iff.mp h₂
-      cases he
-      exact .last hterm
+    · rename_i hterm; obtain ⟨rfl, he⟩ := runs_pure_iff.mp h₂; cases he; exact .last hterm
     · rename_i hterm
       obtain ⟨t₃, t₄, ⟨rest, final'⟩, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
-      obtain ⟨rfl, he⟩ := runs_pure_iff.mp h₄
-      cases he
+      obtain ⟨rfl, he⟩ := runs_pure_iff.mp h₄; cases he
       exact .next (by simpa using hterm) (by simpa using ih _ _ h₃)
 
 theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (Event L E)}
@@ -455,9 +353,8 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
         (⟨.libModules lib, .error x⟩ : Event L E) ∈ t) ∧ Quiet t := by
   induction targets generalizing t b with
   | nil =>
-    rw [defaultModules] at h
-    obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
-    exact ⟨fun ms he => by cases he; exact ⟨.nil, clean_nil⟩, fun ⟨e, he⟩ => (by cases he), quiet_nil⟩
+    rw [defaultModules] at h; obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h
+    exact ⟨fun _ he => by cases he; exact ⟨.nil, clean_nil⟩, by simp, quiet_nil⟩
   | cons target targets ih =>
     rw [defaultModules] at h
     obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_attempt_bind_iff.mp h
@@ -477,48 +374,37 @@ theorem defaultModules_spec (root : Root L) (targets : List Name) {t T : List (E
         cases r'' with
         | ok listed =>
           obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-          refine ⟨fun a he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using quiet_one (o := Op.libModules lib) (r := .ok listed) trivial⟩
-          cases he
-          exact ⟨by simpa using clean_one (e := ⟨.libModules lib, .ok listed⟩) (by rintro ⟨x, hx⟩; cases hx), fun ms hms => .lib hl (hT₁ _ (by simp)) hms⟩
+          exact ⟨fun _ he => by cases he; exact ⟨by clean_events, fun _ hms => .lib hl (hT₁ _ (by simp)) hms⟩,
+            by simp, by quiet_events⟩
         | error e =>
           obtain ⟨rfl, rfl⟩ := h₄
-          exact ⟨fun a he => (by cases he), fun _ => ⟨lib, e, rfl, by simp⟩, by simpa using quiet_one (o := Op.libModules lib) (r := .error e) trivial⟩
+          exact ⟨by simp, fun _ => ⟨lib, e, rfl, by simp⟩, by quiet_events⟩
       | none =>
         simp only [hl] at h₁
         cases he : root.findExe target with
         | some m =>
-          simp only [he] at h₁
-          obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
-          refine ⟨fun a ha => ?_, fun ⟨e, h'⟩ => (by cases h'), quiet_nil⟩
-          cases ha
-          exact ⟨clean_nil, fun ms hms => .exe hl he hms⟩
+          simp only [he] at h₁; obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
+          exact ⟨fun _ ha => by cases ha; exact ⟨clean_nil, fun _ hms => .exe hl he hms⟩, by simp, quiet_nil⟩
         | none =>
-          simp only [he] at h₁
-          obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
-          refine ⟨fun a ha => ?_, fun ⟨e, h'⟩ => (by cases h'), quiet_nil⟩
-          cases ha
-          exact ⟨clean_nil, fun ms hms => .other hl he hms⟩
+          simp only [he] at h₁; obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₁
+          exact ⟨fun _ ha => by cases ha; exact ⟨clean_nil, fun _ hms => .other hl he hms⟩, by simp, quiet_nil⟩
     cases r with
     | error e =>
       obtain ⟨rfl, rfl⟩ := h₂
-      refine ⟨fun ms he => (by cases he), fun _ => ?_, by simpa using here.2.2⟩
       obtain ⟨lib, x, hl, hx⟩ := here.2.1 ⟨e, rfl⟩
-      exact ⟨target, lib, x, List.mem_cons_self .., hl, by simpa using hx⟩
+      exact ⟨by simp, fun _ => ⟨target, lib, x, List.mem_cons_self .., hl, by simpa using hx⟩, by simpa using here.2.2⟩
     | ok a =>
       obtain ⟨t₃, t₄, r', rfl, h₃, h₄⟩ := runs_attempt_bind_iff.mp h₂
       obtain ⟨i1, i2, i3⟩ := ih (fun e he => hT₂ e (List.mem_append_left _ he)) h₃
       cases r' with
       | error e =>
         obtain ⟨rfl, rfl⟩ := h₄
-        refine ⟨fun ms he => (by cases he), fun _ => ?_, by simpa using here.2.2.append i3⟩
         obtain ⟨tg, lib, x, hg, hl, hx⟩ := i2 ⟨e, rfl⟩
-        exact ⟨tg, lib, x, List.mem_cons_of_mem _ hg, hl, by simp [hx]⟩
+        exact ⟨by simp, fun _ => ⟨tg, lib, x, List.mem_cons_of_mem _ hg, hl, by simp [hx]⟩, by simpa using here.2.2.append i3⟩
       | ok rest =>
         obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₄
-        refine ⟨fun ms he => ?_, fun ⟨e, he⟩ => (by cases he), by simpa using here.2.2.append i3⟩
-        cases he
         obtain ⟨c1, c2⟩ := here.1 a rfl
         obtain ⟨d1, d2⟩ := i1 rest rfl
-        exact ⟨c2 rest d1, by simpa using c1.append d2⟩
+        exact ⟨fun _ he => by cases he; exact ⟨c2 rest d1, by simpa using c1.append d2⟩, by simp, by simpa using here.2.2.append i3⟩
 
 end RegulaSpecification.Effects

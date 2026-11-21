@@ -139,13 +139,6 @@ def keysOf (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) : List Name :=
         if (tablesIn xs).isEmpty then [key] else (tablesIn xs).flatMap under
       | _ => [key]
 
-/-- The refusal of everything that follows: what was read of the configuration, and why reading stopped.
--/
-def stopped (toolchainFile : Option String) (leanConfig : Bool) (keys : List Name)
-    (why : Option String) : Reading :=
-  { toolchainFile, leanConfig, configKeys := keys, openPaths := [], roots := [],
-    reached := [], files := [], unread := why.toList.map (`config, ·) }
-
 /-- The modules a file's parser sees, read from its header: the imports `importModulesCore` loads data for
 (`Lean/Environment.lean:2108-2190` at v4.35.0). This states Lean's rule, because the project's modules have
 no `.olean` that Lean could follow them through; `Sees` is its statement, and H1 holds what is assumed. In a
@@ -486,13 +479,6 @@ def loaded (what : String) : Except String (Option (Root L) × List String) → 
   | .ok (some root, _) => .ok root
   | .ok (none, log) => .error s!"Lake could not load {what}: {"; ".intercalate log}"
 
-/-- What a walk gives the reading, before any command is parsed. `config` is what the run has asked the tree to hold. -/
-def baseReading (config : List (FilePath × String)) (start : Reading)
-    (modules : List (Name × FilePath)) (w : Walk) : Reading :=
-  { start with
-    roots := modules.map (·.1), reached := w.reached.reverse,
-    unread := w.unread.reverse ++ twoTexts (plannedOf config w.sources.reverse) }
-
 /-- The modules that the imports of `modules` reach, each file read, and each file's commands, and, only for a reading the
 decision admits, each text written to its file and each planned file read back. So no module's file is asked to be written until all
 of it was judged, then only the text that was, and each planned path's answer gives that text. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
@@ -500,75 +486,84 @@ the configuration (`Lake/Config/Module.lean:41-42`, `Lake/Config/LeanLibConfig.l
 lists nothing (`Lake/Config/Glob.lean:53-59`). Each lookup and each import names the toolchain's directories alone as its search path, because a module is
 the file Lake names or else the toolchain's: no output of the project is on it. -/
 def readFiles (config : List (FilePath × String)) (project tree : FilePath) (root : Root L)
-    (modules : List (Name × FilePath)) (start : Reading) :
-    Attempt L E (Reading × List (Name × Source)) := do
+    (modules : List (Name × FilePath)) (cfg : ClosedConfig) :
+    Attempt L E (Stage × List (Name × Source)) := do
   let w ← ExceptT.lift (walk project tree root modules 1000000 (modules.map (·.1)) {})
-  let base := baseReading config start modules w
-  if !base.readInFull || base.mathlibReached then
-    pure (base, [])
-  else
-    let files ← parseFiles root.toolchain w.sources.reverse w.toolchain [] w.sources.reverse
-    let reading := { base with files }
-    match decision reading with
-    | .admitted =>
-      writeSources tree w.sources.reverse
-      readBack (config ++ w.sources.reverse.map fun x => (x.2.path, x.2.text))
-      noOtherConfig tree
-      pure (reading, w.sources.reverse)
-    | _ => pure (reading, w.sources.reverse)
+  let roots := modules.map (·.1)
+  let reached := w.reached.reverse
+  let unread := w.unread.reverse ++ twoTexts (plannedOf config w.sources.reverse)
+  match hu : unread.isEmpty with
+  | false => pure (.unread cfg roots reached unread hu, [])
+  | true =>
+    match hm : reached.any (·.getRoot == `Mathlib) with
+    | true => pure (.mathlib cfg roots reached hm, [])
+    | false =>
+      let files ← parseFiles root.toolchain w.sources.reverse w.toolchain [] w.sources.reverse
+      let stage := Stage.ofFiles cfg roots reached files hm
+      match stage with
+      | .admitted .. =>
+        writeSources tree w.sources.reverse
+        readBack (config ++ w.sources.reverse.map fun x => (x.2.path, x.2.text))
+        noOtherConfig tree
+        pure (stage, w.sources.reverse)
+      | _ => pure (stage, w.sources.reverse)
 
 /-- The root package through Lake's load of the tree's configuration, the paths it names, and what follows. -/
-def readRoot (config : List (FilePath × String)) (sysroot : String) (project tree : FilePath) (start : Reading) :
-    Attempt L E (Reading × List (Name × Source)) := do
+def readRoot (config : List (FilePath × String)) (sysroot : String) (project tree : FilePath)
+    (cfg : ClosedConfig) : Attempt L E (Stage × List (Name × Source)) := do
   let root ← ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot tree)) fun r =>
     pure (loaded "the configuration" r))
   let openPaths := openPathsOf tree root
-  if !openPaths.isEmpty then
-    pure ({ start with openPaths }, [])
-  else
+  match ho : openPaths.isEmpty with
+  | false => pure (Stage.mkOpenPaths cfg openPaths ho, [])
+  | true =>
     let modules ← defaultModules root root.defaultTargets
     let failures := configUnread tree root modules
-    if !failures.isEmpty then
-      pure ({ start with roots := modules.map (·.1), unread := failures }, [])
-    else
-      readFiles config project tree root modules start
+    match hf : failures.isEmpty with
+    | false => pure (.unread cfg (modules.map (·.1)) [] failures hf, [])
+    | true => readFiles config project tree root modules cfg
 
 /-- What a configuration's text says, its copy in the tree, and what follows. -/
 def readKeys (sysroot : String) (project tree : FilePath) (toolchainFile : Option String) (text : String) :
-    Attempt L E (Reading × List (Name × Source)) := do
+    Attempt L E (Stage × List (Name × Source)) := do
   match ← ExceptT.lift (Prog.call (.parseToml (mkInputContext text "lakefile.toml")) :
       Prog L E (Except MessageLog Lake.Toml.Table)) with
   | .error _ =>
-    pure (stopped toolchainFile false [] (some "Lake's TOML parser refused lakefile.toml"), [])
+    pure (Stage.earlyUnread toolchainFile "Lake's TOML parser refused lakefile.toml", [])
   | .ok table =>
-    let start := stopped toolchainFile false (keysOf 8 .anonymous table) none
-    if !start.configClosed || start.requiresDependency then
-      pure (start, [])
-    else
+    match Stage.ofConfig toolchainFile (keysOf 8 .anonymous table) with
+    | .error stage => pure (stage, [])
+    | .ok cfg =>
       writeInTree tree (tree / "lakefile.toml") text
       writeInTree tree (tree / "lean-toolchain") leanToolchain
-      readRoot [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] sysroot project tree start
+      readRoot [(tree / "lakefile.toml", text), (tree / "lean-toolchain", leanToolchain)] sysroot project tree cfg
 
 /-- `lakefile.lean` by its name, `lakefile.toml`, and what follows. -/
 def readConfig (sysroot : String) (project tree : FilePath) (toolchainFile : Option String) :
-    Attempt L E (Reading × List (Name × Source)) := do
+    Attempt L E (Stage × List (Name × Source)) := do
   if ← existsByName (project / "lakefile.lean") then
-    pure (stopped toolchainFile true [] none, [])
+    pure (Stage.mkLeanConfig toolchainFile, [])
   else
     match ← ExceptT.lift (readExact project (project / "lakefile.toml")).run with
-    | .error e => pure (stopped toolchainFile false [] (some s!"lakefile.toml: {e}"), [])
+    | .error e => pure (Stage.earlyUnread toolchainFile s!"lakefile.toml: {e}", [])
     | .ok text => readKeys sysroot project tree toolchainFile text
 
-/-- Read the project at `dir`, and fill the checker's own tree at `treeDir` from what is read. -/
-def readProject (sysroot : String) (dir treeDir : FilePath) :
-    Attempt L E (Reading × List (Name × Source)) := do
+/-- Read the project at `dir`, filling the checker's own tree at `treeDir` and returning the phased stage. -/
+def readProjectStage (sysroot : String) (dir treeDir : FilePath) :
+    Attempt L E (Stage × List (Name × Source)) := do
   let project ← realPath dir
   let tree ← realPath treeDir
   let toolchainFile ← ExceptT.lift (toolchainOf project)
   if !apart project tree then
-    pure (stopped toolchainFile false [] (some "the checker's tree and the project do not lie apart"), [])
+    pure (Stage.earlyUnread toolchainFile "the checker's tree and the project do not lie apart", [])
   else
     readConfig sysroot project tree toolchainFile
+
+/-- Read the project at `dir`, and fill the checker's own tree at `treeDir` from what is read. -/
+def readProject (sysroot : String) (dir treeDir : FilePath) :
+    Attempt L E (Reading × List (Name × Source)) := do
+  let (stage, sources) ← readProjectStage sysroot dir treeDir
+  pure (stage.toReading, sources)
 
 /-- The line of a position in a source. -/
 def lineOf (s : Source) (stx : Syntax) : Nat :=

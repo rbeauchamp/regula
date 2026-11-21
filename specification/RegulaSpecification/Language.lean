@@ -234,46 +234,44 @@ def Inside (r : Reading) : Prop :=
   ConfigClosed r ∧ ReadInFull r ∧ ¬ RequiresDependency r ∧ ¬ MathlibReached r ∧ Covered r ∧
     FilesAdmitted r
 
+/-- A decision that meets the record, stated by cases on the predicates. -/
+noncomputable def modelDecision (r : Reading) : Outcome :=
+  open Classical in
+  if ¬ ConfigClosed r then .refused
+  else if ¬ ReadInFull r then .incomplete
+  else if RequiresDependency r then .proofOnly
+  else if MathlibReached r then .proofOnly
+  else if ¬ Covered r then .incomplete
+  else if ¬ FilesAdmitted r then .refused
+  else .admitted
+
+theorem modelDecision_meets : languageRecord.Meets modelDecision := by
+  rw [language_meets_iff]
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> simp_all [modelDecision]
+
+theorem language_o2Run : O2Run languageRecord := o2Run_of_meets modelDecision_meets
+
+private theorem meets_eq_model {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading) :
+    d r = modelDecision r := by
+  obtain ⟨h1, h2, hc, h3, h4, h5, h6⟩ := (language_meets_iff d).mp h
+  unfold modelDecision
+  repeat' split
+  · exact h1 r ‹_›
+  · exact h2 r (Classical.not_not.mp ‹_›) ‹_›
+  · exact hc r (Classical.not_not.mp ‹_›) (Classical.not_not.mp ‹_›) ‹_›
+  · exact h3 r (Classical.not_not.mp ‹_›) (Classical.not_not.mp ‹_›) ‹_› ‹_›
+  · exact h4 r (Classical.not_not.mp ‹_›) (Classical.not_not.mp ‹_›) ‹_› ‹_› ‹_›
+  · exact h5 r (Classical.not_not.mp ‹_›) (Classical.not_not.mp ‹_›) ‹_› ‹_› (Classical.not_not.mp ‹_›) ‹_›
+  · exact h6 r (Classical.not_not.mp ‹_›) (Classical.not_not.mp ‹_›) ‹_› ‹_› (Classical.not_not.mp ‹_›) (Classical.not_not.mp ‹_›)
+
 theorem admitted_iff {d : Reading → Outcome} (h : languageRecord.Meets d) (r : Reading) :
     d r = .admitted ↔ Inside r := by
-  obtain ⟨h1, h2, hc, h3, h4, h5, h6⟩ := (language_meets_iff d).mp h
-  constructor
-  · intro ha
-    by_cases c : ConfigClosed r
-    · by_cases f : ReadInFull r
-      · by_cases k : RequiresDependency r
-        · simp [hc r c f k] at ha
-        · by_cases m : MathlibReached r
-          · simp [h3 r c f k m] at ha
-          · by_cases v : Covered r
-            · by_cases o : FilesAdmitted r
-              · exact ⟨c, f, k, m, v, o⟩
-              · simp [h5 r c f k m v o] at ha
-            · simp [h4 r c f k m v] at ha
-      · simp [h2 r c f] at ha
-    · simp [h1 r c] at ha
-  · rintro ⟨c, f, k, m, v, o⟩
-    exact h6 r c f k m v o
+  rw [meets_eq_model h r]; unfold modelDecision Inside
+  repeat' split <;> simp_all
 
 theorem language_o5 : O5 languageRecord .eq := by
-  rw [o5_correct]
-  intro u v hu hv
-  obtain ⟨u1, u2, uc, u3, u4, u5, u6⟩ := (language_meets_iff u).mp ⟨hu.1, hu.2⟩
-  obtain ⟨v1, v2, vc, v3, v4, v5, v6⟩ := (language_meets_iff v).mp ⟨hv.1, hv.2⟩
-  funext r
-  by_cases c : ConfigClosed r
-  · by_cases f : ReadInFull r
-    · by_cases k : RequiresDependency r
-      · rw [uc r c f k, vc r c f k]
-      · by_cases m : MathlibReached r
-        · rw [u3 r c f k m, v3 r c f k m]
-        · by_cases w : Covered r
-          · by_cases o : FilesAdmitted r
-            · rw [u6 r c f k m w o, v6 r c f k m w o]
-            · rw [u5 r c f k m w o, v5 r c f k m w o]
-          · rw [u4 r c f k m w, v4 r c f k m w]
-    · rw [u2 r c f, v2 r c f]
-  · rw [u1 r c, v1 r c]
+  rw [o5_correct]; intro u v hu hv
+  funext r; rw [meets_eq_model ⟨hu.1, hu.2⟩ r, meets_eq_model ⟨hv.1, hv.2⟩ r]
 
 theorem language_o4 : O4 languageRecord := o4_function _ rfl
 
@@ -301,88 +299,57 @@ theorem occurs_moduleHeader {s : Syntax} (h : Occurs s moduleHeader) :
   cases h with
   | self => exact .inl rfl
   | @child c _ _ _ _ hc hs =>
-    have hc' : c = Syntax.atom .none "module" := by simpa using hc
-    subst hc'
-    cases hs with
-    | self => exact .inr rfl
+    have hc' : c = .atom .none "module" := by simpa using hc
+    subst hc'; cases hs; exact .inr rfl
 
-theorem admitted_moduleHeader : TreeAdmitted [] moduleHeader := by
-  intro s h
+theorem admitted_moduleHeader : TreeAdmitted [] moduleHeader := fun s h => by
   rcases occurs_moduleHeader h with rfl | rfl
   · refine ⟨.inl (by decide +kernel), ?_, ?_, ?_, ?_, ?_⟩ <;> intro h' <;>
       first | exact absurd h' (by decide) | exact absurd h'.elim (by decide)
-  · show "module" ∈ atoms
-    decide +kernel
+  · show "module" ∈ atoms; decide +kernel
 
 theorem occurs_endOfInput {s : Syntax} (h : Occurs s endOfInput) : s = endOfInput := by
   cases h with
   | self => rfl
   | child hk _ _ => exact absurd (by decide +kernel) hk
 
-theorem admitted_endOfInput : TreeAdmitted [] endOfInput := by
-  intro s h
+theorem admitted_endOfInput : TreeAdmitted [] endOfInput := fun s h => by
   rw [occurs_endOfInput h]
   refine ⟨.inr (by decide +kernel), ?_, ?_, ?_, ?_, ?_⟩ <;> intro h' <;>
     first | exact absurd h' (by decide) | exact absurd h'.elim (by decide)
 
-theorem goodFile_admitted : FileAdmitted goodFile := by
-  refine ⟨rfl, ⟨.none, _, .self _⟩, ⟨.none, _, rfl⟩, admitted_moduleHeader, ?_⟩
-  intro c hc
-  have : c = endOfInput := by simpa [goodFile] using hc
-  rw [this]
-  exact admitted_endOfInput
+theorem goodFile_admitted : FileAdmitted goodFile :=
+  ⟨rfl, ⟨.none, _, .self _⟩, ⟨.none, _, rfl⟩, admitted_moduleHeader, fun c hc => by
+    have : c = endOfInput := by simpa [goodFile] using hc
+    exact this ▸ admitted_endOfInput⟩
 
 theorem good_closed_name : ClosedModuleName `Good := .one (by decide +kernel)
 
-theorem absolute_name_not_closed : ¬ ClosedModuleName (.str .anonymous "/abs/vendor/Evil") := by
-  intro h
-  cases h with
-  | one hc => exact absurd hc (by decide +kernel)
-  | more hp _ => cases hp
+theorem absolute_name_not_closed : ¬ ClosedModuleName (.str .anonymous "/abs/vendor/Evil") := fun h => by
+  cases h with | one hc => exact absurd hc (by decide +kernel) | more hp _ => cases hp
 
-theorem parent_name_not_closed : ¬ ClosedModuleName (.str .anonymous "..") := by
-  intro h
-  cases h with
-  | one hc => exact absurd hc (by decide +kernel)
-  | more hp _ => cases hp
+theorem parent_name_not_closed : ¬ ClosedModuleName (.str .anonymous "..") := fun h => by
+  cases h with | one hc => exact absurd hc (by decide +kernel) | more hp _ => cases hp
 
 theorem closed_of_goodKeys {r : Reading} (ht : r.toolchainFile = some leanToolchain)
     (hl : r.leanConfig = false) (ho : r.openPaths = []) (hk : r.configKeys = [`name]) :
-    ConfigClosed r := by
-  refine ⟨ht, hl, ho, ?_⟩
-  intro k h _
-  rw [hk] at h
-  have : k = `name := by simpa using h
-  subst this
-  exact .inl (by decide +kernel)
+    ConfigClosed r :=
+  ⟨ht, hl, ho, fun k h _ => by
+    have : k = `name := by simpa [hk] using h
+    exact this ▸ .inl (by decide +kernel)⟩
 
 theorem no_dependency_of_goodKeys {r : Reading} (hk : r.configKeys = [`name]) :
-    ¬ RequiresDependency r := by
-  rintro ⟨k, hm, hr⟩
-  rw [hk] at hm
-  have : k = `name := by simpa using hm
-  subst this
-  exact absurd hr (by decide)
+    ¬ RequiresDependency r := fun ⟨k, hm, hr⟩ => by
+  have : k = `name := by simpa [hk] using hm
+  exact absurd (this ▸ hr) (by decide)
 
-theorem goodReading_inside : Inside goodReading := by
-  refine ⟨closed_of_goodKeys rfl rfl rfl rfl, rfl, no_dependency_of_goodKeys rfl, ?_, ?_, ?_⟩
-  · rintro ⟨m, hm, hr⟩
-    have : m = `Good := by simpa [goodReading] using hm
-    subst this
-    exact absurd hr (by decide)
-  · refine ⟨by simp [goodReading], by simp [goodReading], ?_, ?_⟩
-    · intro m hm
-      have : m = `Good := by simpa [goodReading] using hm
-      subst this
-      exact good_closed_name
-    · intro m hm
-      have : m = `Good := by simpa [goodReading] using hm
-      subst this
-      exact ⟨goodFile, by simp [goodReading], rfl⟩
-  · intro f hf
-    have : f = goodFile := by simpa [goodReading] using hf
-    subst this
-    exact goodFile_admitted
+theorem goodReading_inside : Inside goodReading :=
+  ⟨closed_of_goodKeys rfl rfl rfl rfl, rfl, no_dependency_of_goodKeys rfl,
+    fun ⟨m, hm, hr⟩ => absurd ((by simpa [goodReading] using hm : m = `Good) ▸ hr) (by decide),
+    ⟨by simp [goodReading], by simp [goodReading],
+      fun m hm => (by simpa [goodReading] using hm : m = `Good) ▸ good_closed_name,
+      fun m hm => ⟨goodFile, by simp [goodReading], (by simpa [goodReading] using hm : m = `Good).symm⟩⟩,
+    fun f hf => (by simpa [goodReading] using hf : f = goodFile) ▸ goodFile_admitted⟩
 
 /-- {name}`goodReading` with a `lakefile.lean`. -/
 def leanConfigReading : Reading := { goodReading with leanConfig := true }
@@ -411,23 +378,6 @@ theorem leanConfig_not_closed : ¬ ConfigClosed leanConfigReading := fun h => by
 theorem noClaim_not_covered : ¬ Covered noClaimReading := fun h => by
   simpa [noClaimReading] using h.1
 
-/-- A decision that meets the record, stated by cases on the predicates. -/
-noncomputable def modelDecision (r : Reading) : Outcome :=
-  open Classical in
-  if ¬ ConfigClosed r then .refused
-  else if ¬ ReadInFull r then .incomplete
-  else if RequiresDependency r then .proofOnly
-  else if MathlibReached r then .proofOnly
-  else if ¬ Covered r then .incomplete
-  else if ¬ FilesAdmitted r then .refused
-  else .admitted
-
-theorem modelDecision_meets : languageRecord.Meets modelDecision := by
-  rw [language_meets_iff]
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> intros <;> simp_all [modelDecision]
-
-theorem language_o2Run : O2Run languageRecord := o2Run_of_meets modelDecision_meets
-
 theorem good_closed : ConfigClosed goodReading := closed_of_goodKeys rfl rfl rfl rfl
 
 theorem good_full : ReadInFull goodReading := rfl
@@ -453,21 +403,15 @@ theorem not_mathlib_of_reached {r : Reading} (h : ∀ m ∈ r.reached, m = `Good
   rintro ⟨m, hm, hr⟩
   rcases h m hm with rfl | rfl <;> exact absurd hr (by decide)
 
-theorem badFile_covered : Covered badFileReading := by
-  refine ⟨by simp [badFileReading, goodReading], by simp [badFileReading, goodReading], ?_, ?_⟩
-  · intro m hm
-    have : m = `Good := by simpa [badFileReading, goodReading] using hm
-    subst this
-    exact good_closed_name
-  · intro m hm
-    have : m = `Good := by simpa [badFileReading, goodReading] using hm
-    subst this
-    exact ⟨{ goodFile with commands := [.missing, endOfInput] }, by simp [badFileReading], rfl⟩
+theorem badFile_covered : Covered badFileReading :=
+  ⟨by simp [badFileReading, goodReading], by simp [badFileReading, goodReading],
+    fun m hm => (by simpa [badFileReading, goodReading] using hm : m = `Good) ▸ good_closed_name,
+    fun m hm => ⟨{ goodFile with commands := [.missing, endOfInput] }, by simp [badFileReading],
+      (by simpa [badFileReading, goodReading] using hm : m = `Good).symm⟩⟩
 
-theorem badFile_refused : ¬ FilesAdmitted badFileReading := by
-  intro h
-  have ha := h { goodFile with commands := [.missing, endOfInput] } (by simp [badFileReading])
-  exact ha.2.2.2.2 .missing (by simp) .missing (.self _)
+theorem badFile_refused : ¬ FilesAdmitted badFileReading := fun h =>
+  (h { goodFile with commands := [.missing, endOfInput] } (by simp [badFileReading])).2.2.2.2
+    .missing (by simp) .missing (.self _)
 
 theorem language_o2 : O2 languageRecord := by
   rw [o2_correct]
@@ -510,13 +454,10 @@ theorem language_o3 : O3 languageRecord := by
       (h goodReading good_closed good_full good_no_dependency goodReading_inside.2.2.2.1
         goodReading_inside.2.2.2.2.1 goodReading_inside.2.2.2.2.2) (by decide)⟩
 
-theorem constant_fails (o : Outcome) : ¬ languageRecord.Meets (fun _ => o) := by
-  intro h
+theorem constant_fails (o : Outcome) : ¬ languageRecord.Meets (fun _ => o) := fun h => by
   have ha := (admitted_iff h goodReading).mpr goodReading_inside
-  obtain ⟨h1, -⟩ := (language_meets_iff _).mp h
-  have hb := h1 leanConfigReading leanConfig_not_closed
-  rw [ha] at hb
-  exact absurd hb (by decide)
+  have hb := ((language_meets_iff _).mp h).1 leanConfigReading leanConfig_not_closed
+  rw [ha] at hb; cases hb
 
 /-! ## The closed set against the families of what the owner's words refuse
 
