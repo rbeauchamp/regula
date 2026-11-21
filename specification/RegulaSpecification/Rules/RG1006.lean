@@ -17,17 +17,22 @@ or opaque constant whose value directly mentions {name}`Lean.Order.fix`. A `whil
 needs no `partial` of the module that uses it: it compiles through a private `partial` of Lean's library
 ({lit}`Init/While.lean`), so the flags alone do not show it. A constant with a helper's name needs no flag
 either: the compiler reads `f._unsafe_rec` in place of {lit}`f` by its name alone ({lit}`getDeclInfo?`,
-{lit}`Lean/Compiler/LCNF/ToDecl.lean:25-27`). A computational {lit}`partial_fixpoint` definition elaborates
+{lit}`Lean/Compiler/LCNF/ToDecl.lean:25-27`). A {lit}`partial_fixpoint` definition elaborates
 as a safe definition whose value mentions {name}`Lean.Order.fix` ({lit}`Lean/Meta/Order.lean:52-54`,
-{lit}`Init/Internal/Order/Basic.lean:486`), while its executable code compiles through a `partial`
-{lit}`._unsafe_rec` helper ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:103-111,191,220`,
-{lit}`Lean/Elab/PreDefinition/Basic.lean:280-296`). Reading only definitions and opaque constants admits
-theorems such as realized dependency {lit}`.eq_def` lemmas ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Eqns.lean:52-113`),
-and checking {name}`Lean.Order.fix` alone admits {name}`Lean.Order.lfp_monotone` used by
-{lit}`inductive_fixpoint`, {lit}`coinductive_fixpoint` and {lit}`coinductive` predicates.
+{lit}`Init/Internal/Order/Basic.lean:486`), and, unless it is marked {lit}`noncomputable`, its executable
+code compiles through a `partial` {lit}`._unsafe_rec` helper
+({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:103-111,191,220`,
+{lit}`Lean/Elab/PreDefinition/Basic.lean:134-135,280-296`). The fourth clause reads only definitions and
+opaque constants, so that mention alone refuses no theorem, such as a realized dependency {lit}`.eq_def`
+lemma ({lit}`Lean/Elab/PreDefinition/PartialFixpoint/Eqns.lean:52-120`), and it reads
+{name}`Lean.Order.fix` alone, so it refuses no mention of {name}`Lean.Order.lfp_monotone`, which
+{lit}`inductive_fixpoint`, {lit}`coinductive_fixpoint` and {lit}`coinductive` predicates use. The other
+three clauses read each claimed constant, whatever its kind.
 
-The one constant of these the rule admits has the exempted form: `f._unsafe_rec`, partial and not unsafe,
-with neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, beside a safe, total definition {lit}`f` of its module. It is
+Of the first two of these, the rule admits one constant, which has the exempted form: `f._unsafe_rec`, partial and not unsafe,
+with neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, beside a safe, total definition {lit}`f` of its module. The form
+exempts it from those two only: one whose value mentions a loop construct, or that is a definition or an opaque
+constant whose value mentions {name}`Lean.Order.fix`, is refused. It is
 the form of what Lean's elaborator adds for a safe recursive definition, which is why it is exempted, and it
 is a form and nothing else. The input holds nothing of who produced a constant, so one of this form that a
 module's own code adds during the build is admitted too, and no rule reads what it computes.
@@ -409,8 +414,7 @@ theorem mentionsLoop_iff (d : Regula.Closed.Decl) :
 theorem mentionsOrderFix_iff (d : Regula.Closed.Decl) :
     Regula.Rules.RG1006.mentionsOrderFix d = true ↔ MentionsOrderFix (decl d) := by
   cases hd : d.kind <;>
-    simp [Regula.Rules.RG1006.mentionsOrderFix, Regula.Rules.RG1006.hasRunValue, MentionsOrderFix,
-      decl, constKind, hd]
+    simp [Regula.Rules.RG1006.mentionsOrderFix, MentionsOrderFix, decl, constKind, hd]
 
 theorem not_safe_iff (d : Regula.Closed.Decl) :
     (d.safety != .safe) = true ↔ (decl d).safety ≠ .safe := by
