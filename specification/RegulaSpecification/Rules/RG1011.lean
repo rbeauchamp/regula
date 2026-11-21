@@ -34,7 +34,8 @@ claimed-module {attr}`@[csimp]` entry whose theorem is not declared in any claim
 {lit}`.olean` data ({name (full := RegulaSpecification.Input.DeclaredInClaimed)}`Input.DeclaredInClaimed`), while admitting exported {attr}`@[csimp]` entries
 whose theorem is declared in a claimed module (including a merged theorem whose merged module index
 points to an unclaimed dependency), because every such theorem enters the claim's kernel replay cone and
-is checked by RG1001 to RG1006 and the loader's unshown-constant check. {lit}`attribute [local csimp]` is
+is checked by RG1001 to RG1006 when the environment shows it under a claimed module, and otherwise by the
+loader's unshown-constant check ({lit}`fitsUnshown`), which refuses the build as {lit}`incomplete`. {lit}`attribute [local csimp]` is
 never persisted to {lit}`.olean` ({lit}`Lean/ScopedEnvExtension.lean:17-19, 96-112, 191-193`) and
 dependency-registered {attr}`@[csimp]` entries are not read under the proof verdict. Under the full verdict
 RG1010 refuses {lit}`csimp` in each file it reads, a project with a {lit}`require` has only the proof

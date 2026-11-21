@@ -32,8 +32,10 @@ What it reads, and through what:
   (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0), refusing a claimed module with no module index.
   `Facts.claimedCSimpTargets` checks claimed ownership of exported `@[csimp]` entries strictly against
   claimed modules' own `moduleData` (`Facts.claimedConstants`), skipping all declaration work when no
-  claimed module registers an entry and building only a set of the entry target names (leaving
-  `Facts.stated` and unclaimed modules untouched) when entries are present. `const2ModIdx` cannot decide
+  claimed module registers an entry and building only a set of the entry target names when entries are
+  present (leaving `Facts.stated` unchanged and reading no dependency module's constants;
+  `Facts.claimedConstants` steps once over the loaded modules, dependencies included, to select the
+  claimed ones). `const2ModIdx` cannot decide
   ownership in either direction because `finalizeImport` keeps the first module on merged theorems and
   also inserts IR `extraConstNames` (`Lean/Environment.lean:2345-2348` at v4.35.0).
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
@@ -375,15 +377,15 @@ def Facts.csimps (f : Facts) (claimed : List Name) : Except String (List CSimpEn
 /-- Of the target theorem names in `csimps`, those declared in any claimed module's own `moduleData`
 (`Facts.claimedConstants`). Returns `[]` immediately when `csimps` is empty; when `csimps` is
 nonempty, builds a hash set of the `csimps` target names only and collects hits from
-`Facts.claimedConstants` (touching no dependency module's constants and leaving `Facts.stated`
-unchanged). -/
+`Facts.claimedConstants`, each name once (leaving `Facts.stated` unchanged and reading no dependency
+module's constants; `Facts.claimedConstants` steps once over the loaded modules, dependencies
+included, to select the claimed ones). -/
 def Facts.claimedCSimpTargets (f : Facts) (csimps : List CSimpEntry) : List Name :=
   if csimps.isEmpty then []
   else
     let targets := setOf (csimps.map (·.thm))
-    let found := f.claimedConstants.foldl (init := ({} : Std.HashSet Name)) fun acc x =>
-      if targets.contains x.2.1 then acc.insert x.2.1 else acc
-    csimps.filterMap fun e => if found.contains e.thm then some e.thm else none
+    (f.claimedConstants.foldl (init := ({} : Std.HashSet Name)) fun acc x =>
+      if targets.contains x.2.1 then acc.insert x.2.1 else acc).toList
 
 /-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
 def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=

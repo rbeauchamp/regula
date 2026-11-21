@@ -41,7 +41,7 @@ def replacement (d : Decl) : String :=
 
 /-- The exported (`global` or `scoped`) `@[csimp]` entries of claimed modules whose theorem is not
 declared in any claimed module's `.olean` data. With no entry it builds no hash set, and with entries
-its two sets hold the claimed modules and at most one name for each entry (`Input.claimedConstants`). -/
+its two sets hold the claimed modules and each owned entry target (`Input.claimedConstants`). -/
 def foreignCSimps (i : Input) : List Violation :=
   if i.csimps.isEmpty then []
   else

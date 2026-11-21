@@ -546,23 +546,14 @@ theorem mem_claimedCSimpTargets (csimps : List Regula.Closed.CSimpEntry) (c : Na
   cases csimps with
   | nil => simp
   | cons e0 es =>
-    simp only [List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte, List.mem_filterMap,
-      Option.ite_none_right_eq_some, Option.some.injEq]
-    have hfold : ∀ n,
-        (f.claimedConstants.foldl (init := ({} : Std.HashSet Name)) fun acc x =>
-          if (Regula.Closed.setOf ((e0 :: es).map (·.thm))).contains x.2.1 then acc.insert x.2.1 else acc).contains n = true ↔
-          (∃ e ∈ e0 :: es, e.thm = n) ∧ ∃ x ∈ f.claimedConstants, x.2.1 = n := by
-      intro n
-      rw [Std.HashSet.contains_iff_mem, mem_claimedTargetsFold, Regula.Closed.mem_setOf]
-      simp [eq_comm]
-    simp only [hfold]
+    simp only [List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte]
+    rw [Std.HashSet.mem_toList, mem_claimedTargetsFold, Regula.Closed.mem_setOf]
+    simp only [Std.HashSet.not_mem_empty, false_or, List.mem_map]
     constructor
-    · rintro ⟨e, he, ⟨-, ⟨cm, n, info⟩, hmem, hn⟩, rfl⟩
-      simp only at hn
-      subst hn
-      exact ⟨⟨e, he, rfl⟩, cm, info, hmem⟩
-    · rintro ⟨⟨e, he, rfl⟩, cm, info, hmem⟩
-      exact ⟨e, he, ⟨⟨e, he, rfl⟩, (cm, e.thm, info), hmem, rfl⟩, rfl⟩
+    · rintro ⟨he, ⟨cm, n, info⟩, hmem, rfl⟩
+      exact ⟨he, cm, info, hmem⟩
+    · rintro ⟨he, cm, info, hmem⟩
+      exact ⟨he, (cm, c, info), hmem, rfl⟩
 
 theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
     (h : f.decl n info s = .ok d) : ∃ m, f.info? n = some m ∧ d = f.declIn n m info s := by
