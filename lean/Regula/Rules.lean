@@ -25,7 +25,7 @@ open Lean (Name)
 /-- The three axioms of Lean's logic that a profile can admit. -/
 def logicalAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
-/-- The axioms of the toolchain by which Lean's kernel trusts the compiler: none at v4.35.0. -/
+/-- The axioms of the toolchain by which Lean's kernel trusts the compiler: none at v4.36.0. -/
 def compilerAxioms : List Name := []
 
 /-- Whether `a` has the name form of the axiom a native proof adds:
@@ -35,7 +35,7 @@ def nativeProofAxiom : Name → Bool
   | _ => false
 
 /-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value
-of the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0).
+of the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.36.0).
 -/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
@@ -85,9 +85,44 @@ def helperBaseFits (d : Decl) : Bool :=
         b.implementedBy.isNone && !b.isExtern
   | none => false
 
-/-- `d` has the exempted form, beside a safe definition in the same module, which names no origin. -/
+/-- `d` has the exempted recursion-helper form, beside a safe definition in the same module, which names no origin. -/
 def helperForm (d : Decl) : Bool :=
   d.safety == .partial && d.implementedBy.isNone && !d.isExtern && t.helperBaseFits d
+
+/-- `defDecl` and `implDecl` form the compiler-generated `T.ctorIdx` / `T.ctorIdx._impl` pair for
+the safe inductive type `ind` (`Lean/Meta/Constructions/CtorIdx.lean:40-141` at v4.36.0): `ind` is a
+safe inductive in the same module, `getObjTagNat` is the toolchain's constant
+(`Init/Prelude.lean:1381-1382`), `defDecl` is the safe definition `ind.ctorIdx` whose sole
+replacement is `@[implemented_by ind.ctorIdx._impl]` without `@[extern]`, and `implDecl` is the
+unsafe definition `ind.ctorIdx._impl` with neither `@[implemented_by]` nor `@[extern]`. -/
+def ctorIdxPair (ind : Name) (defDecl implDecl : Decl) : Bool :=
+  let defName := Name.str ind "ctorIdx"
+  let implName := Name.str defName "_impl"
+  (t.index[`getObjTagNat]?).any (·.inToolchain) &&
+  (t.index[ind]?).any (fun indDecl =>
+    indDecl.kind == .inductive &&
+    indDecl.safety == .safe &&
+    indDecl.module == defDecl.module) &&
+  defDecl.name == defName &&
+  defDecl.kind == .definition &&
+  defDecl.safety == .safe &&
+  defDecl.ctorIdxForm == .defn ind &&
+  defDecl.implementedBy == some implName &&
+  !defDecl.isExtern &&
+  implDecl.name == implName &&
+  implDecl.module == defDecl.module &&
+  implDecl.kind == .definition &&
+  implDecl.safety == .unsafe &&
+  implDecl.ctorIdxForm == .impl ind &&
+  implDecl.implementedBy.isNone &&
+  !implDecl.isExtern
+
+/-- `d` is the unsafe half `T.ctorIdx._impl` of a valid compiler-generated `ctorIdx` pair. RG1006
+exempts its `unsafe` safety. -/
+def ctorIdxImpl (d : Decl) : Bool :=
+  match d.ctorIdxForm with
+  | .impl ind => (t.index[Name.str ind "ctorIdx"]?).any (t.ctorIdxPair ind · d)
+  | _ => false
 
 /-- RG1001: a constant of a claimed module is an axiom. -/
 def rg1001 : List Finding :=
@@ -140,10 +175,13 @@ def escapeDetail (d : Decl) : String :=
     | .safe => "has the name of a recursion helper, and is not partial"
 
 /-- RG1006: a constant of a claimed module is unsafe, partial or named as a recursion helper,
-without the exempted form, or its value mentions a loop construct of Lean. -/
+without an exempted form (a `partial` recursion helper `b._unsafe_rec` beside its safe definition
+`b`, or the unsafe half `T.ctorIdx._impl` of a compiler-generated `ctorIdx` pair), or its value
+mentions a loop construct of Lean. -/
 def rg1006 : List Finding :=
   t.claimed.filterMap fun d =>
-    if ((d.safety != .safe || namedAsHelper d) && !t.helperForm d) || mentionsLoop d then
+    if ((d.safety != .safe || namedAsHelper d) && !t.helperForm d && !t.ctorIdxImpl d) ||
+        mentionsLoop d then
       some (finding .escapeHatch d (escapeDetail d))
     else none
 

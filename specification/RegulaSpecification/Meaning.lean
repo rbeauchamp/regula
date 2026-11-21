@@ -111,7 +111,9 @@ structure Meaning : Prop where
       (m, n, info) ∈ f.claimedConstants →
       (∀ v, info ≠ .axiomInfo v) ∧
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
-        info.isPartial = true ∧ info.isUnsafe = false) ∧
+        (info.isPartial = true ∧ info.isUnsafe = false) ∨
+        (info.isUnsafe = true ∧ info.isPartial = false ∧
+          ∃ ind, ctorIdxShape f.env n info = .impl ind)) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
       ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a
   /-- {name}`Loader.pass_occurs`, under {name}`UsedConstantsComplete`: the floor over the constants that occur. -/
@@ -173,9 +175,12 @@ structure Meaning : Prop where
   /-- {name}`admitted_runs_no_project_code`, under H1 and H2 ({name}`LeanBehaviour`): an admitted reading runs no project code. -/
   noProjectCode : ∀ (B : LeanBehaviour) {d : Reading → Outcome}, languageRecord.Meets d → ∀ (r : Reading),
     d r = .admitted → ∀ f ∈ r.files, ∃ ts, B.Elaborates f ts ∧ B.NoProjectCode ts
-  /-- {name}`helperForm_unreached`, under H6 ({name}`SafeMentionsSafe`): no safe constant reaches one of the exempted form. -/
+  /-- {name}`helperForm_unreached`, under H6 ({name}`SafeMentionsSafe`): no safe constant reaches one of the exempted recursion-helper form. -/
   helper : ∀ {i : RegulaSpecification.Input}, SafeMentionsSafe i → ∀ {d p : RegulaSpecification.Decl}, d ∈ i.decls →
     d.safety = .safe → p ∈ i.decls → i.HelperForm p → ¬ i.Reaches d.name p.name
+  /-- {name}`ctorIdxImpl_unreached`, under H6 ({name}`SafeMentionsSafe`): no safe constant reaches one of the exempted {lit}`ctorIdx._impl` form. -/
+  ctorIdx : ∀ {i : RegulaSpecification.Input}, SafeMentionsSafe i → ∀ {d p : RegulaSpecification.Decl}, d ∈ i.decls →
+    d.safety = .safe → p ∈ i.decls → i.CtorIdxImpl p → ¬ i.Reaches d.name p.name
 
 /-- **What a verdict means, from the theorems that state it.** -/
 theorem meaning : Meaning where
@@ -199,5 +204,6 @@ theorem meaning : Meaning where
   noLink := read_no_link
   noProjectCode := admitted_runs_no_project_code
   helper := helperForm_unreached
+  ctorIdx := ctorIdxImpl_unreached
 
 end RegulaSpecification.Meaning

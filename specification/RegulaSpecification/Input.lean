@@ -51,6 +51,20 @@ inductive Safety where
   | «partial»
   deriving DecidableEq, Repr
 
+/-- Whether a constant has the exact structural form of one half of the pair Lean's {lit}`mkCtorIdx`
+generates for an inductive type {lit}`induct` ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141` at
+v4.36.0): the safe definition {lit}`induct.ctorIdx` whose body dispatches on {lit}`induct.casesOn`
+to each constructor's index, or the unsafe implementation {lit}`induct.ctorIdx._impl` whose body
+calls {lit}`getObjTagNat` on the matched value. -/
+inductive CtorIdxForm where
+  /-- Neither half. -/
+  | none
+  /-- The safe definition {lit}`induct.ctorIdx`. -/
+  | defn (induct : Name)
+  /-- The unsafe implementation {lit}`induct.ctorIdx._impl`. -/
+  | impl (induct : Name)
+  deriving DecidableEq, Repr
+
 /-- One constant of the loaded environment, as Lean reports it from the build's {lit}`.olean` files. -/
 structure Decl where
   /-- Its name. -/
@@ -72,12 +86,15 @@ structure Decl where
   for any other constant. RG1006 reads it for Lean's loop constructs. -/
   valueUses : List Name
   /-- The constant {attr}`@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). Only the
-  form of a recursion helper (RG1006) reads it. -/
+  exempted forms of RG1006 read it. -/
   implementedBy : Option Name
-  /-- Whether it is {attr}`@[extern]` (`Lean.isExtern`). Only the form of a recursion helper reads it. -/
+  /-- Whether it is {attr}`@[extern]` (`Lean.isExtern`). Only the exempted forms of RG1006 read it. -/
   isExtern : Bool
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
+  /-- Whether it has the structural form of Lean's compiler-generated {lit}`T.ctorIdx` or
+  {lit}`T.ctorIdx._impl` ({lit}`Regula.Load.ctorIdxFormOf`). -/
+  ctorIdxForm : CtorIdxForm
   deriving DecidableEq, Repr
 
 /-- The foundation profiles a project can state. -/

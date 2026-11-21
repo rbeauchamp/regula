@@ -106,7 +106,7 @@ another read that differs: that the program stops at one is `Regula.Reader.readB
 
 That segment also holds the file system's answer that nothing has the name `lakefile.lean` in the tree {name}`tree`. Lake prefers that
 name to `lakefile.toml` when it looks for a configuration with no extension, which is what its command line does
-({lit}`resolveConfigFile`, {lit}`Lake/Load/Package.lean:109-117`, {lit}`defaultConfigFile`, {lit}`Lake/CLI/Main.lean:48`). So a module's file that the
+({lit}`resolveConfigFile`, {lit}`Lake/Load/Package.lean:109-117`, {lit}`defaultConfigFile`, {lit}`Lake/CLI/Main.lean:49`). So a module's file that the
 file system takes for that name, by case folding or anything else, has a second role, as the configuration. Which file the name
 reaches is the file system's to say, so the clause asks it through that name and models no folding. -/
 def ReadBack (t : List (Event L E)) (tree : FilePath) : Prop :=

@@ -42,7 +42,7 @@ It reads, in this order, and stops at the first refusal:
 - Each module those reach, by its header, through Lean's `parseHeader`. A name outside `closedModuleName` is
   unread before any path is built from it. A root is the file of its own `Module`, and a root that Lake's
   import resolution does not give that file is unread. An import is the file `Lake.Workspace.findModule?`
-  gives, as Lake's build resolves it (`Lake/Build/Module.lean:37`), or else a module that Lean's search finds
+  gives, as Lake's build resolves it (`Lake/Build/Module.lean:57`), or else a module that Lean's search finds
   on the toolchain's own library, the one directory on the search path. The same relative path of the project
   is read if it is, by its real path, exactly itself, so a link at any depth leaves a file unread, and no name
   found outside the project is printed.
@@ -148,7 +148,7 @@ def stopped (toolchainFile : Option String) (leanConfig : Bool) (keys : List Nam
     reached := [], files := [], unread := why.toList.map (`config, ·) }
 
 /-- The modules a file's parser sees, read from its header: the imports `importModulesCore` loads data for
-(`Lean/Environment.lean:2108-2190` at v4.35.0). This states Lean's rule, because the project's modules have
+(`Lean/Environment.lean:2472-2554` at v4.36.0). This states Lean's rule, because the project's modules have
 no `.olean` that Lean could follow them through; `Sees` is its statement, and H1 holds what is assumed. In a
 `module` file that is each direct import, and through it each `public` import. The project's own modules are
 followed by their headers, each once (`seen`), so a project whose imports form many paths to one module
@@ -261,7 +261,7 @@ def readForTree (project tree path : FilePath) : Attempt L E String :=
       throw s!"the directory above {path} does not lie below the checker's tree"
 
 /-- Read one module's file through Lean's own header parser, as the frontend does
-(`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:519`). -/
+(`Lean/Elab/Frontend.lean:287`, `Lean/Shell.lean:509`). -/
 def readSource (project tree path : FilePath) : Attempt L E Source := do
   let text ← readForTree project tree path
   let input := mkInputContext text (Regula.Load.inputName path)
@@ -290,7 +290,7 @@ def writeSources (tree : FilePath) : List (Name × Source) → Attempt L E Unit
 
 /-- Read each file back by the path it was written at, and stop unless it gives the text written. This takes no model of the file
 system: a text that another spelling of a path replaced, or that a write that answered success did not store, is an answer
-that differs. The texts compare as read: `IO.FS.writeFile` puts the string's bytes (`Init/System/IO.lean:1058-1060` at v4.35.0)
+that differs. The texts compare as read: `IO.FS.writeFile` puts the string's bytes (`Init/System/IO.lean:1058-1060` at v4.36.0)
 and `IO.FS.readFile` gives the bytes it decodes (`:1229-1233`), so neither touches a line ending. -/
 def readBack : List (FilePath × String) → Attempt L E Unit
   | [] => pure ()
@@ -470,7 +470,7 @@ def modulesOfTarget (root : Root L) (target : Name) : Attempt L E (List (Name ×
 
 /-- The modules of the targets `targets` of the root package, with the file Lake compiles for each: each module
 of a default library, and the root of each default executable. A default target that is neither builds no
-Lean module (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61` at v4.35.0). Lake lists a
+Lean module (`Package.recCollectDefaultModules`, `Lake/Build/Package.lean:45-61` at v4.36.0). Lake lists a
 directory for a `globs` entry other than a single module (`Glob.forEachModuleIn`,
 `Lake/Config/Glob.lean:53-59`): the reader asks this only after it has tested each entry through
 `openPathsOf`, and the plain `lake lint` keeps Lake's own listing. -/
@@ -497,7 +497,7 @@ def baseReading (config : List (FilePath × String)) (start : Reading)
 /-- The modules that the imports of `modules` reach, each file read, and each file's commands, and, only for a reading the
 decision admits, each text written to its file and each planned file read back. So no module's file is asked to be written until all
 of it was judged, then only the text that was, and each planned path's answer gives that text. Lake's load and resolution read no module's file: `LeanLib.findModule?` tests a name against
-the configuration (`Lake/Config/Module.lean:41-42`, `Lake/Config/LeanLibConfig.lean:140`), and a single-module `globs` entry
+the configuration (`Lake/Config/Module.lean:42-43`, `Lake/Config/LeanLibConfig.lean:140`), and a single-module `globs` entry
 lists nothing (`Lake/Config/Glob.lean:53-59`). Each lookup and each import names the toolchain's directories alone as its search path, because a module is
 the file Lake names or else the toolchain's: no output of the project is on it. -/
 def readFiles (config : List (FilePath × String)) (project tree : FilePath) (root : Root L)

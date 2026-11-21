@@ -67,6 +67,18 @@ def safety' : Safety → Regula.Closed.Safety
   | .unsafe => .unsafe
   | .partial => .partial
 
+/-- The implementation's {lit}`ctorIdx` form in the specification. -/
+def ctorIdxForm : Regula.Closed.CtorIdxForm → CtorIdxForm
+  | .none => .none
+  | .defn ind => .defn ind
+  | .impl ind => .impl ind
+
+/-- The specification's {lit}`ctorIdx` form in the implementation. -/
+def ctorIdxForm' : CtorIdxForm → Regula.Closed.CtorIdxForm
+  | .none => .none
+  | .defn ind => .defn ind
+  | .impl ind => .impl ind
+
 /-- The implementation's constant in the specification. -/
 def decl (d : Regula.Closed.Decl) : Decl where
   name := d.name
@@ -78,6 +90,7 @@ def decl (d : Regula.Closed.Decl) : Decl where
   implementedBy := d.implementedBy
   isExtern := d.isExtern
   inToolchain := d.inToolchain
+  ctorIdxForm := ctorIdxForm d.ctorIdxForm
 
 /-- The specification's constant in the implementation. -/
 def decl' (d : Decl) : Regula.Closed.Decl where
@@ -90,6 +103,7 @@ def decl' (d : Decl) : Regula.Closed.Decl where
   implementedBy := d.implementedBy
   isExtern := d.isExtern
   inToolchain := d.inToolchain
+  ctorIdxForm := ctorIdxForm' d.ctorIdxForm
 
 /-- A reading of the checker as the specification's input. -/
 def toSpecDraft (d : Regula.Closed.Draft) : Input where
@@ -125,8 +139,8 @@ def ofAdmitted (s : Admitted Input) : Regula.Closed.Input where
 theorem profile_surj (p : Profile) : profile (profile' p) = p := by cases p <;> rfl
 
 theorem decl_decl' (d : Decl) : decl (decl' d) = d := by
-  rcases d with ⟨_, _, k, s, _, _, _, _, _⟩
-  cases k <;> cases s <;> rfl
+  rcases d with ⟨_, _, k, s, _, _, _, _, _, cf⟩
+  cases k <;> cases s <;> cases cf <;> rfl
 
 theorem toSpecDraft_ofSpec (s : Input) : toSpecDraft (ofSpec s) = s := by
   rcases s with ⟨p, m, ds, u⟩

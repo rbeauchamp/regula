@@ -202,9 +202,17 @@ theorem kindDef_iff (b : Regula.Closed.Decl) :
     b.kind = .definition ↔ (decl b).kind = .definition := by
   cases hd : b.kind <;> simp [decl, constKind, hd]
 
+theorem kindInd_iff (b : Regula.Closed.Decl) :
+    b.kind = .inductive ↔ (decl b).kind = .inductive := by
+  cases hd : b.kind <;> simp [decl, constKind, hd]
+
 theorem safety_iff (b : Regula.Closed.Decl) (v : Regula.Closed.Safety) :
     b.safety = v ↔ (decl b).safety = safety v := by
   cases hd : b.safety <;> cases v <;> simp [decl, safety, hd]
+
+theorem ctorIdxForm_iff (b : Regula.Closed.Decl) (v : Regula.Closed.CtorIdxForm) :
+    b.ctorIdxForm = v ↔ (decl b).ctorIdxForm = ctorIdxForm v := by
+  cases hd : b.ctorIdxForm <;> cases v <;> simp [decl, ctorIdxForm, hd]
 
 theorem recursionHelper_iff (d : Regula.Closed.Decl) :
     t.helperForm d = true ↔ (toSpec i).HelperForm (decl d) := by
@@ -246,6 +254,82 @@ theorem recursionHelper_iff (d : Regula.Closed.Decl) :
   · rintro ⟨h1, h2, h3, h4⟩
     exact ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩
 
+theorem ctorIdxImpl_iff (d : Regula.Closed.Decl) :
+    t.ctorIdxImpl d = true ↔ (toSpec i).CtorIdxImpl (decl d) := by
+  have hpair (ind : Name) (defDecl : Regula.Closed.Decl) :
+      t.ctorIdxPair ind defDecl d = true ↔
+        (∃ tag ∈ (toSpec i).decls, tag.name = `getObjTagNat ∧ tag.inToolchain = true) ∧
+        (∃ indDecl ∈ (toSpec i).decls, indDecl.name = ind ∧ indDecl.kind = .inductive ∧
+          indDecl.safety = .safe ∧ indDecl.module = (decl d).module) ∧
+        (decl d).name = Name.str (Name.str ind "ctorIdx") "_impl" ∧
+        (decl d).kind = .definition ∧ (decl d).safety = .unsafe ∧
+        (decl d).ctorIdxForm = .impl ind ∧
+        (decl d).implementedBy = none ∧ (decl d).isExtern = false ∧
+        (decl defDecl).name = Name.str ind "ctorIdx" ∧
+        (decl defDecl).module = (decl d).module ∧
+        (decl defDecl).kind = .definition ∧ (decl defDecl).safety = .safe ∧
+        (decl defDecl).ctorIdxForm = .defn ind ∧
+        (decl defDecl).implementedBy = some (Name.str (Name.str ind "ctorIdx") "_impl") ∧
+        (decl defDecl).isExtern = false := by
+    simp only [Regula.Closed.Tables.ctorIdxPair, Bool.and_eq_true, Bool.not_eq_true',
+      beq_iff_eq, Option.isNone_iff_eq_none, any_index_iff t]
+    constructor
+    · rintro ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨htag, hind⟩, hdn⟩, hdk⟩, hds⟩, hdf⟩, hdi⟩, hde⟩,
+        hin⟩, him⟩, hik⟩, his⟩, hif⟩, hii⟩, hie⟩
+      refine ⟨?_, ?_, hin, (kindDef_iff d).mp hik, (safety_iff d .unsafe).mp his,
+        (ctorIdxForm_iff d (.impl ind)).mp hif, hii, hie,
+        hdn, him.symm, (kindDef_iff defDecl).mp hdk, (safety_iff defDecl .safe).mp hds,
+        (ctorIdxForm_iff defDecl (.defn ind)).mp hdf, hdi, hde⟩
+      · obtain ⟨x, hx, hn, ht⟩ := htag
+        exact ⟨decl x, mem_decls.mpr ⟨x, hx, rfl⟩, hn, ht⟩
+      · obtain ⟨x, hx, hn, ⟨⟨hk, hs⟩, hm⟩⟩ := hind
+        exact ⟨decl x, mem_decls.mpr ⟨x, hx, rfl⟩, hn, (kindInd_iff x).mp hk,
+          (safety_iff x .safe).mp hs, hm.trans him.symm⟩
+    · rintro ⟨htag, hind, hin, hik, his, hif, hii, hie, hdn, him, hdk, hds, hdf, hdi, hde⟩
+      refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨?_, ?_⟩, hdn⟩, (kindDef_iff defDecl).mpr hdk⟩,
+        (safety_iff defDecl .safe).mpr hds⟩, (ctorIdxForm_iff defDecl (.defn ind)).mpr hdf⟩,
+        hdi⟩, hde⟩, hin⟩, him.symm⟩, (kindDef_iff d).mpr hik⟩,
+        (safety_iff d .unsafe).mpr his⟩, (ctorIdxForm_iff d (.impl ind)).mpr hif⟩, hii⟩, hie⟩
+      · obtain ⟨x, hx, hn, ht⟩ := htag
+        obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
+        exact ⟨y, hy, hn, ht⟩
+      · obtain ⟨x, hx, hn, hk, hs, hm⟩ := hind
+        obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
+        exact ⟨y, hy, hn, ⟨⟨(kindInd_iff y).mpr hk, (safety_iff y .safe).mpr hs⟩, hm.trans him.symm⟩⟩
+  simp only [Regula.Closed.Tables.ctorIdxImpl, Input.CtorIdxImpl]
+  cases hcf : d.ctorIdxForm with
+  | none =>
+    simp only [Bool.false_eq_true, false_iff, not_exists]
+    intro ind h
+    have h1 := (ctorIdxForm_iff d (.impl ind)).mpr h.2.2.2.2.2.1
+    rw [hcf] at h1
+    cases h1
+  | defn ind =>
+    simp only [Bool.false_eq_true, false_iff, not_exists]
+    intro ind' h
+    have h1 := (ctorIdxForm_iff d (.impl ind')).mpr h.2.2.2.2.2.1
+    rw [hcf] at h1
+    cases h1
+  | impl ind =>
+    rw [any_index_iff t]
+    constructor
+    · rintro ⟨defDecl, hdef, hname, hp⟩
+      obtain ⟨htag, hind, hin, hik, his, hif, hii, hie, hdn, him, hdk, hds, hdf, hdi, hde⟩ :=
+        (hpair ind defDecl).mp hp
+      exact ⟨ind, htag, hind, hin, hik, his, hif, hii, hie,
+        decl defDecl, mem_decls.mpr ⟨defDecl, hdef, rfl⟩, hdn, him, hdk, hds, hdf, hdi, hde⟩
+    · rintro ⟨ind', htag, hind, hin, hik, his, hif, hii, hie,
+        defSpec, hdefSpec, hdn, him, hdk, hds, hdf, hdi, hde⟩
+      have heq : ind = ind' := by
+        have h1 := (ctorIdxForm_iff d (.impl ind')).mpr hif
+        rw [hcf] at h1
+        cases h1
+        rfl
+      subst heq
+      obtain ⟨defDecl, hdef, rfl⟩ := mem_decls.mp hdefSpec
+      exact ⟨defDecl, hdef, hdn, (hpair ind defDecl).mpr
+        ⟨htag, hind, hin, hik, his, hif, hii, hie, hdn, him, hdk, hds, hdf, hdi, hde⟩⟩
+
 theorem mentionsLoop_iff (d : Regula.Closed.Decl) :
     Regula.Closed.mentionsLoop d = true ↔ MentionsLoop (decl d) := by
   simp [Regula.Closed.mentionsLoop, Regula.Closed.loopConstructs, MentionsLoop, loopConstructs,
@@ -263,8 +347,9 @@ theorem rg1006_exact (s : Name) :
     obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
     refine ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, ?_⟩
     simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at hc
-    rcases hc with ⟨hf, hn⟩ | hl
-    · refine .inl ⟨?_, fun hh => by simp [(recursionHelper_iff t d).mpr hh] at hn⟩
+    rcases hc with ⟨⟨hf, hn⟩, hci⟩ | hl
+    · refine .inl ⟨?_, fun hh => by simp [(recursionHelper_iff t d).mpr hh] at hn,
+        fun hc' => by simp [(ctorIdxImpl_iff t d).mpr hc'] at hci⟩
       rcases hf with hf | hf
       · exact .inl ((not_safe_iff d).mp hf)
       · exact .inr ((namedAsHelper_iff d).mp hf)
@@ -273,21 +358,28 @@ theorem rg1006_exact (s : Name) :
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     refine ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, ?_, rfl⟩
     simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true']
-    rcases hv with ⟨hf, hh⟩ | hl
-    · refine .inl ⟨?_, ?_⟩
+    rcases hv with ⟨hf, hh, hci⟩ | hl
+    · refine .inl ⟨⟨?_, ?_⟩, ?_⟩
       · rcases hf with hf | hf
         · exact .inl ((not_safe_iff d).mpr hf)
         · exact .inr ((namedAsHelper_iff d).mpr hf)
       · cases hb : t.helperForm d with
         | false => rfl
         | true => exact absurd ((recursionHelper_iff t d).mp hb) hh
+      · cases hb : t.ctorIdxImpl d with
+        | false => rfl
+        | true => exact absurd ((ctorIdxImpl_iff t d).mp hb) hci
     · exact .inr ((mentionsLoop_iff d).mpr hl)
 
 theorem rg1006_reports_named_not_partial {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     (hm : (toSpec i).ClaimedModule d.module) (hn : HelperNamed (decl d))
     (hp : d.safety ≠ .partial) : d.name ∈ t.rg1006.map (·.subject) :=
   (rg1006_exact t d.name).mpr ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm,
-    .inl ⟨.inr hn, fun h => hp ((safety_iff d .partial).mpr h.1)⟩⟩
+    .inl ⟨.inr hn, fun h => hp ((safety_iff d .partial).mpr h.1), fun hc => by
+      obtain ⟨b, hb⟩ := hn
+      obtain ⟨ind, -, -, heq, -⟩ := hc
+      have hne : Name.str b "_unsafe_rec" = Name.str (Name.str ind "ctorIdx") "_impl" := hb.symm.trans heq
+      simp at hne⟩⟩
 
 /-- A constant with the form of a recursion helper, whose value mentions no loop construct, is not
 reported. So a rule that refuses each name of the form `b._unsafe_rec`, or all recursion, does not
@@ -304,8 +396,26 @@ theorem rg1006_admits_helper {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     rw [hn, get_of_mem t hd] at hg
     exact (Option.some.inj hg).symm
   subst hyd
-  rcases hv with ⟨-, hnot⟩ | hm
+  rcases hv with ⟨-, hnot, -⟩ | hm
   · exact hnot hh
+  · exact hl hm
+
+/-- A constant with the exempted `ctorIdx._impl` form, whose value mentions no loop construct, is not
+reported. -/
+theorem rg1006_admits_ctorIdxImpl {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
+    (hc : (toSpec i).CtorIdxImpl (decl d)) (hl : ¬ MentionsLoop (decl d)) :
+    d.name ∉ t.rg1006.map (·.subject) := by
+  intro h
+  obtain ⟨x, hx, hxn, -, hv⟩ := (rg1006_exact t d.name).mp h
+  obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
+  have hyd : y = d := by
+    have hn : y.name = d.name := hxn
+    have hg := get_of_mem t hy
+    rw [hn, get_of_mem t hd] at hg
+    exact (Option.some.inj hg).symm
+  subst hyd
+  rcases hv with ⟨-, -, hnot⟩ | hm
+  · exact hnot hc
   · exact hl hm
 
 end Link

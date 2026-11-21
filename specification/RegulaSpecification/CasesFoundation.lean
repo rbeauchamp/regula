@@ -155,14 +155,16 @@ def w1006 : Witnessed Violates1006 where
   bad := `Good.p
   bad_violates := by
     refine ⟨partialDecl, by simp [withDecls], rfl, claimed_withDecls,
-      .inl ⟨Or.inl (by simp [partialDecl, plain]), ?_⟩⟩
-    rintro ⟨-, -, -, b, -, hn, -⟩
-    simp [partialDecl, plain] at hn
+      .inl ⟨Or.inl (by simp [partialDecl, plain]), ?_, ?_⟩⟩
+    · rintro ⟨-, -, -, b, -, hn, -⟩
+      simp [partialDecl, plain] at hn
+    · rintro ⟨-, -, -, -, -, hu, -⟩
+      simp [partialDecl, plain] at hu
   admitted := base
   admitted_wf := wf_base
   fine := `Good.f._unsafe_rec
   fine_admitted := by
-    rintro ⟨d, hd, hn, -, ⟨-, hnot⟩ | ⟨l, -, hl⟩⟩
+    rintro ⟨d, hd, hn, -, ⟨-, hnot, -⟩ | ⟨l, -, hl⟩⟩
     · rw [eq_of_name hd helper_mem (by simp [hn, helperDecl, plain])] at hnot
       exact hnot base_helper
     · rw [eq_of_name hd helper_mem (by simp [hn, helperDecl, plain])] at hl
@@ -183,9 +185,70 @@ def withForged : Input := withDecls [plain `Good.g `Good .definition [], forgedD
 
 theorem rg1006_refuses_forged_name : Violates1006 withForged `Good.g._unsafe_rec := by
   refine ⟨forgedDecl, by simp [withForged, withDecls], rfl, claimed_withDecls,
-    .inl ⟨Or.inr ⟨`Good.g, rfl⟩, ?_⟩⟩
-  rintro ⟨h, -⟩
-  simp [forgedDecl, plain] at h
+    .inl ⟨Or.inr ⟨`Good.g, rfl⟩, ?_, ?_⟩⟩
+  · rintro ⟨h, -⟩
+    simp [forgedDecl, plain] at h
+  · rintro ⟨-, -, -, -, -, h, -⟩
+    simp [forgedDecl, plain] at h
+
+/-- The compiler-generated {lit}`ctorIdx` pair for a safe inductive {lit}`Good.E`. -/
+def ctorIdxTagDecl : Decl := toolchain `getObjTagNat .opaque
+/-- The safe inductive {lit}`Good.E`. -/
+def ctorIdxIndDecl : Decl := plain `Good.E `Good .inductive []
+/-- The safe definition {lit}`Good.E.ctorIdx`. -/
+def ctorIdxDefDecl : Decl :=
+  { plain `Good.E.ctorIdx `Good .definition [`Good.E] with
+      implementedBy := some `Good.E.ctorIdx._impl, ctorIdxForm := .defn `Good.E }
+/-- The unsafe implementation {lit}`Good.E.ctorIdx._impl`. -/
+def ctorIdxImplDecl : Decl :=
+  { plain `Good.E.ctorIdx._impl `Good .definition [`Good.E, `getObjTagNat] with
+      safety := .unsafe, ctorIdxForm := .impl `Good.E }
+
+/-- {name}`base`, with a valid compiler-generated {lit}`ctorIdx` pair for {lit}`Good.E`. -/
+def withCtorIdx : Input :=
+  withDecls [ctorIdxTagDecl, ctorIdxIndDecl, ctorIdxDefDecl, ctorIdxImplDecl]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl,
+      ctorIdxTagDecl, ctorIdxIndDecl, ctorIdxDefDecl, ctorIdxImplDecl])
+
+theorem wf_withCtorIdx : withCtorIdx.WellFormed :=
+  wf_withDecls _ _ (uses_resolve (by
+    simp [plain, toolchain, base, baseDecls, helperDecl, fDecl,
+      ctorIdxTagDecl, ctorIdxIndDecl, ctorIdxDefDecl, ctorIdxImplDecl]))
+
+theorem rg1006_admits_ctorIdx : ¬ Violates1006 withCtorIdx `Good.E.ctorIdx._impl := by
+  rintro ⟨d, hd, hn, -, ⟨-, -, hnot⟩ | ⟨l, -, hl⟩⟩
+  · have hmem : ctorIdxImplDecl ∈ withCtorIdx.decls := by simp [withCtorIdx, withDecls]
+    rw [Input.eq_of_name_eq withCtorIdx.unique hd hmem (by simp [hn, ctorIdxImplDecl, plain])] at hnot
+    exact hnot ⟨`Good.E,
+      ⟨ctorIdxTagDecl, by simp [withCtorIdx, withDecls], rfl, rfl⟩,
+      ⟨ctorIdxIndDecl, by simp [withCtorIdx, withDecls], rfl, rfl, rfl, rfl⟩,
+      rfl, rfl, rfl, rfl, rfl, rfl,
+      ctorIdxDefDecl, by simp [withCtorIdx, withDecls], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  · have hmem : ctorIdxImplDecl ∈ withCtorIdx.decls := by simp [withCtorIdx, withDecls]
+    rw [Input.eq_of_name_eq withCtorIdx.unique hd hmem (by simp [hn, ctorIdxImplDecl, plain])] at hl
+    simp [ctorIdxImplDecl, plain] at hl
+
+/-- A forged unsafe {lit}`Good.E.ctorIdx._impl` whose structural form is {lit}`.none`. -/
+def forgedCtorIdxImplDecl : Decl := { ctorIdxImplDecl with ctorIdxForm := .none }
+
+/-- {name}`base`, with a forged {lit}`Good.E.ctorIdx._impl`. -/
+def withForgedCtorIdx : Input :=
+  withDecls [ctorIdxTagDecl, ctorIdxIndDecl, ctorIdxDefDecl, forgedCtorIdxImplDecl]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl,
+      ctorIdxTagDecl, ctorIdxIndDecl, ctorIdxDefDecl, forgedCtorIdxImplDecl, ctorIdxImplDecl])
+
+theorem wf_withForgedCtorIdx : withForgedCtorIdx.WellFormed :=
+  wf_withDecls _ _ (uses_resolve (by
+    simp [plain, toolchain, base, baseDecls, helperDecl, fDecl,
+      ctorIdxTagDecl, ctorIdxIndDecl, ctorIdxDefDecl, forgedCtorIdxImplDecl, ctorIdxImplDecl]))
+
+theorem rg1006_refuses_forged_ctorIdx : Violates1006 withForgedCtorIdx `Good.E.ctorIdx._impl := by
+  refine ⟨forgedCtorIdxImplDecl, by simp [withForgedCtorIdx, withDecls], rfl, claimed_withDecls,
+    .inl ⟨Or.inl (by simp [forgedCtorIdxImplDecl, ctorIdxImplDecl, plain]), ?_, ?_⟩⟩
+  · rintro ⟨h, -⟩
+    simp [forgedCtorIdxImplDecl, ctorIdxImplDecl, plain] at h
+  · rintro ⟨ind, -, -, -, -, -, h, -⟩
+    simp [forgedCtorIdxImplDecl] at h
 
 theorem wf_withForged : withForged.WellFormed :=
   wf_withDecls _ _

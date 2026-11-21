@@ -63,10 +63,12 @@ def valueNamesOf : ConstantInfo → List Name
   | .opaqueInfo v => v.value.getUsedConstants.toList
   | .axiomInfo _ | .quotInfo _ | .inductInfo _ | .ctorInfo _ | .recInfo _ => []
 
-/-- Two constants of which the rules read the same: the same kind, the same two flags and the same names. -/
-def SameRead (k v : ConstantInfo) : Prop :=
+/-- Two constants of which the rules read the same: the same kind, the same two flags, the same
+names, and the same {lit}`ctorIdx` form. -/
+def SameRead (env : Lean.Environment) (n : Name) (k v : ConstantInfo) : Prop :=
   ConstantKind.ofConstantInfo k = ConstantKind.ofConstantInfo v ∧ k.isUnsafe = v.isUnsafe ∧ k.isPartial = v.isPartial ∧
-    namesOf k = namesOf v ∧ valueNamesOf k = valueNamesOf v
+    namesOf k = namesOf v ∧ valueNamesOf k = valueNamesOf v ∧
+    ctorIdxShape env n k = ctorIdxShape env n v
 
 namespace BuildAnswer
 
@@ -110,7 +112,7 @@ def Admits : Regula.Closed.Profile → Name → Prop
   | .choiceFree, n => (n = ``propext ∨ n = ``Quot.sound) ∧ a.InToolchain n
   | .standardLogical, n => (n = ``propext ∨ n = ``Quot.sound ∨ n = ``Classical.choice) ∧ a.InToolchain n
 
-/-- A constant of the exempted form beside a safe definition of the module {name}`m`, which names no origin. -/
+/-- A constant of the exempted recursion-helper form beside a safe definition of the module {name}`m`, which names no origin. -/
 def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
     Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
@@ -120,6 +122,29 @@ def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? a.env b = none ∧ Lean.isExtern a.env b = false
 
+/-- A constant of the exempted {lit}`ctorIdx._impl` form beside a safe inductive and safe {lit}`ctorIdx`
+definition of the module {name}`m`, with {lit}`getObjTagNat` in the toolchain. -/
+def CtorIdxImpl (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
+  ∃ ind,
+    (∃ k, a.env.constants.map₁[`getObjTagNat]? = some k) ∧ a.InToolchain `getObjTagNat ∧
+    (∃ indv, a.env.constants.map₁[ind]? = some (.inductInfo indv) ∧
+      (∀ w, a.Stated ind w → ¬ AxiomInfo w) ∧
+      (a.place? ind).map (·.1) = some m ∧ (ConstantInfo.inductInfo indv).isUnsafe = false ∧
+      (ConstantInfo.inductInfo indv).isPartial = false) ∧
+    n = Name.str (Name.str ind "ctorIdx") "_impl" ∧
+    (∃ iv, info = .defnInfo iv) ∧ (∀ w, a.Stated n w → ¬ AxiomInfo w) ∧
+    info.isUnsafe = true ∧ ctorIdxShape a.env n info = .impl ind ∧
+    Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
+    ∃ defv, a.env.constants.map₁[Name.str ind "ctorIdx"]? = some (.defnInfo defv) ∧
+      (∀ w, a.Stated (Name.str ind "ctorIdx") w → ¬ AxiomInfo w) ∧
+      (a.place? (Name.str ind "ctorIdx")).map (·.1) = some m ∧
+      (ConstantInfo.defnInfo defv).isUnsafe = false ∧
+      (ConstantInfo.defnInfo defv).isPartial = false ∧
+      ctorIdxShape a.env (Name.str ind "ctorIdx") (.defnInfo defv) = .defn ind ∧
+      Lean.Compiler.getImplementedBy? a.env (Name.str ind "ctorIdx") =
+        some (Name.str (Name.str ind "ctorIdx") "_impl") ∧
+      Lean.isExtern a.env (Name.str ind "ctorIdx") = false
+
 /-- A constant that a claimed module's own {lit}`.olean` holds. -/
 def Own (m n : Name) (info : ConstantInfo) : Prop :=
   ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧ StrictlyBelow a.rootDir olean ∧
@@ -128,7 +153,7 @@ def Own (m n : Name) (info : ConstantInfo) : Prop :=
 /-- A claimed module's own constant that the environment shows to the rules: it keeps a constant of that name, in a claimed module, of
 which the rules read the same. -/
 def Shown (n : Name) (info : ConstantInfo) : Prop :=
-  ∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead k info ∧ StrictlyBelow a.rootDir x.2
+  ∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead a.env n k info ∧ StrictlyBelow a.rootDir x.2
 
 /-- What the rules ask of a finished build, by what Lean and Lake answered and with none of the checker's
 functions. -/
@@ -141,10 +166,11 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   closed : ∀ n u, a.Mention n u → ∃ info', a.env.constants.map₁[u]? = some info'
   /-- At least one module is claimed. -/
   claims : ∃ m, a.Claimed m
-  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct and reaches only axioms that the profile admits. -/
+  /-- Each constant of a claimed module is no axiom, has an exempted form if it has an escape-hatch mark, mentions no loop construct and reaches only axioms that the profile admits. -/
   floor : ∀ n info m, a.env.constants.map₁[n]? = some info → (a.place? n).map (·.1) = some m → a.Claimed m →
     ¬ a.Axiom n ∧
-    ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → a.Helper n info m) ∧
+    ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
+      a.Helper n info m ∨ a.CtorIdxImpl n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ∀ e, a.Reaches n e → a.Axiom e → a.Admits p e
   /-- A claimed module's own constant that the environment does not show is a safe theorem with no helper's name, whose value mentions no
@@ -222,6 +248,11 @@ theorem helper_ofFacts (n : Name) (info : ConstantInfo) (m : Name) : (ofFacts f)
   simp only [Helper, EnvHelper, stated_ofFacts, placeName_ofFacts]
   rfl
 
+theorem ctorIdxImpl_ofFacts (n : Name) (info : ConstantInfo) (m : Name) :
+    (ofFacts f).CtorIdxImpl n info m ↔ EnvCtorIdxImpl f n info m := by
+  simp only [CtorIdxImpl, EnvCtorIdxImpl, inToolchain_ofFacts, stated_ofFacts, placeName_ofFacts]
+  rfl
+
 theorem own_ofFacts (m n : Name) (info : ConstantInfo) : (ofFacts f).Own m n info ↔ (m, n, info) ∈ f.claimedConstants := by
   rw [mem_claimedConstants]
   simp only [Own, ofFacts_getElem, Option.map_eq_some_iff, Prod.mk.injEq]
@@ -286,15 +317,16 @@ theorem usesOf_toList (k : ConstantInfo) : (Regula.Load.usesOf k).toList = names
 theorem valueUsesOf_toList (k : ConstantInfo) : (Regula.Load.valueUsesOf k).toList = valueNamesOf k := by
   cases k <;> rfl
 
-theorem readOf_eq_iff (k v : ConstantInfo) : Regula.Load.readOf k = Regula.Load.readOf v ↔ SameRead k v := by
-  simp only [Regula.Load.readOf, Prod.mk.injEq, SameRead, kindOf_eq_iff, safetyOf_eq_iff, usesOf_toList, valueUsesOf_toList,
-    and_assoc]
+theorem readOf_eq_iff (env : Lean.Environment) (n : Name) (k v : ConstantInfo) :
+    Regula.Load.readOf env n k = Regula.Load.readOf env n v ↔ SameRead env n k v := by
+  simp only [Regula.Load.readOf, Prod.mk.injEq, SameRead, kindOf_eq_iff, safetyOf_eq_iff,
+    usesOf_toList, valueUsesOf_toList, ctorIdxFormOf_eq_iff, and_assoc]
 
 theorem shown_ofFacts (f : Regula.Load.Facts) (m n : Name) (info : ConstantInfo) :
     (BuildAnswer.ofFacts f).Shown n info ↔ f.shown (m, n, info) = true := by
   simp only [BuildAnswer.Shown, BuildAnswer.place_ofFacts, Regula.Load.Facts.shown, Option.map_eq_some_iff]
   show _ ↔ (match f.env.constants.map₁[n]?, f.info? n with
-    | some kept, some m => decide (Regula.Load.readOf kept = Regula.Load.readOf info) && m.claimed
+    | some kept, some m => decide (Regula.Load.readOf f.env n kept = Regula.Load.readOf f.env n info) && m.claimed
     | none, _ | some _, none => false) = true
   simp only [BuildAnswer.ofFacts]
   cases h1 : f.env.constants.map₁[n]? with
@@ -343,11 +375,12 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
   have hfloor : (∀ n info m, (BuildAnswer.ofFacts f).env.constants.map₁[n]? = some info → ((BuildAnswer.ofFacts f).place? n).map (·.1) = some m →
       (BuildAnswer.ofFacts f).Claimed m →
       ¬ (BuildAnswer.ofFacts f).Axiom n ∧
-      ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → (BuildAnswer.ofFacts f).Helper n info m) ∧
+      ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
+        (BuildAnswer.ofFacts f).Helper n info m ∨ (BuildAnswer.ofFacts f).CtorIdxImpl n info m) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
       ∀ e, (BuildAnswer.ofFacts f).Reaches n e → (BuildAnswer.ofFacts f).Axiom e → (BuildAnswer.ofFacts f).Admits p e) ↔ EnvFloor f p := by
     simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts, BuildAnswer.helper_ofFacts,
-      BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts]
+      BuildAnswer.ctorIdxImpl_ofFacts, BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts]
     rfl
   have hunshown : (∀ m n info, (BuildAnswer.ofFacts f).Own m n info → ¬ (BuildAnswer.ofFacts f).Shown n info →
       (∃ t, info = .thmInfo t) ∧ info.isUnsafe = false ∧ info.isPartial = false ∧

@@ -10,7 +10,7 @@ sentence replaced by a constant fails this module's build. A theorem whose expec
 table agrees with itself.
 
 An example is stated over the parser's node kinds or the decision's input. The kinds and the shapes of the trees below are what Lean's
-own {lit}`parseCommand` and {lit}`parseHeader` gave for the owner's examples at v4.35.0 (`README.md`, "What was measured"). That those trees are what
+own {lit}`parseCommand` and {lit}`parseHeader` gave for the owner's examples at v4.36.0 (`README.md`, "What was measured"). That those trees are what
 the parser gives for a project's real text is H1, which these theorems do not reach. Admitting Regula's own core cannot be stated this way:
 it is the gate's run of the full gate on this checkout, an observation, and {lit}`core_configuration_admitted` states only the configuration's part.
 -/
@@ -125,7 +125,7 @@ def libraryCode : List Syntax :=
   [byExample (n `Lean.Parser.Tactic.simp [a "simp", n `Lean.Parser.Tactic.optConfig [e], e, e, e, e]),
     byExample (n `Lean.Parser.Tactic.omega [a "omega", n `Lean.Parser.Tactic.optConfig [e]]),
     byExample (n `Lean.Parser.Tactic.decide [a "decide", plusItem `kernel]),
-    n `Lean.Parser.Command.variable [a "variable",
+    n `Lean.Parser.Command.variable [e, a "variable",
       n `null [n `Lean.Parser.Term.explicitBinder [a "(", n `null [i `n], n `null [a ":", i `Nat], e, a ")"]]],
     n `Lean.Parser.Command.declaration [mods e,
       n `Lean.Parser.Command.inductive [a "inductive", n `Lean.Parser.Command.declId [i `T, e],
@@ -147,7 +147,7 @@ def coreKeys : List Name :=
 
 /-- A project of one {lit}`module` file that holds {name}`commands`, with the pinned toolchain and the key paths {name}`keys`. -/
 def readingOf (keys : List Name) (commands : List Syntax) : Reading where
-  toolchainFile := some "leanprover/lean4:v4.35.0"
+  toolchainFile := some "leanprover/lean4:v4.36.0"
   leanConfig := false
   configKeys := keys
   openPaths := []
@@ -189,7 +189,7 @@ theorem proof_verdict_lines :
 open Regula.Closed in
 theorem full_gate_lines :
     Report.label (.full .pass) =
-      "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.35.0" ∧
+      "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.36.0" ∧
     Report.label (.full .fail) = "regula: full verdict: fail" ∧
     Report.label (.full .incomplete) = "regula: full verdict: incomplete" ∧
     Report.label .proofOnly =
@@ -216,7 +216,7 @@ theorem pass_lines_name_subject (s : String) :
     Verdict.proofLineOn s .fail = Verdict.proofLine .fail ∧
     Verdict.proofLineOn s .incomplete = Verdict.proofLine .incomplete ∧
     Report.labelOn s (.full .pass) =
-      "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.35.0" ++ ", on " ++ detailText s ∧
+      "regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.36.0" ++ ", on " ++ detailText s ∧
     Report.labelOn s (.full .fail) = Report.label (.full .fail) ∧
     Report.labelOn s (.full .incomplete) = Report.label (.full .incomplete) ∧
     Report.labelOn s .proofOnly = Report.label .proofOnly ∧

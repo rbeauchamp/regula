@@ -224,7 +224,7 @@ theorem checkerFiles_io (w w' : Void IO.RealWorld) (files : List System.FilePath
       exact ⟨sources, others, w₁, rfl, hr, hf.symm⟩
 
 /-- This says nothing of where {lean}`target / file` lies: {lit}`/` gives {name}`file` itself for an absolute {name}`file`
-({name (full := System.FilePath.join)}`FilePath.join`, {lit}`Init/System/FilePath.lean:126-130` at v4.35.0), so such a copy writes to the file it
+({name (full := System.FilePath.join)}`FilePath.join`, {lit}`Init/System/FilePath.lean:126-130` at v4.36.0), so such a copy writes to the file it
 read, and a relative {name}`file` with `..` can leave {name}`target`. -/
 theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (h : copyFile target file w = .ok () w') :
     ∃ bytes w₁ w₂, IO.FS.readBinFile file w₁ = .ok bytes w₂ ∧

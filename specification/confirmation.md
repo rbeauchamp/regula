@@ -430,6 +430,40 @@ An analysis of Regula's past fixes that the owner asked for on 2026-11-01 observ
 | A pass ends its last line with what it audited: the directory named for the full verdict, and the current directory's real path for the proof verdict. Any other last line is unchanged. | `Report.labelOn`, `Verdict.proofLineOn`, `plainRun_pass` | Decided: at the end of the line, with LF and CR displayed as escapes, so a path changes neither the verdict's words nor the number of lines. |
 | The local gate gives the variable to its one full-gate step and removes it from the others. | `localSteps_eq`, `localSteps_full`, `runStep_spawns`, `stepRequest`, `fullVariable_eq` | Decided: an inherited value must not turn a later `lake lint` of the gate into a verdict about another directory. |
 
+## 2026-11-20: Lean v4.36.0 compiler-generated `ctorIdx` exemption (Option A1) and `v0.13.1` compatibility patch
+
+### What the owner was shown
+
+When upgrading Regula to Lean `v4.36.0` (`611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9`), Lean's `mkCtorIdx` (`Lean/Meta/Constructions/CtorIdx.lean:40-141`) generates an `unsafe` helper `T.ctorIdx._impl` calling `@[extern "lean_obj_tag_nat"] unsafe opaque getObjTagNat` (`Init/Prelude.lean:1381-1382`, `include/lean/lean.h:757-763`) and registers `@[implemented_by T.ctorIdx._impl]` on the safe `T.ctorIdx` for every safe, non-single-constructor, non-builtin, non-`Prop` inductive type `T`. On Regula's own default targets, RG1006 refused every `T.ctorIdx._impl` as `unsafe`.
+
+The owner was shown two design options for handling this in Regula's contract, plus the option of shipping a `v0.13.1` maintenance patch branched from `v0.13.0` keeping `v0.13.0`'s rule set (Option 2B) to unblock downstream Lean `v4.36.0` consumers ahead of `v0.14.0`/`v0.15.0`:
+
+- **Option A1 (Recommended):** Exempt `T.ctorIdx._impl` in RG1006 (and `T.ctorIdx`'s `@[implemented_by T.ctorIdx._impl]` where RG1011 applies) only when the loader verifies the exact structural `Expr` form of both `T.ctorIdx` (`T.casesOn` mapping each constructor to `cInfo.cidx`) and `T.ctorIdx._impl` (`@getObjTagNat.{u}` on `T` with `u.isNeverZero`) beside a safe, non-single-constructor, non-builtin, non-`Prop` inductive `T` in the same module, with `getObjTagNat` in the toolchain, adding an explicit trusted-base entry for Lean's `lean_obj_tag_nat` behavior on compiler-generated `ctorIdx` pairs. This closes plain-source proof-verdict forgeries (such as forging `unsafe def Bar.ctorIdx._impl` on a 1-constructor inductive `Bar`, swapping constructor indices under `genCtorIdx = false`, or putting arbitrary `unsafe` code in `_impl`).
+- **Option A2:** A form-only exemption without `Expr` matching, which would allow plain-source forgery under the proof verdict on any 1-constructor inductive.
+
+### The owner's answer
+
+For Option A1 (quoting `Option A1 (Recommended`):
+
+> confirmed
+
+For shipping `v0.13.1` as a Lean `v4.36.0` compatibility patch off `v0.13.0` (Option 2B):
+
+> proceed per your recommendation
+
+### Substance
+
+Regula on Lean `v4.36.0` exempts Lean's compiler-generated `T.ctorIdx._impl` under RG1006 only when both `T.ctorIdx` and `T.ctorIdx._impl` pass exact structural verification against `T`, `T.casesOn`, and toolchain `getObjTagNat`, and records the reliance on Lean's `lean_obj_tag_nat` runtime tag semantics in `Assumptions.lean`. Release `v0.13.1` ships this Lean `v4.36.0` compatibility upgrade on `v0.13.0`'s exact rule set (RG1001 to RG1006, RG1010 and RG2001).
+
+### Consequences
+
+| Consequence | Where | Status |
+| --- | --- | --- |
+| `Decl` carries a structural `CtorIdxForm` classification (`none`, `defn induct`, `impl induct`) computed by `Regula.Load.ctorIdxFormOf`, included in `readOf` and mirrored in `RegulaSpecification.Input.CtorIdxForm`. | `lean/Regula/Input.lean`, `lean/Regula/Load.lean`, `specification/RegulaSpecification/Input.lean` | Decided on the owner's behalf to encode Option A1 cleanly in the closed input. |
+| RG1006 exempts `T.ctorIdx._impl` when `Tables.ctorIdxImpl` / `Input.CtorIdxImpl` holds (still refusing loop mentions unconditionally), and `ctorIdxImpl_unreached` proves under H6 that no safe constant reaches it. | `lean/Regula/Rules.lean`, `specification/RegulaSpecification/Safety.lean`, `specification/RegulaSpecification/Meaning.lean` | Follows from the owner's confirmation of Option A1. |
+| `Assumptions.lean` adds `Assumption.ctorIdxTag` citing `Lean/Meta/Constructions/CtorIdx.lean:40-141`, `Lean/Compiler/LCNF/Util.lean:40-53`, `Init/Prelude.lean:1381-1382`, and `src/include/lean/lean.h:757-763`, and notes it beside `h2`. | `specification/RegulaSpecification/Assumptions.lean`, `specification/README.md` | Follows from the owner's confirmation of Option A1. |
+| `v0.13.1` pins `leanprover/lean4:v4.36.0` (`611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9`) on `v0.13.0`'s exact rule set (RG1001 to RG1006, RG1010 and RG2001). | `lean-toolchain`, `lakefile.toml`, `README.md` | Follows from the owner's confirmation of Option 2B. |
+
 ## The form of this record
 
 The file is not signed. Its authority is that of the commit that adds it. The owner's agents passed each answer to the author of this file on its date.

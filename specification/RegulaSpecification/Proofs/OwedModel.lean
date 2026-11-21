@@ -27,7 +27,7 @@ open RegulaSpecification.Loader
 variable {α : Type}
 
 /-- What an environment of the witness must be: each reading of it that those answers allow has {name}`BuildAnswer.Floor`. {name}`Lean.Environment`'s
-constructor is private ({lit}`Lean/Environment.lean:213`, `:553`), so a proof here cannot build one with a claimed module. A real
+constructor is private ({lit}`Lean/Environment.lean:211`, `:591`), so a proof here cannot build one with a claimed module. A real
 one is what a finished build gives, and {name}`plain_exit_zero` and {name}`full_exit_zero` state that a run that exits with 0 read one with this floor. -/
 structure EnvModel (w : WitnessPaths) (env : Lean.Environment) (p : Regula.Closed.Profile) : Prop where
   /-- Each reading has the floor. -/

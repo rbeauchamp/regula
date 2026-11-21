@@ -10,12 +10,21 @@ needs no `partial` of the module that uses it: it compiles through a private `pa
 either: the compiler reads `f._unsafe_rec` in place of {lit}`f` by its name alone ({lit}`getDeclInfo?`,
 {lit}`Lean/Compiler/LCNF/ToDecl.lean:25-27`).
 
-The one constant of these the rule admits has the exempted form: `f._unsafe_rec`, partial and not unsafe,
-with neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, beside a safe, total definition {lit}`f` of its module. It is
-the form of what Lean's elaborator adds for a safe recursive definition, which is why it is exempted, and it
-is a form and nothing else. The input holds nothing of who produced a constant, so one of this form that a
-module's own code adds during the build is admitted too, and no rule reads what it computes.
-{lit}`helperForm_unreached` states why it cannot change what the proof verdict claims, under H6.
+The two constants of these the rule admits have an exempted form:
+- `f._unsafe_rec`, partial and not unsafe, with neither {attr}`@[implemented_by]` nor
+  {attr}`@[extern]`, beside a safe, total definition {lit}`f` of its module ({lit}`HelperForm`). It
+  is the form of what Lean's elaborator adds for a safe recursive definition, and it is a form and
+  nothing else: the input holds nothing of who produced it, so one added during the build is
+  admitted too, and no rule reads what it computes.
+- `T.ctorIdx._impl`, unsafe, with neither {attr}`@[implemented_by]` nor {attr}`@[extern]` and
+  structural form {lit}`CtorIdxForm.impl T`, beside the safe definition `T.ctorIdx` (structural form
+  {lit}`CtorIdxForm.defn T`, {attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`, not {attr}`@[extern]`) and
+  the safe inductive type {lit}`T` in the same module, with {lit}`getObjTagNat` in the toolchain
+  ({lit}`CtorIdxImpl`). It is the exact structural form that Lean v4.36.0's {lit}`mkCtorIdx`
+  generates ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141`).
+
+{lit}`helperForm_unreached` and {lit}`ctorIdxImpl_unreached` state why neither exempted form can
+change what the proof verdict claims, under H6.
 -/
 
 namespace RegulaSpecification
@@ -23,7 +32,7 @@ namespace RegulaSpecification
 open Lean (Name)
 
 /-- The constants through which Lean's `while`, {lit}`repeat` and `repeat ... until` run: the one value
-of the type {name}`Lean.Loop` that they iterate over, and the loop itself ({lit}`Init/While.lean` at v4.35.0).
+of the type {name}`Lean.Loop` that they iterate over, and the loop itself ({lit}`Init/While.lean` at v4.36.0).
 -/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
 
@@ -31,7 +40,8 @@ namespace Input
 
 variable (i : Input)
 
-/-- {name}`d` has the exempted form, which names no origin: a partial, safe-flagged definition named `f._unsafe_rec` beside a safe, total definition {lit}`f`, neither with an
+/-- {name}`d` has the exempted recursion-helper form, which names no origin: a partial, safe-flagged
+definition named `f._unsafe_rec` beside a safe, total definition {lit}`f`, neither with an
 {attr}`@[implemented_by]` or {attr}`@[extern]`. The base of a `partial def` is an opaque constant, so its helper
 has not this form. -/
 def HelperForm (d : Decl) : Prop :=
@@ -39,6 +49,27 @@ def HelperForm (d : Decl) : Prop :=
     ∃ base ∈ i.decls, d.name = Name.str base.name "_unsafe_rec" ∧ base.kind = .definition ∧
       base.module = d.module ∧ base.safety = .safe ∧ base.implementedBy = none ∧
       base.isExtern = false
+
+/-- {name}`d` has the exempted form of the unsafe half `T.ctorIdx._impl` of a compiler-generated
+{lit}`ctorIdx` pair ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141` at v4.36.0): an unsafe
+definition of form {lit}`CtorIdxForm.impl ind` with neither {attr}`@[implemented_by]` nor
+{attr}`@[extern]`, beside the safe definition `ind.ctorIdx` (of form {lit}`CtorIdxForm.defn ind`
+with {attr}`@[implemented_by]` {lit}`ind.ctorIdx._impl` and without {attr}`@[extern]`) and the safe
+inductive type {lit}`ind` in the same module, with {lit}`getObjTagNat` in the toolchain. -/
+def CtorIdxImpl (d : Decl) : Prop :=
+  ∃ ind,
+    (∃ tag ∈ i.decls, tag.name = `getObjTagNat ∧ tag.inToolchain = true) ∧
+    (∃ indDecl ∈ i.decls, indDecl.name = ind ∧ indDecl.kind = .inductive ∧
+      indDecl.safety = .safe ∧ indDecl.module = d.module) ∧
+    d.name = Name.str (Name.str ind "ctorIdx") "_impl" ∧
+    d.kind = .definition ∧ d.safety = .unsafe ∧ d.ctorIdxForm = .impl ind ∧
+    d.implementedBy = none ∧ d.isExtern = false ∧
+    ∃ defDecl ∈ i.decls,
+      defDecl.name = Name.str ind "ctorIdx" ∧ defDecl.module = d.module ∧
+      defDecl.kind = .definition ∧ defDecl.safety = .safe ∧
+      defDecl.ctorIdxForm = .defn ind ∧
+      defDecl.implementedBy = some (Name.str (Name.str ind "ctorIdx") "_impl") ∧
+      defDecl.isExtern = false
 
 end Input
 
@@ -50,15 +81,14 @@ def HelperNamed (d : Decl) : Prop := ∃ b : Name, d.name = Name.str b "_unsafe_
 def MentionsLoop (d : Decl) : Prop := ∃ l ∈ loopConstructs, l ∈ d.valueUses
 
 /-- RG1006: a claimed module holds a constant that is unsafe, partial or named as a recursion
-helper, without the exempted form, or a constant whose value directly mentions a loop
-construct. -/
+helper, without an exempted form, or a constant whose value directly mentions a loop construct. -/
 def Violates1006 (i : Input) (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧
-    (((d.safety ≠ .safe ∨ HelperNamed d) ∧ ¬ i.HelperForm d) ∨ MentionsLoop d)
+    (((d.safety ≠ .safe ∨ HelperNamed d) ∧ ¬ i.HelperForm d ∧ ¬ i.CtorIdxImpl d) ∨ MentionsLoop d)
 
-/-- H6, a hypothesis about Lean's kernel at v4.35.0, never an axiom: a safe constant mentions only safe constants. The kernel checks each
-theorem, opaque constant, axiom and safe definition at the safety {lit}`safe` ({lit}`src/kernel/environment.cpp:156`, `:181`, `:196`, `:215`, with
-{lit}`src/kernel/type_checker.h:127-128`), and refuses there a mention of an unsafe or a partial constant ({lit}`src/kernel/type_checker.cpp:110-117`).
+/-- H6, a hypothesis about Lean's kernel at v4.36.0, never an axiom: a safe constant mentions only safe constants. The kernel checks each
+theorem, opaque constant, axiom and safe definition at the safety {lit}`safe` ({lit}`src/kernel/environment.cpp:155`, `:180`, `:195`, `:214`, with
+{lit}`src/kernel/type_checker.h:124-125`), and refuses there a mention of an unsafe or a partial constant ({lit}`src/kernel/type_checker.cpp:110-117`).
 The checker replays the cone of the claim in that kernel, so it holds of each constant of the cone, which holds each constant that a
 claimed constant reaches. -/
 def SafeMentionsSafe (i : Input) : Prop :=
@@ -95,12 +125,21 @@ theorem safe_reach_safe {i : Input} (h : SafeMentionsSafe i) {c e : Name} (hr : 
       | refl => exact absurd ⟨p, hp, he⟩ hq
       | step x hx hxn _ _ => exact absurd ⟨x, hx, hxn⟩ hq
 
-/-- Why a constant of the exempted form cannot change what the proof verdict claims, under H6: no safe constant reaches it. So no theorem
+/-- Why a constant of the exempted recursion-helper form cannot change what the proof verdict claims, under H6: no safe constant reaches it. So no theorem
 depends on it, and no proof's axioms come through it. It can change what a compiled program runs, which that verdict does not claim. -/
 theorem helperForm_unreached {i : Input} (h : SafeMentionsSafe i) {d p : Decl} (hd : d ∈ i.decls) (hs : d.safety = .safe)
     (hp : p ∈ i.decls) (hf : i.HelperForm p) : ¬ i.Reaches d.name p.name := fun hr => by
   have := safe_reach_safe h hr d hd rfl hs p hp rfl
   rw [hf.1] at this
+  cases this
+
+/-- Why the unsafe half `T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair cannot change
+what the proof verdict claims, under H6: no safe constant reaches it. -/
+theorem ctorIdxImpl_unreached {i : Input} (h : SafeMentionsSafe i) {d p : Decl} (hd : d ∈ i.decls)
+    (hs : d.safety = .safe) (hp : p ∈ i.decls) (hc : i.CtorIdxImpl p) : ¬ i.Reaches d.name p.name := fun hr => by
+  have := safe_reach_safe h hr d hd rfl hs p hp rfl
+  obtain ⟨_, _, _, _, _, hu, -⟩ := hc
+  rw [hu] at this
   cases this
 
 /-- The intent record of RG1006. -/

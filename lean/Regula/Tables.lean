@@ -198,8 +198,8 @@ theorem mem_axiomReach (c a : Name) :
 
 /-- The constants that Lean's kernel builds into a term that it checks, so that checking a constant can need one that it does
 not mention: the types of a literal (`Lean.Literal.type`, `Lean/Expr.lean:622-624`), what the kernel unfolds a number and a
-string literal to (`src/kernel/inductive.cpp:1359-1401`), and the values of its arithmetic on numbers
-(`src/kernel/type_checker.cpp:669`, `src/library/constants.cpp:147-150`), at v4.35.0. -/
+string literal to (`src/kernel/inductive.cpp:1347-1390`), and the values of its arithmetic on numbers
+(`src/kernel/type_checker.cpp:665`, `src/library/constants.cpp:12-15`), at v4.36.0. -/
 def kernelNames : List Name :=
   [`Nat, `String, `Nat.zero, `Nat.succ, `String.ofList, `List.cons, `List.nil, `Char, `Char.ofNat, `Bool.true,
     `Bool.false]
