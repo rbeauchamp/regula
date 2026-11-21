@@ -33,8 +33,8 @@ Concrete Lean 4 practices:
 - **Closed sum types ([`lean/Regula/Input.lean`](lean/Regula/Input.lean), [`lean/Regula/Rule.lean`](lean/Regula/Rule.lean), [`lean/Regula/Verdict.lean`](lean/Regula/Verdict.lean)):**
   - `Regula.Closed.Safety` has constructors `safe`, `unsafe`, and `partial`; it cannot represent a constant that is both unsafe and partial.
   - `Regula.Closed.Report` has constructors `pass`, `fail (first : Finding) (rest : List Finding)`, and `incomplete (why : String)`; it cannot represent a pass with findings or a failure with none, and an incomplete report always carries a `String`, which the type does not require to be nonempty.
-  - `Regula.Closed.Guidance` (`lean/Regula/Rule.lean`, on `main`) pairs `text : String` with `nonblank : text.toList.head?.any (!·.isWhitespace) = true`, so `Violation` and `Finding` cannot represent empty, whitespace-only, or leading-whitespace fix guidance.
   - `Regula.Closed.Profile` and `Regula.Closed.Verdict` are closed enums with proved injective encodings (`Profile.spelling_injective`, `Profile.ofSpelling?_eq_some`, `Verdict.exitCode_injective`, `Verdict.exitCode_eq_zero_iff`).
+- **Proof-bearing invariant ([`lean/Regula/Rule.lean`](lean/Regula/Rule.lean)):** `Regula.Closed.Guidance` (on `main`) pairs `text : String` with `nonblank : text.toList.head?.any (!·.isWhitespace) = true`, so `Violation` and `Finding` cannot represent empty, whitespace-only, or leading-whitespace fix guidance.
 
 **Enforcement status:** Engineering discipline (human and agent review). Regula has no lint rule that judges data-model design.
 

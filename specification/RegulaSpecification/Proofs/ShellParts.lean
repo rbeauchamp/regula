@@ -86,8 +86,8 @@ theorem detailText_append (a b : String) :
     detailText (a ++ b) = detailText a ++ detailText b := by
   simp [detailText, String.toList_append, List.flatMap_append, String.ofList_append]
 
-/-- Passing a finding's guidance line through {name}`Regula.Reader.say` renders a single physical
-line starting with two spaces ({lit}`  fix: `) followed by the escaped guidance text. -/
+/-- Prepending two spaces to {name}`detailText` of {name}`Regula.Shell.guidanceLine` equals
+{lit}`  fix: ` followed by {name}`detailText` of the finding's guidance text. -/
 theorem detailText_guidanceLine (f : Regula.Closed.Finding) :
     "  " ++ detailText (Regula.Shell.guidanceLine f) =
       "  fix: " ++ detailText f.guidance.text := by
