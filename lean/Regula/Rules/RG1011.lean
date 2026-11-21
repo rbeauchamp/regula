@@ -39,6 +39,51 @@ def replacement (d : Decl) : String :=
         (d.initFn.map fun fn => s!"the initialization function {fn} of @[init] or @[builtin_init]").toList
       else []))
 
+/-- Fix guidance for an exported claimed-module `@[csimp]` entry targeting a foreign theorem. -/
+def foreignCSimpGuidance : Guidance :=
+  { text := "remove the @[csimp] registration on the foreign theorem, or replace it under the proof \
+      verdict with a claimed @[csimp] theorem or one-line claimed alias (@[csimp] public theorem \
+      alias : @f = @g := Dep.thm) in a claimed module when the dependency proof is safe and fits \
+      the project's profile (RG1010 refuses @[csimp] in the full gate)"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for `@[implemented_by]`. -/
+def implementedByGuidance : Guidance :=
+  { text := "remove @[implemented_by] and simplify the definition so compiled code matches the proved \
+      definition, or replace it under the proof verdict with a proved claimed @[csimp] theorem \
+      (@f = @g) (RG1010 refuses @[csimp] in the full gate)"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for `@[extern]`. -/
+def externGuidance : Guidance :=
+  { text := "remove @[extern] and implement the definition in pure Lean so proofs cover compiled code, \
+      or isolate foreign bindings outside claimed modules"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for `@[init]`/`@[builtin_init]` naming an initialization function on a `def`. -/
+def initDefGuidance : Guidance :=
+  { text := "remove @[init]/@[builtin_init] from the def and pass state explicitly, or replace the \
+      def under the proof verdict with initialize (which declares an opaque constant with a named \
+      initializer; RG1010 refuses initialize in the full gate)"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance when a declaration combines multiple replacement attributes. -/
+def combinedReplacementGuidance : Guidance :=
+  { text := "remove @[implemented_by], @[extern], and @[init]/@[builtin_init] from the declaration so \
+      compiled code matches the proved definition (or isolate foreign bindings outside claimed \
+      modules; under the proof verdict, replace @[implemented_by] with a proved claimed @[csimp] \
+      theorem or replace an @[init]/@[builtin_init] def with initialize, which declares an opaque \
+      constant with a named initializer; RG1010 refuses @[csimp] and initialize in the full gate)"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for a replaced declaration `d`, tailored to which replacement attributes are present. -/
+def replacementGuidance (d : Decl) : Guidance :=
+  match d.implementedBy.isSome, d.isExtern, initialized d with
+  | true, false, false => implementedByGuidance
+  | false, true, false => externGuidance
+  | false, false, true => initDefGuidance
+  | _, _, _ => combinedReplacementGuidance
+
 /-- The exported (`global` or `scoped`) `@[csimp]` entries of claimed modules whose theorem is not
 declared in any claimed module's `.olean` data. With no entry it builds no hash set, and with entries
 its two sets hold the claimed modules and each owned entry target (`Input.claimedConstants`). -/
@@ -50,7 +95,8 @@ def foreignCSimps (i : Input) : List Violation :=
     i.csimps.filterMap fun e =>
       if claimedMods.contains e.module && !claimedConsts.contains e.thm then
         some { subject := .constant e.thm e.module,
-               detail := "registered as @[csimp] in this module, but not declared in any claimed module" }
+               detail := "registered as @[csimp] in this module, but not declared in any claimed module",
+               guidance := foreignCSimpGuidance }
       else none
 
 /-- The constants of claimed modules that have `@[implemented_by]` or `@[extern]`, and the definitions
@@ -58,7 +104,8 @@ of claimed modules that have an initialization function. -/
 def replaced {i : Input} (t : Tables i) : List Violation :=
   t.claimed.filterMap fun d =>
     if d.implementedBy.isSome || d.isExtern || initialized d then
-      some (violation d s!"has {replacement d}, so compiled code runs in place of its definition")
+      some (violation d s!"has {replacement d}, so compiled code runs in place of its definition"
+        (replacementGuidance d))
     else none
 
 /-- The exported `@[csimp]` entries of claimed modules whose theorem is not declared in any claimed

@@ -115,4 +115,10 @@ theorem rule_spellings :
     Regula.Closed.registry.map (·.spelling) =
       ["RG1001", "RG1002", "RG1003", "RG1004", "RG1005", "RG1006", "RG1011", "RG1012", "RG1013"] := by rfl
 
+/-- Every finding produced by the registered rules carries non-empty, non-blank fix guidance
+(enforced intrinsically by {name}`Regula.Closed.Guidance`). -/
+theorem finding_guidance_nonblank (i : Regula.Closed.Input) :
+    ∀ f ∈ i.findings, f.guidance.text ≠ "" ∧ ∃ c ∈ f.guidance.text.toList, c.isWhitespace = false :=
+  fun f _ => ⟨f.guidance.text_ne_empty, f.guidance.exists_nonwhitespace⟩
+
 end RegulaSpecification

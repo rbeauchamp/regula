@@ -58,11 +58,21 @@ def line (f : Finding) : String :=
   | .constant name m => s!"{f.rule} {name} (module {m}): {f.detail}"
   | .module name => s!"{f.rule} {name}: {f.detail}"
 
-/-- What a report says beside its verdict: each finding, and how many there are or why it is incomplete. -/
+/-- The fix-guidance line beneath one finding. `say` prepends two spaces and escapes line breaks, so
+the rendered line starts with two spaces (`  fix: ...`). -/
+def guidanceLine (f : Finding) : String :=
+  "fix: " ++ f.guidance.text
+
+/-- The lines emitted for one finding: its primary line followed by its guidance line. -/
+def findingLines (f : Finding) : List String :=
+  [line f, guidanceLine f]
+
+/-- What a report says beside its verdict: each finding with its fix guidance, and how many findings
+there are or why it is incomplete. -/
 def details : Report → List String
   | .pass => []
   | .fail first rest =>
-    (first :: rest).map line ++ [s!"{rest.length + 1} findings"]
+    (first :: rest).flatMap findingLines ++ [s!"{rest.length + 1} findings"]
   | .incomplete why => [s!"RG2001: {why}"]
 
 /-- What a run read. -/

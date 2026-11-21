@@ -34,6 +34,7 @@ Concrete Lean 4 practices:
   - `Regula.Closed.Safety` has constructors `safe`, `unsafe`, and `partial`; it cannot represent a constant that is both unsafe and partial.
   - `Regula.Closed.Report` has constructors `pass`, `fail (first : Finding) (rest : List Finding)`, and `incomplete (why : String)`; it cannot represent a pass with findings or a failure with none, and an incomplete report always carries a `String`, which the type does not require to be nonempty.
   - `Regula.Closed.Profile` and `Regula.Closed.Verdict` are closed enums with proved injective encodings (`Profile.spelling_injective`, `Profile.ofSpelling?_eq_some`, `Verdict.exitCode_injective`, `Verdict.exitCode_eq_zero_iff`).
+- **Proof-bearing invariant ([`lean/Regula/Rule.lean`](lean/Regula/Rule.lean)):** `Regula.Closed.Guidance` (on `main`) pairs `text : String` with `nonblank : text.toList.head?.any (!·.isWhitespace) = true`, so `Violation` and `Finding` cannot represent empty, whitespace-only, or leading-whitespace fix guidance.
 
 **Enforcement status:** Engineering discipline (human and agent review). Regula has no lint rule that judges data-model design.
 
@@ -121,7 +122,7 @@ Each item in this standard falls into one of four categories: enforced in `v0.13
 | No direct panic forms in claimed `def` / `opaque` values | Enforced on `main` (unreleased) | RG1012 | Theorems, `xs[i]?`, `dbg_trace`, and non-`!`-named dependency panics stay outside RG1012. |
 | Reached Lean source files have a `module` header | Enforced (`v0.13.0` & `main`) | RG1010 | Full gate only, before compilation. |
 | Claimed modules have the `module` flag in their `.olean` files | Enforced on `main` (unreleased) | RG1013 | Both the proof verdict and the full verdict check this flag. Lean refuses `module` files importing non-`module` dependencies. |
-| Actionable fix guidance in diagnostics | Planned | None yet | Ships only once specified and proved under Regula's proof and simplicity bar. |
+| Actionable fix guidance in diagnostics | Enforced on `main` (unreleased) | RG1001–RG1006, RG1011–RG1013 (`Regula.Closed.Guidance`, `Regula.Shell.guidanceLine`) | Every registered rule emits non-blank, branch-tailored Lean `v4.35.0` fix guidance on a 2-space-indented `  fix: ...` line beneath each finding, passed through `Regula.Closed.detailText` and `say` (`finding_guidance_nonblank`, `detailText_guidanceLine`, `say_guidanceLine_spec`). Proof-verdict-only suggestions (`grind`, `@[csimp]`, `initialize`, `import all`) note that RG1010 refuses them in the full gate. Not in `v0.13.0`. |
 | Additional design, refactoring, and architecture checks | Planned | None yet | Same specification, proof, and simplicity admission bar. |
 | Theorem statements match human intent | Engineering discipline | Human review | No checker can validate unformalized intent. |
 | Intrinsic typing at boundaries (`Fin`, `Subtype`, closed sums) | Engineering discipline | Code review | Exemplars: `Input.lean`, `Tables.lean`, `Rule.lean`. |

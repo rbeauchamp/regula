@@ -16,6 +16,13 @@ namespace Regula.Rules.RG1003
 
 open Regula.Closed
 
+/-- Fix guidance for RG1003 findings. -/
+def fixGuidance : Guidance :=
+  { text := "remove the dependency on non-standard axioms (replace project axioms with parameters, \
+      hypotheses, or structure fields; no Regula profile admits axioms outside toolchain propext, \
+      Quot.sound, and Classical.choice)"
+    nonblank := by simp [Char.isWhitespace] }
+
 /-- The constants of claimed modules that depend on an axiom that is not known, and that RG1002 and
 RG1004 do not name. -/
 def check {i : Input} (t : Tables i) : List Violation :=
@@ -23,7 +30,7 @@ def check {i : Input} (t : Tables i) : List Violation :=
     let unknown := (t.axiomSet d.name).filter fun a =>
       !t.known a && a != ``sorryAx && !nativeProofAxiom a && !compilerAxioms.contains a
     if !unknown.isEmpty then
-      some (violation d s!"depends on the unknown axioms {unknown}")
+      some (violation d s!"depends on the unknown axioms {unknown}" fixGuidance)
     else none
 
 /-- RG1003, for the registry. Its body is exposed so that the registry reads its spelling (`Regula.Closed.spellings_nodup`). -/
