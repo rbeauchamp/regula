@@ -81,37 +81,15 @@ theorem mem_dedupFold (l : List Name) (seen : Std.HashSet Name) (out : Array Nam
   | cons a l ih =>
     simp only [List.foldl_cons, Regula.Load.dedupStep, List.mem_cons]
     split
-    · rename_i hc
-      have ha : a ∈ out := (hinv a).mp hc
-      rw [ih seen out hinv]
-      constructor
-      · rintro (h | h)
-        · exact .inl (.inr h)
-        · exact .inr h
-      · rintro ((rfl | h) | h)
-        · exact .inr ha
-        · exact .inl h
-        · exact .inr h
-    · have hinv' : ∀ x, (seen.insert a).contains x = true ↔ x ∈ out.push a := by
-        intro x
-        simp only [Std.HashSet.contains_insert, Bool.or_eq_true, beq_iff_eq, hinv, Array.mem_push]
-        exact ⟨fun h => h.elim (fun h => .inr h.symm) .inl, fun h => h.elim .inr (fun h => .inl h.symm)⟩
-      rw [ih (seen.insert a) (out.push a) hinv']
-      simp only [Array.mem_push]
-      constructor
-      · rintro (h | h | rfl)
-        · exact .inl (.inr h)
-        · exact .inr h
-        · exact .inl (.inl rfl)
-      · rintro ((rfl | h) | h)
-        · exact .inr (.inr rfl)
-        · exact .inl h
-        · exact .inr (.inl h)
+    · have ha := (hinv a).mp ‹_›
+      rw [ih seen out hinv]; grind only
+    · have hinv' : ∀ x, (seen.insert a).contains x = true ↔ x ∈ out.push a := fun x => by
+        simp only [Std.HashSet.contains_insert, Bool.or_eq_true, beq_iff_eq, hinv, Array.mem_push,
+          eq_comm (a := a), or_comm]
+      rw [ih _ _ hinv']; simp only [Array.mem_push]; grind only
 
 theorem mem_dedup (all : Array Name) (u : Name) : u ∈ Regula.Load.dedup all ↔ u ∈ all := by
-  unfold Regula.Load.dedup
-  rw [← Array.foldl_toList, mem_dedupFold _ _ _ (by simp)]
-  simp
+  simpa [Regula.Load.dedup, ← Array.foldl_toList] using mem_dedupFold all.toList {} #[] (by simp) u
 
 theorem mem_usesOf (info : ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.usesOf info).toList ↔ Mentions info u := by
@@ -125,16 +103,13 @@ theorem mem_usesFold (l : List ConstantInfo) (acc : Array Name) (u : Name) :
   induction l generalizing acc with
   | nil => simp
   | cons a l ih =>
-    have ha : u ∈ Regula.Load.usesOf a ↔ Mentions a u := by
-      simpa using mem_usesOf a u
-    simp only [List.foldl_cons, ih, Array.mem_append, ha, List.mem_cons, exists_eq_or_imp, or_assoc]
+    simp only [List.foldl_cons, ih, Array.mem_append, (Array.mem_toList_iff ..).symm.trans (mem_usesOf a u),
+      List.mem_cons, exists_eq_or_imp, or_assoc]
 
 theorem mem_usesIn (info : ConstantInfo) (stated : List ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.usesIn info stated).toList ↔ Mentions info u ∨ ∃ v ∈ stated, Mentions v u := by
-  have ha : u ∈ Regula.Load.usesOf info ↔ Mentions info u := by
-    simpa using mem_usesOf info u
   unfold Regula.Load.usesIn
-  rw [Array.mem_toList_iff, mem_dedup, mem_usesFold, ha]
+  rw [Array.mem_toList_iff, mem_dedup, mem_usesFold, ← Array.mem_toList_iff, mem_usesOf]
 
 theorem mem_valueUsesOf (info : ConstantInfo) (u : Name) :
     u ∈ (Regula.Load.valueUsesOf info).toList ↔ ValueMentions info u := by
@@ -150,20 +125,9 @@ theorem mem_statedPairs (l : List (Name × ConstantInfo))
     rcases a with ⟨c, w⟩
     simp only [List.foldl_cons, ih, List.mem_cons, Prod.mk.injEq, Std.HashMap.getD_insert]
     by_cases hc : c = n
-    · subst hc
-      simp only [beq_self_eq_true, ite_true, List.mem_cons, true_and]
-      constructor
-      · rintro (h | rfl | h)
-        · exact .inl (.inr h)
-        · exact .inl (.inl rfl)
-        · exact .inr h
-      · rintro ((rfl | h) | h)
-        · exact .inr (.inl rfl)
-        · exact .inl h
-        · exact .inr (.inr h)
-    · have hb : (c == n) = false := by simpa using hc
-      have hn : ¬ n = c := fun h => hc h.symm
-      simp [hb, hn]
+    · subst hc; simp only [beq_self_eq_true, ↓reduceIte, List.mem_cons]; grind only
+    · have hb : (c == n) = false := beq_false_of_ne hc
+      simp only [hb, Bool.false_eq_true, ↓reduceIte]; grind only
 
 theorem mem_statedData (l : List Lean.ModuleData)
     (acc : Std.HashMap Name (List ConstantInfo)) (n : Name) (v : ConstantInfo) :
@@ -176,22 +140,13 @@ theorem mem_statedData (l : List Lean.ModuleData)
     have hp := mem_statedPairs (a.constNames.zip a.constants).toList acc n v
     simp only [Array.foldl_toList, Array.mem_toList_iff] at hp
     simp only [List.foldl_cons, ih, hp, List.mem_cons, exists_eq_or_imp]
-    constructor
-    · rintro (h | h | h)
-      · exact .inl (.inr h)
-      · exact .inl (.inl h)
-      · exact .inr h
-    · rintro ((h | h) | h)
-      · exact .inr (.inl h)
-      · exact .inl h
-      · exact .inr (.inr h)
+    rw [or_left_comm, ← or_assoc]
 
 theorem mem_stated {n : Name} {v : ConstantInfo} :
     v ∈ f.stated.getD n [] ↔ ∃ data ∈ f.env.header.moduleData,
       (n, v) ∈ data.constNames.zip data.constants := by
-  have h := mem_statedData f.env.header.moduleData.toList {} n v
-  simp only [Array.foldl_toList, Array.mem_toList_iff] at h
-  simpa [Regula.Load.Facts.stated] using h
+  simpa [Regula.Load.Facts.stated, Array.foldl_toList, Array.mem_toList_iff] using
+    mem_statedData f.env.header.moduleData.toList {} n v
 
 /-- A constant is an axiom, by the constructor of its {name}`ConstantInfo`. -/
 def AxiomInfo (k : ConstantInfo) : Prop := ∃ w, k = .axiomInfo w
@@ -318,12 +273,9 @@ def ModuleUnreplaced (env : Lean.Environment) (m n : Name) : Prop :=
 theorem unreplaced_iff (m n : Name) :
     f.unreplaced m n = true ↔ ModuleUnreplaced f.env m n := by
   unfold Regula.Load.Facts.unreplaced ModuleUnreplaced
-  cases f.env.getModuleIdx? m with
-  | none => simp
-  | some idx =>
-    simp only [Option.some.injEq, Bool.and_eq_true,
-      Array.all_eq_true_iff_forall_mem, bne_iff_ne]
-    exact ⟨fun h => ⟨idx, rfl, h⟩, fun ⟨_, rfl, h⟩ => h⟩
+  cases f.env.getModuleIdx? m <;>
+    simp only [Option.some.injEq, reduceCtorEq, false_and, exists_false, Bool.false_eq_true,
+      exists_eq_left', Bool.and_eq_true, Array.all_eq_true_iff_forall_mem, bne_iff_ne]
 
 /-- The module's own entries of {attr}`@[init]` and {attr}`@[builtin_init]` name no initialization function
 for this name: each of its entries for the name holds the anonymous name, the form that names none. -/
@@ -335,14 +287,12 @@ def ModuleUninitialized (env : Lean.Environment) (m n : Name) : Prop :=
 theorem uninitialized_iff (m n : Name) :
     f.uninitialized m n = true ↔ ModuleUninitialized f.env m n := by
   unfold Regula.Load.Facts.uninitialized ModuleUninitialized
-  cases f.env.getModuleIdx? m with
-  | none => simp
-  | some idx =>
-    have hor : ∀ e : Name × Name, (e.1 ≠ n ∨ e.2 = .anonymous) ↔ (e.1 = n → e.2 = .anonymous) :=
-      fun _ => Decidable.imp_iff_not_or.symm
-    simp only [Option.some.injEq, Bool.and_eq_true, Array.all_eq_true_iff_forall_mem, Bool.or_eq_true,
+  have hor : ∀ e : Name × Name, (e.1 ≠ n ∨ e.2 = .anonymous) ↔ (e.1 = n → e.2 = .anonymous) :=
+    fun _ => Decidable.imp_iff_not_or.symm
+  cases f.env.getModuleIdx? m <;>
+    simp only [Option.some.injEq, reduceCtorEq, false_and, exists_false, Bool.false_eq_true,
+      exists_eq_left', Bool.and_eq_true, Array.all_eq_true_iff_forall_mem, Bool.or_eq_true,
       bne_iff_ne, beq_iff_eq, hor]
-    exact ⟨fun h => ⟨idx, rfl, h⟩, fun ⟨_, rfl, h⟩ => h⟩
 
 theorem kindOf_definition (k : ConstantInfo) : Regula.Load.kindOf k = .definition ↔ ∃ v, k = .defnInfo v := by
   cases k <;> simp [Regula.Load.kindOf]
@@ -352,84 +302,60 @@ theorem mem_modules_of_getElem {k : Nat} {m : Regula.Load.LoadedModule}
   Array.mem_of_getElem? h
 
 theorem mem_modules_of_info {n : Name} {m : Regula.Load.LoadedModule} (h : f.info? n = some m) :
-    m ∈ f.modules := by
-  simp only [Regula.Load.Facts.info?, Option.bind_eq_some_iff] at h
-  obtain ⟨_, -, hm⟩ := h
-  exact mem_modules_of_getElem hm
+    m ∈ f.modules :=
+  let ⟨_, _, hm⟩ := Option.bind_eq_some_iff.mp h; mem_modules_of_getElem hm
 
 theorem moduleNames_getElem (f : Regula.Load.Facts) (k : Nat) :
     (f.modules[k]?).map (·.name) = f.env.header.moduleNames[k]? := by
-  have h := congrArg (·[k]?) f.names
-  simpa using h
+  simpa using congrArg (·[k]?) f.names
 
 theorem moduleOf?_eq (f : Regula.Load.Facts) (n : Name) :
     f.moduleOf? n =
       (f.env.getModuleIdxFor? n).bind fun idx => f.env.header.moduleNames[idx.toNat]? := by
   simp only [Regula.Load.Facts.moduleOf?, Regula.Load.Facts.info?]
-  cases f.env.getModuleIdxFor? n with
-  | none => rfl
-  | some idx => exact moduleNames_getElem f idx.toNat
+  cases f.env.getModuleIdxFor? n <;> simp [moduleNames_getElem]
 
 theorem mem_claimed_iff (f : Regula.Load.Facts) (m : Name) :
     m ∈ f.claimed ↔ ∃ lm ∈ f.modules, lm.name = m ∧ lm.claimed = true := by
   simp only [Regula.Load.Facts.claimed, List.mem_map, List.mem_filter, Array.mem_toList_iff]
-  constructor
-  · rintro ⟨lm, ⟨hm, hc⟩, rfl⟩
-    exact ⟨lm, hm, rfl, hc⟩
-  · rintro ⟨lm, hm, rfl, hc⟩
-    exact ⟨lm, ⟨hm, hc⟩, rfl⟩
+  exact ⟨fun ⟨lm, ⟨hm, hc⟩, h⟩ => ⟨lm, hm, h, hc⟩, fun ⟨lm, hm, h, hc⟩ => ⟨lm, ⟨hm, hc⟩, h⟩⟩
 
 theorem claimed_loaded (f : Regula.Load.Facts) {m : Name} (h : m ∈ f.claimed) :
     m ∈ f.env.header.moduleNames.toList := by
   obtain ⟨lm, hm, rfl, -⟩ := (mem_claimed_iff f m).mp h
-  rw [← f.names]
-  exact List.mem_map_of_mem (Array.mem_toList_iff.mpr hm)
+  exact f.names ▸ List.mem_map_of_mem (Array.mem_toList_iff.mpr hm)
 
 theorem mem_claimed_place (f : Regula.Load.Facts) (m : Name) :
     m ∈ f.claimed ↔
       ∃ lm ∈ f.modules, lm.name = m ∧ Regula.Load.below f.rootDir lm.olean = true := by
   rw [mem_claimed_iff]
-  refine exists_congr fun lm => and_congr_right fun hm => and_congr_right fun _ => ?_
-  have hp := f.placed lm hm
-  rw [hp]
-  rfl
+  exact exists_congr fun lm => and_congr_right fun hm => by
+    rw [congrArg Regula.Load.LoadedModule.claimed (f.placed lm hm)]; rfl
 
 theorem toolchain_place (f : Regula.Load.Facts) (n : Name) :
     EnvToolchain f n ↔
       ∃ (idx : Lean.ModuleIdx) (lm : Regula.Load.LoadedModule),
         f.env.getModuleIdxFor? n = some idx ∧ f.modules[idx.toNat]? = some lm ∧
           Regula.Load.below f.toolchainDir lm.olean = true := by
-  have hflag : ∀ lm ∈ f.modules,
-      lm.inToolchain = Regula.Load.below f.toolchainDir lm.olean := by
-    intro lm hm
-    have hp := f.placed lm hm
-    rw [hp]
-    rfl
+  have hflag {lm} (hm : lm ∈ f.modules) : lm.inToolchain = Regula.Load.below f.toolchainDir lm.olean :=
+    congrArg (·.inToolchain) (f.placed lm hm)
   simp only [EnvToolchain, Regula.Load.Facts.info?, Option.bind_eq_some_iff]
-  constructor
-  · rintro ⟨lm, ⟨idx, hi, hm⟩, ht⟩
-    exact ⟨idx, lm, hi, hm, hflag lm (mem_modules_of_getElem hm) ▸ ht⟩
-  · rintro ⟨idx, lm, hi, hm, ht⟩
-    exact ⟨lm, ⟨idx, hi, hm⟩, (hflag lm (mem_modules_of_getElem hm)).symm ▸ ht⟩
+  exact ⟨fun ⟨lm, ⟨idx, hi, hm⟩, ht⟩ => ⟨idx, lm, hi, hm, hflag (mem_modules_of_getElem hm) ▸ ht⟩,
+    fun ⟨idx, lm, hi, hm, ht⟩ => ⟨lm, ⟨idx, hi, hm⟩, (hflag (mem_modules_of_getElem hm)).symm ▸ ht⟩⟩
 
 theorem not_unsafe_of_partial (info : ConstantInfo) (h : info.isPartial = true) :
     info.isUnsafe = false := by
   cases info with
-  | defnInfo v =>
-    simp only [ConstantInfo.isPartial, ConstantInfo.isUnsafe] at h ⊢
-    revert h
-    cases v.safety <;> decide
+  | defnInfo v => simp only [ConstantInfo.isPartial, ConstantInfo.isUnsafe] at h ⊢; revert h; cases v.safety <;> decide
   | _ => simp [ConstantInfo.isPartial] at h
 
 theorem safetyOf_partial (info : ConstantInfo) :
     Regula.Load.safetyOf info = .partial ↔ info.isPartial = true ∧ info.isUnsafe = false := by
-  simp only [Regula.Load.safetyOf]
-  cases info.isUnsafe <;> cases info.isPartial <;> simp
+  unfold Regula.Load.safetyOf; cases info.isUnsafe <;> cases info.isPartial <;> simp
 
 theorem safetyOf_safe (info : ConstantInfo) :
     Regula.Load.safetyOf info = .safe ↔ info.isUnsafe = false ∧ info.isPartial = false := by
-  simp only [Regula.Load.safetyOf]
-  cases info.isUnsafe <;> cases info.isPartial <;> simp
+  unfold Regula.Load.safetyOf; cases info.isUnsafe <;> cases info.isPartial <;> simp
 
 /-- What the loader gives, in the terms of the environment. -/
 structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile)
@@ -465,25 +391,15 @@ theorem moduleCSimps_ok {m : Name} {entries : List Regula.Closed.CSimpEntry}
   cases hidx : f.env.getModuleIdx? m with
   | none => simp [hidx] at h
   | some idx =>
-    simp only [hidx, Except.ok.injEq] at h
-    subst h
-    refine ⟨⟨idx, rfl⟩, fun e => ?_⟩
-    simp only [List.mem_map, Array.mem_toList_iff, ModuleCSimp, hidx, Option.some.injEq,
-      exists_eq_left']
-    constructor
-    · rintro ⟨raw, hraw, rfl⟩
-      refine ⟨rfl, ?_⟩
-      cases raw with
-      | global ce => exact ⟨ce, .inl hraw, rfl⟩
-      | «scoped» ns ce => exact ⟨ce, .inr ⟨ns, hraw⟩, rfl⟩
-    · rintro ⟨hm, ce, hce, hthm⟩
-      cases e
-      simp only at hm hthm
-      subst hm
-      subst hthm
-      rcases hce with hg | ⟨ns, hs⟩
-      · exact ⟨.global ce, hg, rfl⟩
-      · exact ⟨.«scoped» ns ce, hs, rfl⟩
+    simp only [hidx, Except.ok.injEq] at h; subst h
+    refine ⟨⟨idx, rfl⟩, fun ⟨em, ethm⟩ => ?_⟩
+    simp only [List.mem_map, Array.mem_toList_iff, ModuleCSimp, hidx, Option.some.injEq, exists_eq_left']
+    refine ⟨fun ⟨raw, hraw, heq⟩ => ?_, fun ⟨hm, ce, hce, hthm⟩ => ?_⟩
+    · cases raw with
+      | global ce => cases heq; exact ⟨rfl, ce, .inl hraw, rfl⟩
+      | «scoped» ns ce => cases heq; exact ⟨rfl, ce, .inr ⟨ns, hraw⟩, rfl⟩
+    · subst hm hthm
+      exact hce.elim (⟨.global ce, ·, rfl⟩) fun ⟨ns, hs⟩ => ⟨.«scoped» ns ce, hs, rfl⟩
 
 theorem csimps_ok {claimed : List Name} {entries : List Regula.Closed.CSimpEntry}
     (h : f.csimps claimed = .ok entries) :
@@ -491,24 +407,15 @@ theorem csimps_ok {claimed : List Name} {entries : List Regula.Closed.CSimpEntry
       ∀ e, e ∈ entries ↔ e.module ∈ claimed ∧ ModuleCSimp f.env e.module e.thm := by
   simp only [Regula.Load.Facts.csimps] at h
   cases hmap : claimed.mapM f.moduleCSimps with
-  | error why => simp [hmap, Except.map] at h
+  | error _ => simp [hmap, Except.map] at h
   | ok lists =>
-    simp only [hmap, Except.map, Except.ok.injEq] at h
-    subst h
+    simp only [hmap, Except.map, Except.ok.injEq] at h; subst h
     obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok f.moduleCSimps (fun _ => .anonymous) (fun _ => .anonymous)
       (fun _ _ _ => rfl) _ _ hmap
-    refine ⟨fun m hm => ?_, fun e => ?_⟩
-    · obtain ⟨l, -, hok⟩ := h2 m hm
-      exact (moduleCSimps_ok hok).1
-    · simp only [List.mem_flatten]
-      constructor
-      · rintro ⟨l, hl, he⟩
-        obtain ⟨m, hm, hok⟩ := h1 l hl
-        obtain ⟨rfl, hcs⟩ := ((moduleCSimps_ok hok).2 e).mp he
-        exact ⟨hm, hcs⟩
-      · rintro ⟨hm, hcs⟩
-        obtain ⟨l, hl, hok⟩ := h2 e.module hm
-        exact ⟨l, hl, ((moduleCSimps_ok hok).2 e).mpr ⟨rfl, hcs⟩⟩
+    refine ⟨fun m hm => let ⟨_, _, hok⟩ := h2 m hm; (moduleCSimps_ok hok).1, fun e => ?_⟩
+    simp only [List.mem_flatten]
+    exact ⟨fun ⟨l, hl, he⟩ => let ⟨m, hm, hok⟩ := h1 l hl; let ⟨rfl, hcs⟩ := ((moduleCSimps_ok hok).2 e).mp he; ⟨hm, hcs⟩,
+      fun ⟨hm, hcs⟩ => let ⟨l, hl, hok⟩ := h2 e.module hm; ⟨l, hl, ((moduleCSimps_ok hok).2 e).mpr ⟨rfl, hcs⟩⟩⟩
 
 theorem mem_claimedTargetsFold (targets : Std.HashSet Name)
     (l : List (Name × Name × ConstantInfo)) (acc : Std.HashSet Name) (n : Name) :
@@ -517,94 +424,59 @@ theorem mem_claimedTargetsFold (targets : Std.HashSet Name)
   induction l generalizing acc with
   | nil => simp
   | cons a l ih =>
-    simp only [List.foldl_cons, ih, List.mem_cons]
+    simp only [List.foldl_cons, ih, List.mem_cons, exists_eq_or_imp]
     by_cases ht : targets.contains a.2.1 = true
     · simp only [ht, ↓reduceIte, Std.HashSet.mem_insert, beq_iff_eq]
-      constructor
-      · rintro ((rfl | ha) | ⟨htn, x, hx, rfl⟩)
-        · exact .inr ⟨ht, a, .inl rfl, rfl⟩
-        · exact .inl ha
-        · exact .inr ⟨htn, x, .inr hx, rfl⟩
-      · rintro (ha | ⟨htn, x, rfl | hx, rfl⟩)
-        · exact .inl (.inr ha)
-        · exact .inl (.inl rfl)
-        · exact .inr ⟨htn, x, hx, rfl⟩
+      exact ⟨fun h => h.elim (fun h => h.elim (fun h => .inr ⟨h ▸ ht, .inl h⟩) .inl)
+          fun ⟨htn, hx⟩ => .inr ⟨htn, .inr hx⟩,
+        fun h => h.elim (fun ha => .inl (.inr ha))
+          fun ⟨htn, hx⟩ => hx.elim (fun h => .inl (.inl h)) fun hx => .inr ⟨htn, hx⟩⟩
     · simp only [ht, Bool.false_eq_true, ↓reduceIte]
-      constructor
-      · rintro (ha | ⟨htn, x, hx, rfl⟩)
-        · exact .inl ha
-        · exact .inr ⟨htn, x, .inr hx, rfl⟩
-      · rintro (ha | ⟨htn, x, rfl | hx, rfl⟩)
-        · exact .inl ha
-        · exact absurd htn ht
-        · exact .inr ⟨htn, x, hx, rfl⟩
+      exact ⟨fun h => h.imp id fun ⟨htn, hx⟩ => ⟨htn, .inr hx⟩,
+        fun h => h.imp id fun ⟨htn, hx⟩ => ⟨htn, hx.elim (fun h => (ht (h ▸ htn)).elim) id⟩⟩
 
 theorem mem_claimedCSimpTargets (csimps : List Regula.Closed.CSimpEntry) (c : Name) :
     c ∈ f.claimedCSimpTargets csimps ↔
       (∃ e ∈ csimps, e.thm = c) ∧ ∃ cm info, (cm, c, info) ∈ f.claimedConstants := by
-  simp only [Regula.Load.Facts.claimedCSimpTargets]
   cases csimps with
-  | nil => simp
+  | nil => simp [Regula.Load.Facts.claimedCSimpTargets]
   | cons e0 es =>
-    simp only [List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte]
+    simp only [Regula.Load.Facts.claimedCSimpTargets, List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte]
     rw [Std.HashSet.mem_toList, mem_claimedTargetsFold, Regula.Closed.mem_setOf]
     simp only [Std.HashSet.not_mem_empty, false_or, List.mem_map]
-    constructor
-    · rintro ⟨he, ⟨cm, n, info⟩, hmem, rfl⟩
-      exact ⟨he, cm, info, hmem⟩
-    · rintro ⟨he, cm, info, hmem⟩
-      exact ⟨he, (cm, c, info), hmem, rfl⟩
+    exact ⟨fun ⟨he, ⟨cm, _, info⟩, hm, h⟩ => ⟨he, cm, info, h ▸ hm⟩,
+      fun ⟨he, cm, info, hm⟩ => ⟨he, (cm, c, info), hm, rfl⟩⟩
 
 theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Regula.Closed.Decl}
     (h : f.decl n info s = .ok d) : ∃ m, f.info? n = some m ∧ d = f.declIn n m info s := by
-  simp only [Regula.Load.Facts.decl] at h
-  split at h
-  · rename_i m hm
-    simp only [Except.ok.injEq] at h
-    exact ⟨m, hm, h.symm⟩
-  · cases h
+  simp only [Regula.Load.Facts.decl] at h; split at h <;> cases h; exact ⟨_, ‹_›, rfl⟩
 
 theorem shown_true {x : Name × Name × ConstantInfo} (h : f.shown x = true) :
     ∃ k m, f.env.constants.map₁[x.2.1]? = some k ∧
       Regula.Load.readOf k = Regula.Load.readOf x.2.2 ∧ f.info? x.2.1 = some m ∧
       m.claimed = true := by
-  simp only [Regula.Load.Facts.shown] at h
-  split at h
-  · rename_i k m h1 h2
-    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
-    exact ⟨k, m, h1, h.1.1.1, h2, h.1.1.2⟩
-  · cases h
-  · cases h
+  simp only [Regula.Load.Facts.shown] at h; split at h <;> try cases h
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at h; exact ⟨_, _, ‹_›, h.1.1.1, ‹_›, h.1.1.2⟩
 
 theorem shown_unreplaced {x : Name × Name × ConstantInfo} (h : f.shown x = true)
     (hi : Lean.Compiler.getImplementedBy? f.env x.2.1 = none)
     (he : Lean.isExtern f.env x.2.1 = false) : ModuleUnreplaced f.env x.1 x.2.1 := by
-  simp only [Regula.Load.Facts.shown] at h
-  split at h
-  · simp only [Bool.and_eq_true] at h
-    exact (unreplaced_iff _ _).mp (by simpa [hi, he] using h.1.2)
-  · cases h
-  · cases h
+  simp only [Regula.Load.Facts.shown] at h; split at h <;> try cases h
+  simp only [Bool.and_eq_true] at h; exact (unreplaced_iff _ _).mp (by simpa [hi, he] using h.1.2)
 
 theorem shown_uninitialized {x : Name × Name × ConstantInfo} (h : f.shown x = true)
     (hk : Regula.Load.kindOf x.2.2 = .definition)
     (hn : Lean.getInitFnNameFor? f.env x.2.1 = none) : ModuleUninitialized f.env x.1 x.2.1 := by
-  simp only [Regula.Load.Facts.shown] at h
-  split at h
-  · simp only [Bool.and_eq_true] at h
-    exact (uninitialized_iff _ _).mp (by simpa [hk, hn] using h.2)
-  · cases h
-  · cases h
+  simp only [Regula.Load.Facts.shown] at h; split at h <;> try cases h
+  simp only [Bool.and_eq_true] at h; exact (uninitialized_iff _ _).mp (by simpa [hk, hn] using h.2)
 
 theorem unread_none {x : Name × Name × ConstantInfo} (h : f.unread? i.tables = none)
     (hx : x ∈ f.claimedConstants) :
     f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true := by
   by_cases hs : f.shown x = true
   · exact .inl hs
-  refine .inr ?_
-  have hmem : x ∈ f.claimedConstants.filter (!f.shown ·) := by simp [hx, hs]
-  simp only [Regula.Load.Facts.unread?, Regula.Load.Facts.unshown, Option.map_eq_none_iff, List.find?_eq_none] at h
-  simpa using h x hmem
+  · simp only [Regula.Load.Facts.unread?, Regula.Load.Facts.unshown, Option.map_eq_none_iff, List.find?_eq_none] at h
+    exact .inr (by simpa using h x (by simp [hx, hs]))
 
 theorem loaded_of_parts {csimps : List Regula.Closed.CSimpEntry} {decls : List Regula.Closed.Decl}
     {i' : Regula.Closed.Input}
@@ -624,30 +496,19 @@ theorem loaded_of_parts {csimps : List Regula.Closed.CSimpEntry} {decls : List R
     (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ hm
   obtain ⟨hidx, hcs'⟩ := csimps_ok hcs
   have hdecls : i'.decls = decls := by rw [hd]
-  have hp : i'.profile = p := by rw [hd]
-  have hmods : i'.modules = f.claimed := by rw [hd]
-  have hfiles : i'.moduleFiles = f.moduleFiles := by rw [hd]
-  have hcc : i'.claimedConstants = f.claimedCSimpTargets csimps := by rw [hd]
-  have hcsEq : i'.csimps = csimps := by rw [hd]
-  refine ⟨hp, hmods, hfiles, hidx, fun c => by rw [hcc, mem_claimedCSimpTargets, hcsEq],
-    fun e => hcsEq ▸ hcs' e, ?_, ?_, ?_⟩
-  · intro r hr
-    have := List.find?_eq_none.mp hfind r hr
-    simpa using this
+  refine ⟨by rw [hd], by rw [hd], by rw [hd], hidx,
+    fun c => by rw [hd]; exact mem_claimedCSimpTargets csimps c,
+    fun e => by rw [hd]; exact hcs' e,
+    fun r hr => by simpa using List.find?_eq_none.mp hfind r hr, ?_, ?_⟩
   · intro d hd'
-    rw [hdecls] at hd'
-    obtain ⟨⟨n, info⟩, hx, hok⟩ := h1 d hd'
+    obtain ⟨⟨n, info⟩, hx, hok⟩ := h1 d (hdecls ▸ hd')
     obtain ⟨m, hmod, hdv⟩ := decl_ok hok
-    have hname : d.name = n := f.decl_name hok
-    have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hx
-    subst hname
-    exact ⟨info, m, hget, hmod, hdv⟩
+    obtain rfl := f.decl_name hok
+    exact ⟨info, m, Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hx, hmod, hdv⟩
   · intro n info hn
     obtain ⟨d, hd', hok⟩ := h2 (n, info) (Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr hn)
     obtain ⟨m, hmod, hdv⟩ := decl_ok hok
-    refine ⟨m, hmod, ?_⟩
-    rw [hdecls]
-    exact hdv ▸ hd'
+    exact ⟨m, hmod, hdecls.symm ▸ hdv ▸ hd'⟩
 
 theorem input_eq_ok_iff :
     f.input roots p = .ok i ↔ ∃ prep, f.prepare roots p = .ok prep ∧ prep.input = i := by
@@ -657,30 +518,14 @@ theorem input_eq_ok_iff :
 theorem admitDraft_loaded {i' : Regula.Closed.Input} (h : f.admitDraft roots p = .ok i') :
     Loaded f roots p i' := by
   simp only [Regula.Load.Facts.admitDraft] at h
-  split at h
-  · cases h
-  rename_i hfind
-  split at h
-  · cases h
-  rename_i csimps hcs
-  split at h
-  · cases h
-  rename_i decls hm
-  exact loaded_of_parts hfind hcs hm h
+  (split at h <;> try cases h); (split at h <;> try cases h); (split at h <;> try cases h)
+  exact loaded_of_parts ‹_› ‹_› ‹_› h
 
 theorem prepare_loaded {prep : Regula.Closed.Prepared} (h : f.prepare roots p = .ok prep) :
     Loaded f roots p prep.input := by
   simp only [Regula.Load.Facts.prepare] at h
-  cases hd : f.admitDraft roots p with
-  | error why => simp [hd] at h
-  | ok i' =>
-    rw [hd] at h
-    cases hc : f.checkUnread i'.tables with
-    | error why => simp [hc] at h
-    | ok _ =>
-      simp only [hc, Except.ok.injEq] at h
-      subst h
-      exact admitDraft_loaded hd
+  (split at h <;> try cases h); (split at h <;> try cases h)
+  exact admitDraft_loaded ‹_›
 
 theorem input_loaded (h : f.input roots p = .ok i) : Loaded f roots p i := by
   obtain ⟨prep, hprep, rfl⟩ := input_eq_ok_iff.mp h
@@ -691,17 +536,9 @@ theorem input_kept (h : f.input roots p = .ok i) {x : Name × Name × ConstantIn
     f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true := by
   obtain ⟨prep, hprep, rfl⟩ := input_eq_ok_iff.mp h
   simp only [Regula.Load.Facts.prepare] at hprep
-  cases hd : f.admitDraft roots p with
-  | error why => simp [hd] at hprep
-  | ok i' =>
-    rw [hd] at hprep
-    simp only [Regula.Load.Facts.checkUnread] at hprep
-    cases hu : f.unread? i'.tables with
-    | some _ => simp [hu] at hprep
-    | none =>
-      simp only [hu, Except.ok.injEq] at hprep
-      subst hprep
-      exact unread_none hu hx
+  (split at hprep <;> try cases hprep); (split at hprep <;> try cases hprep)
+  rename_i hc; simp only [Regula.Load.Facts.checkUnread] at hc
+  (split at hc <;> try cases hc); exact unread_none ‹_› hx
 
 theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
     (toSpec i).ClaimedModule m ↔ m ∈ f.claimed := by
@@ -709,21 +546,14 @@ theorem claimed_iff (hl : Loaded f roots p i) (m : Name) :
 
 theorem mem_moduleFiles (f : Regula.Load.Facts) (m : Name) : m ∈ f.moduleFiles ↔ EnvModuleFile f.env m := by
   simp only [Regula.Load.Facts.moduleFiles, List.mem_map, List.mem_filter, Array.mem_toList_iff,
-    Array.mem_iff_getElem?, Array.getElem?_zip_eq_some, EnvModuleFile]
-  constructor
-  · rintro ⟨⟨lm, data⟩, ⟨⟨k, h1, h2⟩, hmod⟩, rfl⟩
-    refine ⟨k, data, ?_, h2, hmod⟩
-    rw [← moduleNames_getElem, h1]
-    rfl
-  · rintro ⟨k, data, hn, h2, hmod⟩
-    rw [← moduleNames_getElem, Option.map_eq_some_iff] at hn
-    obtain ⟨lm, h1, rfl⟩ := hn
-    exact ⟨(lm, data), ⟨⟨k, h1, h2⟩, hmod⟩, rfl⟩
+    Array.mem_iff_getElem?, Array.getElem?_zip_eq_some, EnvModuleFile, ← moduleNames_getElem,
+    Option.map_eq_some_iff]
+  exact ⟨fun ⟨⟨lm, data⟩, ⟨⟨k, h1, h2⟩, hmod⟩, h⟩ => ⟨k, data, ⟨lm, h1, h⟩, h2, hmod⟩,
+    fun ⟨k, data, ⟨lm, h1, h⟩, h2, hmod⟩ => ⟨(lm, data), ⟨⟨k, h1, h2⟩, hmod⟩, h⟩⟩
 
 theorem moduleFile_env (hl : Loaded f roots p i) (m : Name) :
     (toSpec i).ModuleFile m ↔ EnvModuleFile f.env m := by
-  rw [← mem_moduleFiles]
-  simp [Input.ModuleFile, toSpec, toSpecDraft, hl.moduleFiles]
+  rw [← mem_moduleFiles]; simp [Input.ModuleFile, toSpec, toSpecDraft, hl.moduleFiles]
 
 theorem of_mem {x : Decl} (hl : Loaded f roots p i) (hx : x ∈ (toSpec i).decls) :
     ∃ info m, f.env.constants.map₁[x.name]? = some info ∧ f.info? x.name = some m ∧
@@ -736,48 +566,43 @@ theorem to_mem (hl : Loaded f roots p i) {n : Name} {info : ConstantInfo}
     (hn : f.env.constants.map₁[n]? = some info) {m : Regula.Load.LoadedModule}
     (hm : f.info? n = some m) :
     decl (f.declIn n m info (f.stated.getD n [])) ∈ (toSpec i).decls := by
-  obtain ⟨m', hm', hmem⟩ := hl.whole n info hn
-  rw [hm] at hm'
-  cases hm'
-  exact mem_decls.mpr ⟨_, hmem, rfl⟩
+  obtain ⟨_, hm', hmem⟩ := hl.whole n info hn
+  rw [hm] at hm'; cases hm'; exact mem_decls.mpr ⟨_, hmem, rfl⟩
 
 theorem module_of (hl : Loaded f roots p i) {n : Name} {info : ConstantInfo}
-    (hn : f.env.constants.map₁[n]? = some info) : ∃ m, f.info? n = some m := by
-  obtain ⟨m, hm, -⟩ := hl.whole n info hn
-  exact ⟨m, hm⟩
+    (hn : f.env.constants.map₁[n]? = some info) : ∃ m, f.info? n = some m :=
+  let ⟨m, hm, _⟩ := hl.whole n info hn; ⟨m, hm⟩
 
 theorem moduleOf?_eq_some {n m : Name} :
     f.moduleOf? n = some m ↔ ∃ lm, f.info? n = some lm ∧ lm.name = m := by
   simp [Regula.Load.Facts.moduleOf?, Option.map_eq_some_iff]
 
+private theorem exists_decl_env (hl : Loaded f roots p i) (u : Name) (P : Decl → Prop) :
+    (∃ x ∈ (toSpec i).decls, x.name = u ∧ P x) ↔
+      ∃ info m, f.env.constants.map₁[u]? = some info ∧ f.info? u = some m ∧
+        P (decl (f.declIn u m info (f.stated.getD u []))) :=
+  ⟨fun ⟨_, hx, h, hp⟩ => by subst h; obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx; exact ⟨info, m, hn, hm, hv ▸ hp⟩,
+   fun ⟨_, _, hn, hm, hp⟩ => ⟨_, to_mem hl hn hm, rfl, hp⟩⟩
+
 theorem resolves_env (hl : Loaded f roots p i) (u : Name) :
-    (toSpec i).Resolves u ↔ ∃ info, f.env.constants.map₁[u]? = some info := by
-  constructor
-  · rintro ⟨x, hx, rfl⟩
-    obtain ⟨info, -, hn, -, -⟩ := of_mem hl hx
-    exact ⟨info, hn⟩
-  · rintro ⟨info, hn⟩
-    obtain ⟨m, hm⟩ := module_of hl hn
-    exact ⟨_, to_mem hl hn hm, rfl⟩
+    (toSpec i).Resolves u ↔ ∃ info, f.env.constants.map₁[u]? = some info :=
+  ⟨fun ⟨_, hx, h⟩ => by subst h; obtain ⟨info, _, hn, _, _⟩ := of_mem hl hx; exact ⟨info, hn⟩,
+   fun ⟨_, hn⟩ => let ⟨m, hm⟩ := module_of hl hn; ⟨_, to_mem hl hn hm, rfl⟩⟩
 
 theorem reaches_env (hl : Loaded f roots p i) (c e : Name) :
-    (toSpec i).Reaches c e ↔ EnvReaches f c e := by
-  constructor
-  · intro h
+    (toSpec i).Reaches c e ↔ EnvReaches f c e :=
+  ⟨fun h => by
     induction h with
     | refl => exact .refl _
     | step x hx hc hu _ ih =>
-      subst hc
-      obtain ⟨info, _, hn, -, hv⟩ := of_mem hl hx
-      rw [hv] at hu
-      exact .step ⟨info, hn, (mem_usesIn info _ _).mp hu⟩ ih
-  · intro h
+      subst hc; obtain ⟨info, _, hn, -, hv⟩ := of_mem hl hx
+      exact .step ⟨info, hn, (mem_usesIn info _ _).mp (hv ▸ hu)⟩ ih,
+   fun h => by
     induction h with
     | refl => exact .refl _
     | step hm _ ih =>
-      obtain ⟨info, hn, hu⟩ := hm
-      obtain ⟨m, hmod⟩ := module_of hl hn
-      exact .step _ (to_mem hl hn hmod) rfl ((mem_usesIn info _ _).mpr hu) ih
+      obtain ⟨info, hn, hu⟩ := hm; obtain ⟨m, hmod⟩ := module_of hl hn
+      exact .step _ (to_mem hl hn hmod) rfl ((mem_usesIn info _ _).mpr hu) ih⟩
 
 theorem kindOf_axiom (k : ConstantInfo) : Regula.Load.kindOf k = .axiom ↔ AxiomInfo k := by
   cases k <;> simp [Regula.Load.kindOf, AxiomInfo]
@@ -786,86 +611,67 @@ theorem kindIn_axiom (k : ConstantInfo) (s : List ConstantInfo) :
     Regula.Load.kindIn k s = .axiom ↔ AxiomInfo k ∨ ∃ v ∈ s, AxiomInfo v := by
   simp only [Regula.Load.kindIn]
   split
-  · rename_i hs
-    simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs
-    simpa using .inr hs
-  · rename_i hs
-    simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs
-    simp [kindOf_axiom, hs]
+  · rename_i hs; simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs; exact ⟨fun _ => .inr hs, fun _ => rfl⟩
+  · rename_i hs; simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs; simp [kindOf_axiom, hs]
 
-theorem kind_axiom {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
-    {s : List ConstantInfo} :
-    (decl (f.declIn n m info s)).kind = .axiom ↔ AxiomInfo info ∨ ∃ v ∈ s, AxiomInfo v := by
-  rw [← kindIn_axiom]
-  simp only [decl, Regula.Load.Facts.declIn]
-  cases Regula.Load.kindIn info s <;> simp [constKind]
+private def kindBack : Kind → Regula.Closed.Kind
+  | .axiom => .axiom | .definition => .definition | .theorem => .theorem | .opaque => .opaque
+  | .quotient => .quotient | .inductive => .inductive | .constructor => .constructor | .recursor => .recursor
 
-theorem kind_definition {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
-    {s : List ConstantInfo} :
-    (decl (f.declIn n m info s)).kind = .definition ↔
-      (∃ v, info = .defnInfo v) ∧ ∀ w ∈ s, ¬ AxiomInfo w := by
-  have hconst : (decl (f.declIn n m info s)).kind = .definition ↔
-      Regula.Load.kindIn info s = .definition := by
-    simp only [decl, Regula.Load.Facts.declIn]
-    cases Regula.Load.kindIn info s <;> simp [constKind]
-  rw [hconst]
+private theorem constKind_inj {a b : Regula.Closed.Kind} : constKind a = constKind b ↔ a = b :=
+  have hb (k : Regula.Closed.Kind) : kindBack (constKind k) = k := by cases k <;> rfl
+  ⟨fun h => (hb a).symm.trans ((congrArg kindBack h).trans (hb b)), congrArg constKind⟩
+
+private theorem safety_inj {a b : Regula.Closed.Safety} : safety a = safety b ↔ a = b :=
+  ⟨fun h => by cases a <;> cases b <;> (first | rfl | cases h), congrArg safety⟩
+
+private theorem decl_kind_eq {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
+    {s : List ConstantInfo} {k : Regula.Closed.Kind} :
+    (decl (f.declIn n m info s)).kind = constKind k ↔ Regula.Load.kindIn info s = k :=
+  constKind_inj
+
+private theorem kindIn_eq_of_ne_axiom {info : ConstantInfo} {s : List ConstantInfo} {k : Regula.Closed.Kind}
+    (hk : k ≠ .axiom) :
+    Regula.Load.kindIn info s = k ↔ Regula.Load.kindOf info = k ∧ ∀ w ∈ s, ¬ AxiomInfo w := by
   simp only [Regula.Load.kindIn]
   split
   · rename_i hs
     simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom] at hs
     obtain ⟨w, hw, hax⟩ := hs
-    simp only [reduceCtorEq, false_iff, not_and]
-    exact fun _ hall => hall w hw hax
+    exact ⟨fun h => (hk h.symm).elim, fun ⟨_, hall⟩ => (hall w hw hax).elim⟩
   · rename_i hs
-    have hall : ∀ w ∈ s, ¬ AxiomInfo w := by
-      simpa only [List.any_eq_true, beq_iff_eq, kindOf_axiom, not_exists, not_and] using hs
-    constructor
-    · intro hk
-      refine ⟨?_, hall⟩
-      cases info <;> simp [Regula.Load.kindOf] at hk ⊢
-    · rintro ⟨⟨v, rfl⟩, -⟩
-      rfl
+    simp only [List.any_eq_true, beq_iff_eq, kindOf_axiom, not_exists, not_and] at hs
+    exact ⟨fun h => ⟨h, hs⟩, (·.1)⟩
+
+theorem kind_axiom {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
+    {s : List ConstantInfo} :
+    (decl (f.declIn n m info s)).kind = .axiom ↔ AxiomInfo info ∨ ∃ v ∈ s, AxiomInfo v :=
+  (decl_kind_eq (k := .axiom)).trans (kindIn_axiom info s)
+
+theorem kind_definition {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
+    {s : List ConstantInfo} :
+    (decl (f.declIn n m info s)).kind = .definition ↔
+      (∃ v, info = .defnInfo v) ∧ ∀ w ∈ s, ¬ AxiomInfo w :=
+  (decl_kind_eq (k := .definition)).trans
+    ((kindIn_eq_of_ne_axiom (by decide)).trans (and_congr_left fun _ => kindOf_definition info))
 
 theorem kind_envAxiom {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     (hn : f.env.constants.map₁[n]? = some info) :
-    (decl (f.declIn n m info (f.stated.getD n []))).kind = .axiom ↔ EnvAxiom f n := by
-  rw [kind_axiom]
-  constructor
-  · exact fun h => ⟨info, hn, h⟩
-  · rintro ⟨k, hk, h⟩
-    rw [hn] at hk
-    cases hk
-    exact h
+    (decl (f.declIn n m info (f.stated.getD n []))).kind = .axiom ↔ EnvAxiom f n :=
+  kind_axiom.trans ⟨(⟨info, hn, ·⟩), fun ⟨_, hk, h⟩ => by rw [hn] at hk; cases hk; exact h⟩
 
 theorem kindIn_of_stated {info : ConstantInfo} {s : List ConstantInfo} (hs : ∀ w ∈ s, ¬ AxiomInfo w) :
     Regula.Load.kindIn info s = Regula.Load.kindOf info := by
-  have hn : s.any (Regula.Load.kindOf · == .axiom) = false := by
-    rw [List.any_eq_false]
-    intro w hw hk
-    exact hs w hw ((kindOf_axiom w).mp (by simpa using hk))
+  have hn : s.any (Regula.Load.kindOf · == .axiom) = false :=
+    List.any_eq_false.mpr fun w hw hk => hs w hw ((kindOf_axiom w).mp (beq_iff_eq.mp hk))
   simp [Regula.Load.kindIn, hn]
 
 theorem kind_theorem {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).kind = .theorem ↔
-      (∃ v, info = .thmInfo v) ∧ ∀ w ∈ s, ¬ AxiomInfo w := by
-  have hconst : (decl (f.declIn n m info s)).kind = .theorem ↔
-      Regula.Load.kindIn info s = .theorem := by
-    simp only [decl, Regula.Load.Facts.declIn]
-    cases Regula.Load.kindIn info s <;> simp [constKind]
-  rw [hconst]
-  constructor
-  · intro hk
-    have hs : ∀ w ∈ s, ¬ AxiomInfo w := by
-      intro w hw hax
-      rw [(kindIn_axiom info s).mpr (.inr ⟨w, hw, hax⟩)] at hk
-      cases hk
-    rw [kindIn_of_stated hs] at hk
-    refine ⟨?_, hs⟩
-    cases info <;> simp [Regula.Load.kindOf] at hk ⊢
-  · rintro ⟨⟨v, rfl⟩, hs⟩
-    rw [kindIn_of_stated hs]
-    rfl
+      (∃ v, info = .thmInfo v) ∧ ∀ w ∈ s, ¬ AxiomInfo w :=
+  (decl_kind_eq (k := .theorem)).trans
+    ((kindIn_eq_of_ne_axiom (by decide)).trans (and_congr_left fun _ => by cases info <;> simp [Regula.Load.kindOf]))
 
 /-- A constant of no stated axiom is a definition or an opaque constant in the input exactly when its
 {name}`ConstantInfo` is one. -/
@@ -878,134 +684,78 @@ theorem kind_runs {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo
 
 theorem theorem_env (hl : Loaded f roots p i) (u : Name) :
     (∃ e ∈ (toSpec i).decls, e.name = u ∧ e.kind = .theorem) ↔ EnvTheorem f u := by
-  constructor
-  · rintro ⟨x, hx, rfl, hk⟩
-    obtain ⟨info, _, hn, -, hv⟩ := of_mem hl hx
-    rw [hv] at hk
-    obtain ⟨⟨v, rfl⟩, hs⟩ := kind_theorem.mp hk
-    exact ⟨v, hn, hs⟩
-  · rintro ⟨v, hn, hs⟩
-    obtain ⟨m, hm⟩ := module_of hl hn
-    exact ⟨_, to_mem hl hn hm, rfl, kind_theorem.mpr ⟨⟨v, rfl⟩, hs⟩⟩
+  rw [exists_decl_env hl]
+  exact ⟨fun ⟨_, _, hn, _, hk⟩ => by obtain ⟨⟨v, rfl⟩, hs⟩ := kind_theorem.mp hk; exact ⟨v, hn, hs⟩,
+    fun ⟨v, hn, hs⟩ => let ⟨m, hm⟩ := module_of hl hn; ⟨_, m, hn, hm, kind_theorem.mpr ⟨⟨v, rfl⟩, hs⟩⟩⟩
 
 theorem panic_env (hl : Loaded f roots p i) (u : Name) :
     (toSpec i).PanicForm u ↔ EnvPanic f u := by
-  unfold Input.PanicForm EnvPanic
-  rw [theorem_env hl]
+  unfold Input.PanicForm EnvPanic; rw [theorem_env hl]
 
 theorem isAxiom_env (hl : Loaded f roots p i) (a : Name) :
     (toSpec i).IsAxiom a ↔ EnvAxiom f a := by
-  constructor
-  · rintro ⟨x, hx, rfl, hk⟩
-    obtain ⟨info, _, hn, -, hv⟩ := of_mem hl hx
-    rw [hv] at hk
-    exact (kind_envAxiom hn).mp hk
-  · intro h
-    obtain ⟨info, hn, -⟩ := id h
-    obtain ⟨m, hm⟩ := module_of hl hn
-    exact ⟨_, to_mem hl hn hm, rfl, (kind_envAxiom hn).mpr h⟩
+  rw [Input.IsAxiom, exists_decl_env hl]
+  exact ⟨fun ⟨_, _, hn, _, hk⟩ => (kind_envAxiom hn).mp hk,
+    fun h => let ⟨_, hn, _⟩ := h; let ⟨m, hm⟩ := module_of hl hn; ⟨_, m, hn, hm, (kind_envAxiom hn).mpr h⟩⟩
 
 theorem known_env (hl : Loaded f roots p i) (a : Name) :
     (toSpec i).Known a ↔ a ∈ logicalAxioms ∧ (∃ info, f.env.constants.map₁[a]? = some info) ∧
-      EnvToolchain f a := by
-  refine and_congr_right fun _ => ?_
-  constructor
-  · rintro ⟨x, hx, rfl, ht⟩
-    obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx
-    rw [hv] at ht
-    exact ⟨⟨info, hn⟩, m, hm, ht⟩
-  · rintro ⟨⟨info, hn⟩, m, hm, ht⟩
-    exact ⟨_, to_mem hl hn hm, rfl, ht⟩
+      EnvToolchain f a :=
+  and_congr_right fun _ => (exists_decl_env hl a (·.inToolchain = true)).trans
+    ⟨fun ⟨info, m, hn, hm, ht⟩ => ⟨⟨info, hn⟩, m, hm, ht⟩,
+     fun ⟨⟨info, hn⟩, m, hm, ht⟩ => ⟨info, m, hn, hm, ht⟩⟩
 
 theorem admits_env (hl : Loaded f roots p i) {a : Name} {info : ConstantInfo}
     (ha : f.env.constants.map₁[a]? = some info) :
     (toSpec i).Admits (toSpec i).profile a ↔ EnvAdmits f p a := by
   have hp : (toSpec i).profile = profile p := by simp [toSpec, toSpecDraft, hl.profile]
-  have hlog : a ∈ logicalAxioms ↔ a = ``propext ∨ a = ``Quot.sound ∨ a = ``Classical.choice := by
-    simp [logicalAxioms]
-  have hheld : ∃ info, f.env.constants.map₁[a]? = some info := ⟨info, ha⟩
   rw [hp]
-  cases p with
-  | kernelOnly => simp [Input.Admits, profile, EnvAdmits]
-  | choiceFree =>
-    simp only [Input.Admits, profile, EnvAdmits, known_env hl, hlog]
-    constructor
-    · rintro ⟨⟨-, -, ht⟩, hs⟩
-      exact ⟨hs, ht⟩
-    · rintro ⟨hs, ht⟩
-      refine ⟨⟨?_, hheld, ht⟩, hs⟩
-      rcases hs with h | h
-      · exact .inl h
-      · exact .inr (.inl h)
-  | standardLogical =>
-    simp only [Input.Admits, profile, EnvAdmits, known_env hl, hlog]
-    constructor
-    · rintro ⟨hs, -, ht⟩
-      exact ⟨hs, ht⟩
-    · rintro ⟨hs, ht⟩
-      exact ⟨hs, hheld, ht⟩
+  cases p <;> simp only [Input.Admits, profile, EnvAdmits, known_env hl, logicalAxioms,
+    List.mem_cons, List.not_mem_nil, or_false]
+  · exact ⟨fun ⟨⟨_, _, ht⟩, hs⟩ => ⟨hs, ht⟩, fun ⟨hs, ht⟩ => ⟨⟨hs.imp id .inl, ⟨info, ha⟩, ht⟩, hs⟩⟩
+  · exact ⟨fun ⟨hs, _, ht⟩ => ⟨hs, ht⟩, fun ⟨hs, ht⟩ => ⟨hs, ⟨info, ha⟩, ht⟩⟩
 
 theorem safety_partial {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).safety = .partial ↔
-      info.isPartial = true ∧ info.isUnsafe = false := by
-  rw [← safetyOf_partial]
-  simp only [decl, Regula.Load.Facts.declIn]
-  cases Regula.Load.safetyOf info <;> simp [safety]
+      info.isPartial = true ∧ info.isUnsafe = false :=
+  (safety_inj (b := .partial)).trans (safetyOf_partial info)
 
 theorem safety_safe {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     (decl (f.declIn n m info s)).safety = .safe ↔
-      info.isUnsafe = false ∧ info.isPartial = false := by
-  rw [← safetyOf_safe]
-  simp only [decl, Regula.Load.Facts.declIn]
-  cases Regula.Load.safetyOf info <;> simp [safety]
+      info.isUnsafe = false ∧ info.isPartial = false :=
+  (safety_inj (b := .safe)).trans (safetyOf_safe info)
 
 theorem helper_env (hl : Loaded f roots p i) (n : Name) (m : Regula.Load.LoadedModule)
     (info : ConstantInfo) :
     (toSpec i).HelperForm (decl (f.declIn n m info (f.stated.getD n []))) ↔
-      EnvHelper f n info m.name := by
-  constructor
-  · rintro ⟨h1, h2, h3, base, hb, hname, hk, hm, hu, hi', he⟩
+      EnvHelper f n info m.name :=
+  ⟨fun ⟨h1, h2, h3, base, hb, hname, hk, hm, hu, hi', he⟩ => by
     obtain ⟨hp, hs⟩ := safety_partial.mp h1
-    obtain ⟨info', lm, hn', hm', hv⟩ := of_mem hl hb
-    rw [hv] at hk hu hi' he
-    obtain ⟨⟨v, rfl⟩, hst⟩ := kind_definition.mp hk
-    obtain ⟨hu1, hu2⟩ := safety_safe.mp hu
-    have hmod : f.moduleOf? base.name = some m.name :=
-      moduleOf?_eq_some.mpr ⟨lm, hm', (congrArg Decl.module hv).symm.trans hm⟩
-    exact ⟨hp, hs, h2, h3, base.name, v, hname, hn', hst, hmod, hu1, hu2, hi', he⟩
-  · rintro ⟨hp, hs, h2, h3, b, v, hname, hn', hst, hmod, hu1, hu2, hi', he⟩
+    obtain ⟨_, lm, hn', hm', hv⟩ := of_mem hl hb; rw [hv] at hk hu hi' he
+    obtain ⟨⟨v, rfl⟩, hst⟩ := kind_definition.mp hk; obtain ⟨hu1, hu2⟩ := safety_safe.mp hu
+    exact ⟨hp, hs, h2, h3, base.name, v, hname, hn', hst,
+      moduleOf?_eq_some.mpr ⟨lm, hm', (congrArg Decl.module hv).symm.trans hm⟩, hu1, hu2, hi', he⟩,
+   fun ⟨hp, hs, h2, h3, _, v, hname, hn', hst, hmod, hu1, hu2, hi', he⟩ => by
     obtain ⟨lm, hm', hlm⟩ := moduleOf?_eq_some.mp hmod
     exact ⟨safety_partial.mpr ⟨hp, hs⟩, h2, h3, _, to_mem hl hn' hm', hname,
-      kind_definition.mpr ⟨⟨v, rfl⟩, hst⟩, hlm, safety_safe.mpr ⟨hu1, hu2⟩, hi', he⟩
+      kind_definition.mpr ⟨⟨v, rfl⟩, hst⟩, hlm, safety_safe.mpr ⟨hu1, hu2⟩, hi', he⟩⟩
 
-theorem wf_env (hl : Loaded f roots p i) : (toSpec i).WellFormed ↔ EnvForm f := by
-  constructor
-  · intro h
-    refine ⟨?_, ?_⟩
-    · rintro n u ⟨info, hn, hm⟩
-      obtain ⟨m, hmod⟩ := module_of hl hn
-      exact (resolves_env hl u).mp (h.closed _ (to_mem hl hn hmod) u ((mem_usesIn info _ u).mpr hm))
-    · simpa [toSpec, toSpecDraft, hl.modules] using h.claims
-  · intro h
-    refine ⟨?_, ?_⟩
-    · intro x hx u hu
-      obtain ⟨info, _, hn, -, hv⟩ := of_mem hl hx
-      rw [hv] at hu
-      exact (resolves_env hl u).mpr (h.closed _ u ⟨info, hn, (mem_usesIn info _ u).mp hu⟩)
-    · simpa [toSpec, toSpecDraft, hl.modules] using h.claims
+theorem wf_env (hl : Loaded f roots p i) : (toSpec i).WellFormed ↔ EnvForm f :=
+  ⟨fun h => ⟨fun _ u ⟨info, hn, hm⟩ => let ⟨_, hmod⟩ := module_of hl hn;
+      (resolves_env hl u).mp (h.closed _ (to_mem hl hn hmod) u ((mem_usesIn info _ u).mpr hm)),
+    by simpa [toSpec, toSpecDraft, hl.modules] using h.claims⟩,
+   fun h => ⟨fun _ hx u hu => let ⟨info, _, hn, _, hv⟩ := of_mem hl hx;
+      (resolves_env hl u).mpr (h.closed _ u ⟨info, hn, (mem_usesIn info _ u).mp (hv ▸ hu)⟩),
+    by simpa [toSpec, toSpecDraft, hl.modules] using h.claims⟩⟩
 
 theorem flagged_iff {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} :
     ((decl (f.declIn n m info s)).safety ≠ .safe ∨ HelperNamed (decl (f.declIn n m info s))) ↔
       (info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") := by
-  have hs : (decl (f.declIn n m info s)).safety ≠ .safe ↔
-      info.isUnsafe = true ∨ info.isPartial = true := by
-    rw [ne_eq, safety_safe]
-    cases info.isUnsafe <;> cases info.isPartial <;> simp
-  rw [hs, or_assoc]
-  rfl
+  rw [ne_eq, safety_safe]
+  cases info.isUnsafe <;> cases info.isPartial <;> simp [HelperNamed, decl, Regula.Load.Facts.declIn]
 
 /-- What every rule of the registry states, rule by rule: the statement that {name}`EnvFloor` restates in the terms of the
 environment. A rule added to the registry makes this false until {name}`EnvFloor` and this theorem state it too. -/
@@ -1013,7 +763,8 @@ theorem allHold_iff (i : Input) : AllHold i ↔
     (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
       (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) ∧
       (∀ c, ¬ Violates1011 i c) ∧ (∀ c, ¬ Violates1012 i c) ∧ (∀ c, ¬ Violates1013 i c) := by
-  simp [AllHold, registry, rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved,
+  simp only [AllHold, registry, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq,
+    rg1001Proved, rg1002Proved, rg1003Proved, rg1004Proved, rg1005Proved, rg1006Proved,
     rg1011Proved, rg1012Proved, rg1013Proved]
 
 theorem declaredInClaimed_env (hl : Loaded f roots p i) {m c : Name} (hcs : (toSpec i).HasCSimp m c) :
@@ -1025,113 +776,95 @@ theorem declaredInClaimed_env (hl : Loaded f roots p i) {m c : Name} (hcs : (toS
 theorem hasCSimp_env (hl : Loaded f roots p i) (m thm : Name) :
     (toSpec i).HasCSimp m thm ↔ m ∈ f.claimed ∧ ModuleCSimp f.env m thm := by
   simp only [Input.HasCSimp, toSpec, toSpecDraft, List.mem_map]
-  constructor
-  · rintro ⟨e, he, hmk⟩
-    have hmod : e.module = m := congrArg CSimpEntry.module hmk
-    have hthm : e.thm = thm := congrArg CSimpEntry.thm hmk
-    simpa [hmod, hthm] using (hl.csimps e).mp he
-  · intro h
-    exact ⟨⟨m, thm⟩, (hl.csimps ⟨m, thm⟩).mpr h, rfl⟩
+  exact ⟨fun ⟨e, he, hmk⟩ => by cases hmk; exact (hl.csimps e).mp he,
+    fun h => ⟨⟨m, thm⟩, (hl.csimps ⟨m, thm⟩).mpr h, rfl⟩⟩
 
 theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor f p := by
   rw [allHold_iff]
   constructor
   · rintro ⟨h1, -, -, -, h5, h6, h11, h12, h13⟩
     refine ⟨fun m hm => Classical.byContradiction fun hno =>
-      h13 m ⟨(claimed_iff hl m).mpr hm, fun hfile => hno ((moduleFile_env hl m).mp hfile)⟩,
-      fun m hm => ?_, ?_⟩
-    · refine ⟨hl.indexed m hm, fun thm hcs => Classical.byContradiction fun hno => ?_⟩
-      have hspec := (hasCSimp_env hl m thm).mpr ⟨hm, hcs⟩
-      exact h11 thm (.inr ⟨m, (claimed_iff hl m).mpr hm, hspec,
-        fun hd => hno ((declaredInClaimed_env hl hspec).mp hd)⟩)
+        h13 m ⟨(claimed_iff hl m).mpr hm, fun h => hno ((moduleFile_env hl m).mp h)⟩,
+      fun m hm => ⟨hl.indexed m hm, fun thm hcs => Classical.byContradiction fun hno =>
+        let hs := (hasCSimp_env hl m thm).mpr ⟨hm, hcs⟩
+        h11 thm (.inr ⟨m, (claimed_iff hl m).mpr hm, hs, fun hd => hno ((declaredInClaimed_env hl hs).mp hd)⟩)⟩,
+      ?_⟩
     intro n info m hn hm hc
     obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm
     have hx := to_mem hl hn hlm
     have hcm := (claimed_iff hl _).mpr hc
     have hs : ∀ w ∈ f.stated.getD n [], ¬ AxiomInfo w := fun w hw hax =>
       h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr ⟨info, hn, .inr ⟨w, hw, hax⟩⟩⟩
-    refine ⟨fun hax => ?_, fun hflag => ?_, fun l hl' hv => ?_, fun hrun hv => ?_, fun a hr hax => ?_, ?_, ?_,
-      fun hdef => ?_, fun hrun u hv hpanic => ?_⟩
-    · exact h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr hax⟩
-    · refine Classical.byContradiction fun hno =>
-        h6 n ⟨_, hx, rfl, hcm, .inl ⟨flagged_iff.mpr hflag, fun hh => ?_⟩⟩
-      exact hno ((helper_env hl n lm info).mp hh)
-    · exact h6 n ⟨_, hx, rfl, hcm, .inr (.inl ⟨l, hl', (mem_valueUsesOf info l).mpr hv⟩)⟩
-    · exact h6 n ⟨_, hx, rfl, hcm, .inr (.inr ⟨(kind_runs hs).mpr hrun,
-        (mem_valueUsesOf info ``Lean.Order.fix).mpr hv⟩)⟩
-    · obtain ⟨k, ha, -⟩ := id hax
-      refine Classical.byContradiction fun hno => h5 n ⟨⟨_, hx, rfl, hcm⟩, a,
-        ⟨(reaches_env hl n a).mpr hr, (isAxiom_env hl a).mpr hax⟩, fun hadm => ?_⟩
-      exact hno ((admits_env hl ha).mp hadm)
+    have hr6 := fun r => h6 n ⟨_, hx, rfl, hcm, r⟩
+    have hr11 := fun r => h11 n (.inl ⟨_, hx, rfl, hcm, r⟩)
+    refine ⟨fun hax => h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr hax⟩,
+      fun hflag => Classical.byContradiction fun hno =>
+        hr6 (.inl ⟨flagged_iff.mpr hflag, fun hh => hno ((helper_env hl n lm info).mp hh)⟩),
+      fun l hl' hv => hr6 (.inr (.inl ⟨l, hl', (mem_valueUsesOf info l).mpr hv⟩)),
+      fun hrun hv => hr6 (.inr (.inr ⟨(kind_runs hs).mpr hrun, (mem_valueUsesOf info ``Lean.Order.fix).mpr hv⟩)),
+      fun a hr hax => let ⟨_, ha, _⟩ := hax; Classical.byContradiction fun hno =>
+        h5 n ⟨⟨_, hx, rfl, hcm⟩, a, ⟨(reaches_env hl n a).mpr hr, (isAxiom_env hl a).mpr hax⟩,
+          fun hadm => hno ((admits_env hl ha).mp hadm)⟩,
+      ?_, ?_, fun hdef => ?_,
+      fun hrun u hv hpanic => h12 n ⟨_, hx, rfl, hcm, (kind_runs hs).mpr hrun, u,
+        (mem_valueUsesOf info u).mpr hv, (panic_env hl u).mpr hpanic⟩⟩
     · cases hi : Lean.Compiler.getImplementedBy? f.env n with
-      | none => rfl
-      | some impl => exact absurd (.inl ⟨_, hx, rfl, hcm, .inl ⟨impl, hi⟩⟩) (h11 n)
+      | none => rfl | some impl => exact (hr11 (.inl ⟨impl, hi⟩)).elim
     · cases he : Lean.isExtern f.env n with
-      | false => rfl
-      | true => exact absurd (.inl ⟨_, hx, rfl, hcm, .inr (.inl he)⟩) (h11 n)
+      | false => rfl | true => exact (hr11 (.inr (.inl he))).elim
     · cases hfn : Lean.getInitFnNameFor? f.env n with
-      | none => rfl
-      | some fn =>
-        exact absurd (.inl ⟨_, hx, rfl, hcm, .inr (.inr ⟨kind_definition.mpr ⟨hdef, hs⟩, fn, hfn⟩)⟩) (h11 n)
-    · exact h12 n ⟨_, hx, rfl, hcm, (kind_runs hs).mpr hrun, u, (mem_valueUsesOf info u).mpr hv,
-        (panic_env hl u).mpr hpanic⟩
+      | none => rfl | some fn => exact (hr11 (.inr (.inr ⟨kind_definition.mpr ⟨hdef, hs⟩, fn, hfn⟩))).elim
   · rintro ⟨hfiles, hcsimps, hf⟩
-    have hmod : ∀ {x : Decl} {info m}, f.info? x.name = some m → x = decl
-        (f.declIn x.name m info (f.stated.getD x.name [])) → f.moduleOf? x.name = some x.module :=
-      fun {x info m} hm hv => moduleOf?_eq_some.mpr ⟨m, hm, by rw [hv]; rfl⟩
+    have hget {x : Decl} {info m} (hn : f.env.constants.map₁[x.name]? = some info)
+        (hm : f.info? x.name = some m)
+        (hv : x = decl (f.declIn x.name m info (f.stated.getD x.name [])))
+        (hcm : (toSpec i).ClaimedModule x.module) :=
+      hf _ _ _ hn (moduleOf?_eq_some.mpr ⟨m, hm, by rw [hv]; rfl⟩) ((claimed_iff hl _).mp hcm)
     have no5 : ∀ c, ¬ Violates1005 (toSpec i) c := by
       rintro c ⟨⟨x, hx, rfl, hcm⟩, a, ⟨hr, hax⟩, hna⟩
       obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx
       have hax' := (isAxiom_env hl a).mp hax
-      obtain ⟨k, ha, -⟩ := id hax'
-      exact hna ((admits_env hl ha).mpr
-        ((hf _ _ _ hn (hmod hm hv) ((claimed_iff hl _).mp hcm)).2.2.2.2.1 a
-          ((reaches_env hl _ a).mp hr) hax'))
+      obtain ⟨_, ha, -⟩ := id hax'
+      exact hna ((admits_env hl ha).mpr ((hget hn hm hv hcm).2.2.2.2.1 a ((reaches_env hl _ a).mp hr) hax'))
     refine ⟨?_, fun c h => no5 c (rg1005_of_hole h), fun c h => no5 c (rg1005_of_unknown h),
       fun c h => no5 c (rg1005_of_compiler h), no5, ?_, ?_, ?_,
       fun c h => h.2 ((moduleFile_env hl c).mpr (hfiles c ((claimed_iff hl c).mp h.1)))⟩
-    · rintro c ⟨x, hx, rfl, hcm, hk⟩
+    · rintro _ ⟨x, hx, rfl, hcm, hk⟩
       obtain ⟨info, m, hn, hm, hv⟩ := of_mem hl hx
-      have hmd := hmod hm hv
-      rw [hv] at hk
-      exact (hf _ _ _ hn hmd ((claimed_iff hl _).mp hcm)).1 ((kind_envAxiom hn).mp hk)
-    · rintro c ⟨x, hx, rfl, hcm, hv⟩
+      exact (hget hn hm hv hcm).1 ((kind_envAxiom hn).mp (hv ▸ hk))
+    · rintro _ ⟨x, hx, rfl, hcm, hv⟩
       obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
-      have hmd := hmod hm hd
-      obtain ⟨hna, h6, h7, hfix, -⟩ := hf _ _ _ hn hmd ((claimed_iff hl _).mp hcm)
+      obtain ⟨hna, h6, h7, hfix, -⟩ := hget hn hm hd hcm
       have hmn : m.name = x.module := by rw [hd]; rfl
       rw [hd] at hv
       rcases hv with ⟨hflag, hno⟩ | ⟨l, hl', hu⟩ | ⟨hk, hu⟩
       · exact hno ((helper_env hl _ m info).mpr (hmn ▸ h6 (flagged_iff.mp hflag)))
       · exact h7 l hl' ((mem_valueUsesOf info l).mp hu)
-      · have hs : ∀ w ∈ f.stated.getD x.name [], ¬ AxiomInfo w := fun w hw hax =>
-          hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩
-        exact hfix ((kind_runs hs).mp hk) ((mem_valueUsesOf info ``Lean.Order.fix).mp hu)
+      · exact hfix ((kind_runs fun w hw hax => hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩).mp hk)
+          ((mem_valueUsesOf info ``Lean.Order.fix).mp hu)
     · rintro c (⟨x, hx, rfl, hcm, hr⟩ | ⟨m, hcm, hcs, hnot⟩)
       · obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
-        obtain ⟨-, -, -, -, -, hi, he, hinit, -⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
+        obtain ⟨-, -, -, -, -, hi, he, hinit, -⟩ := hget hn hm hd hcm
         rw [hd] at hr
-        rcases hr with ⟨impl, himpl⟩ | hext | ⟨hkind, fn, hfn⟩
-        · exact absurd (himpl.symm.trans hi) (by simp)
-        · exact absurd (hext.symm.trans he) (by simp)
-        · exact absurd (hfn.symm.trans (hinit (kind_definition.mp hkind).1)) (by simp)
+        rcases hr with ⟨_, himpl⟩ | hext | ⟨hkind, _, hfn⟩
+        · cases himpl.symm.trans hi
+        · cases hext.symm.trans he
+        · cases hfn.symm.trans (hinit (kind_definition.mp hkind).1)
       · obtain ⟨hm, hreg⟩ := (hasCSimp_env hl m c).mp hcs
         exact hnot ((declaredInClaimed_env hl hcs).mpr ((hcsimps m hm).2 c hreg))
-    · rintro c ⟨x, hx, rfl, hcm, hk, u, hu, hp⟩
+    · rintro _ ⟨x, hx, rfl, hcm, hk, u, hu, hp⟩
       obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
-      obtain ⟨hna, -, -, -, -, -, -, -, h12⟩ := hf _ _ _ hn (hmod hm hd) ((claimed_iff hl _).mp hcm)
-      have hs : ∀ w ∈ f.stated.getD x.name [], ¬ AxiomInfo w := fun w hw hax =>
-        hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩
+      obtain ⟨hna, -, -, -, -, -, -, -, h12⟩ := hget hn hm hd hcm
       rw [hd] at hk hu
-      exact h12 ((kind_runs hs).mp hk) u ((mem_valueUsesOf info u).mp hu) ((panic_env hl u).mp hp)
+      exact h12 ((kind_runs fun w hw hax => hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩).mp hk) u
+        ((mem_valueUsesOf info u).mp hu) ((panic_env hl u).mp hp)
 
 theorem input_form (h : f.input roots p = .ok i) : EnvForm f :=
   (wf_env (input_loaded h)).mp (wf_toSpec i)
 
 theorem pass_iff (h : f.input roots p = .ok i) :
     i.report.verdict = .pass ↔ EnvForm f ∧ EnvFloor f p := by
-  have hl := input_loaded h
-  rw [(report_complete i).2, allHold_env hl]
+  rw [(report_complete i).2, allHold_env (input_loaded h)]
   exact ⟨fun hf => ⟨input_form h, hf⟩, (·.2)⟩
 
 theorem decision_failed (why : String) :
@@ -1140,19 +873,16 @@ theorem decision_failed (why : String) :
 theorem decision_pass {r : Except String Regula.Closed.Input}
     (h : (Regula.Closed.decision r).verdict = .pass) :
     ∃ i, r = .ok i ∧ i.report.verdict = .pass := by
-  cases r with
-  | error why => cases h
-  | ok i => exact ⟨i, rfl, h⟩
+  cases r with | error _ => cases h | ok i => exact ⟨i, rfl, h⟩
 
 theorem pass_floor (h : (Regula.Closed.decision (f.input roots p)).verdict = .pass) :
     (∀ r ∈ roots, r ∈ f.claimed) ∧ (∀ m ∈ f.claimed, m ∈ f.env.header.moduleNames.toList) ∧
       (∀ n info, f.env.constants.map₁[n]? = some info → ∃ m, f.moduleOf? n = some m) ∧
       EnvForm f ∧ EnvFloor f p := by
-  obtain ⟨i, hi, hp⟩ := decision_pass h
-  have hl := input_loaded hi
-  refine ⟨hl.roots, fun _ hm => claimed_loaded f hm, fun _ _ hn => ?_, (pass_iff hi).mp hp⟩
-  obtain ⟨m, hm⟩ := module_of hl hn
-  exact ⟨m.name, moduleOf?_eq_some.mpr ⟨m, hm, rfl⟩⟩
+  obtain ⟨i, hi, hp⟩ := decision_pass h; have hl := input_loaded hi
+  exact ⟨hl.roots, fun _ => claimed_loaded f,
+    fun _ _ hn => let ⟨m, hm⟩ := module_of hl hn; ⟨m.name, moduleOf?_eq_some.mpr ⟨m, hm, rfl⟩⟩,
+    (pass_iff hi).mp hp⟩
 
 theorem mem_claimedConstants {m n : Name} {info : ConstantInfo} :
     (m, n, info) ∈ f.claimedConstants ↔ ∃ (k : Nat) (lm : Regula.Load.LoadedModule) (data :
@@ -1162,10 +892,42 @@ theorem mem_claimedConstants {m n : Name} {info : ConstantInfo} :
     Array.mem_toList_iff, List.mem_map, Prod.mk.injEq, Array.mem_iff_getElem?,
     Array.getElem?_zip_eq_some]
   constructor
-  · rintro ⟨⟨lm, data⟩, ⟨⟨k, h1, h2⟩, hc⟩, ⟨n', info'⟩, hx, rfl, rfl, rfl⟩
+  · rintro ⟨⟨lm, data⟩, ⟨⟨k, h1, h2⟩, hc⟩, ⟨_, _⟩, hx, rfl, rfl, rfl⟩
     exact ⟨k, lm, data, h1, hc, rfl, h2, hx⟩
   · rintro ⟨k, lm, data, h1, hc, rfl, h2, hx⟩
     exact ⟨(lm, data), ⟨⟨k, h1, h2⟩, hc⟩, (n, info), hx, rfl, rfl, rfl⟩
+
+theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantInfo) :
+    Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true ↔
+      ModuleUnreplaced f.env x.1 x.2.1 ∧
+      Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
+      (∀ b, x.2.1 ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions x.2.2 l) ∧
+      ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
+        ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
+  obtain ⟨m, n, info⟩ := x
+  have hheld (u : Name) : i.tables.index.contains u = true ↔ ∃ k, f.env.constants.map₁[u]? = some k := by
+    rw [← resolves_env hl u, Std.HashMap.contains_eq_isSome_getElem?, Option.isSome_iff_exists]
+    exact ⟨fun ⟨d, hd⟩ => by obtain ⟨hm, rfl⟩ := (i.tables.mem_index _ _).mp hd; exact ⟨_, mem_decls.mpr ⟨d, hm, rfl⟩, rfl⟩,
+      fun ⟨_, hx, h⟩ => by subst h; obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx; exact ⟨d, (i.tables.mem_index _ _).mpr ⟨hd, rfl⟩⟩⟩
+  have hadm (u : Name) : (∀ a ∈ i.tables.axiomSet u, i.tables.admits i.profile a = true) ↔
+      ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a :=
+    ⟨fun hall a hr hea => let ⟨_, ha, _⟩ := hea
+       (admits_env hl ha).mp ((admits_iff _ i.profile a).mp
+         (hall a ((axiomSet_iff _ u a).mpr ⟨(reaches_env hl u a).mpr hr, (isAxiom_env hl a).mpr hea⟩))),
+     fun hall a hax => let ⟨hr, hia⟩ := (axiomSet_iff _ u a).mp hax; let hea := (isAxiom_env hl a).mp hia
+       let ⟨_, ha, _⟩ := hea
+       (admits_iff _ i.profile a).mpr ((admits_env hl ha).mpr (hall a ((reaches_env hl u a).mp hr) hea))⟩
+  simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
+    unreplaced_iff, List.all_eq_true, Array.all_eq_true_iff_forall_mem, and_assoc]
+  refine and_congr_right fun _ => and_congr_right fun _ => and_congr_right fun _ =>
+    and_congr ?_ (and_congr ?_ ?_)
+  · exact ⟨fun h b hb => by simp [(isUnsafeRecName_eq n b).mpr hb] at h,
+      fun h => by cases hu : Lean.Compiler.isUnsafeRecName? n with
+        | none => rfl | some b => exact absurd ((isUnsafeRecName_eq n b).mp hu) (h b)⟩
+  · exact forall_congr' fun l => imp_congr (by simp [Regula.Closed.loopConstructs, loopConstructs])
+      (by rw [← mem_valueUsesOf info l, Array.mem_toList_iff]; simp)
+  · exact forall_congr' fun u => imp_congr (by rw [← Array.mem_toList_iff, mem_usesOf])
+      (and_congr (hheld u) (hadm u))
 
 theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pass) {m n : Name}
     {info : ConstantInfo} (hx : (m, n, info) ∈ f.claimedConstants) :
@@ -1178,105 +940,65 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u) ∧
     ∀ u, Mentions info u → ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
-  obtain ⟨i, hi, hp⟩ := decision_pass h
-  have hl := input_loaded hi
+  obtain ⟨i, hi, hp⟩ := decision_pass h; have hl := input_loaded hi
   rcases (input_kept hi hx).symm with hfits | hshown
-  · simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
-      List.all_eq_true, Array.all_eq_true_iff_forall_mem] at hfits
-    obtain ⟨hattrs, ⟨⟨⟨⟨hkind, hsafety⟩, hname⟩, hloop⟩, huses⟩⟩ := hfits
+  · obtain ⟨hattrs, hkind, hsafety, hname, hloop, huses⟩ := (fitsUnshown_iff hl _).mp hfits
     obtain ⟨hunsafe, hpartial⟩ := (safetyOf_safe info).mp hsafety
-    refine ⟨(unreplaced_iff _ _).mp hattrs, ?_, ?_, fun hflag => ?_, ?_, ?_, ?_, ?_⟩
-    · rintro ⟨v, rfl⟩
-      simp [Regula.Load.kindOf] at hkind
-    · rintro v rfl
-      simp [Regula.Load.kindOf] at hkind
-    · rcases hflag with hf | hf | ⟨b, hb⟩
-      · rw [hunsafe] at hf
-        cases hf
-      · rw [hpartial] at hf
-        cases hf
-      · simp [(isUnsafeRecName_eq n b).mpr hb] at hname
-    · intro l hl' hv
-      have hc := hloop l (by simpa [Regula.Closed.loopConstructs, loopConstructs] using hl')
-      have hc' : l ∉ Regula.Load.valueUsesOf info := by simpa using hc
-      exact hc' (by simpa using (mem_valueUsesOf info l).mpr hv)
-    · rintro (⟨v, rfl⟩ | ⟨v, rfl⟩) <;> simp [Regula.Load.kindOf] at hkind
-    · rintro (⟨v, rfl⟩ | ⟨v, rfl⟩) <;> simp [Regula.Load.kindOf] at hkind
-    · intro u hu a hr hea
-      have hall := (huses u (by simpa using (mem_usesOf info u).mpr hu)).2
-      have hax : a ∈ i.tables.axiomSet u :=
-        (axiomSet_iff _ u a).mpr ⟨(reaches_env hl u a).mpr hr, (isAxiom_env hl a).mpr hea⟩
-      obtain ⟨k, ha, -⟩ := id hea
-      exact (admits_env hl ha).mp ((admits_iff _ i.profile a).mp (hall a hax))
+    refine ⟨hattrs, by rintro ⟨_, rfl⟩; simp [Regula.Load.kindOf] at hkind,
+      by rintro _ rfl; simp [Regula.Load.kindOf] at hkind,
+      fun | .inl h => by rw [hunsafe] at h; cases h
+          | .inr (.inl h) => by rw [hpartial] at h; cases h
+          | .inr (.inr ⟨b, hb⟩) => (hname b hb).elim,
+      hloop,
+      by rintro (⟨_, rfl⟩ | ⟨_, rfl⟩) <;> simp [Regula.Load.kindOf] at hkind,
+      by rintro (⟨_, rfl⟩ | ⟨_, rfl⟩) <;> simp [Regula.Load.kindOf] at hkind,
+      fun u hu => (huses u hu).2⟩
   obtain ⟨k, lm, hk, hread, hinfo, hclaimed⟩ := shown_true hshown
   have hmod : f.moduleOf? n = some lm.name := moduleOf?_eq_some.mpr ⟨lm, hinfo, rfl⟩
-  have hcl : lm.name ∈ f.claimed :=
-    (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
+  have hcl : lm.name ∈ f.claimed := (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
   obtain ⟨h1, h2, h3, hfix, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2.2.2 n k lm.name hk hmod hcl
   simp only [Regula.Load.readOf, Prod.mk.injEq] at hread
   obtain ⟨hkind, hsafety, huses, hvalue⟩ := hread
   have hsafe : k.isUnsafe = info.isUnsafe ∧ k.isPartial = info.isPartial := by
-    have hb : ∀ c : ConstantInfo, c.isUnsafe = (Regula.Load.safetyOf c == .unsafe) ∧
-        c.isPartial = (Regula.Load.safetyOf c == .partial) := by
-      intro c
+    have hb (c : ConstantInfo) : (c.isUnsafe, c.isPartial) =
+        (Regula.Load.safetyOf c == .unsafe, Regula.Load.safetyOf c == .partial) := by
       simp only [Regula.Load.safetyOf]
       cases hu : c.isUnsafe <;> cases hq : c.isPartial <;> simp
       exact absurd (not_unsafe_of_partial c hq) (by simp [hu])
-    rw [(hb k).1, (hb k).2, (hb info).1, (hb info).2, hsafety]
-    exact ⟨rfl, rfl⟩
-  refine ⟨shown_unreplaced hshown himpl hext, fun hdef => ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · have hki : Regula.Load.kindOf info = .definition := (kindOf_definition info).mpr hdef
-    exact shown_uninitialized hshown hki (hinit ((kindOf_definition k).mp (hkind.trans hki)))
-  · rintro v rfl
-    have hax : AxiomInfo k := (kindOf_axiom k).mp (by simpa [Regula.Load.kindOf] using hkind)
-    exact h1 ⟨k, hk, .inl hax⟩
-  · intro hflag
-    have hflag' : k.isUnsafe = true ∨ k.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec" := by
-      rwa [hsafe.1, hsafe.2]
-    obtain ⟨hpart, hsf, -⟩ := h2 hflag'
-    exact ⟨hsafe.2 ▸ hpart, hsafe.1 ▸ hsf⟩
-  · intro l hl' hv
-    exact h3 l hl' ((mem_valueUsesOf k l).mp (hvalue ▸ (mem_valueUsesOf info l).mpr hv))
-  · intro hrun hv
-    have hrun' : (∃ v, k = .defnInfo v) ∨ (∃ v, k = .opaqueInfo v) := by
-      rcases hrun with ⟨v, rfl⟩ | ⟨v, rfl⟩ <;> cases k <;> simp [Regula.Load.kindOf] at hkind ⊢
-    exact hfix hrun' ((mem_valueUsesOf k ``Lean.Order.fix).mp
-      (hvalue ▸ (mem_valueUsesOf info ``Lean.Order.fix).mpr hv))
-  · intro hrun u hv
-    have hrun' : (∃ v, k = .defnInfo v) ∨ (∃ v, k = .opaqueInfo v) := by
-      rcases hrun with ⟨v, rfl⟩ | ⟨v, rfl⟩ <;> cases k <;> simp [Regula.Load.kindOf] at hkind ⊢
-    exact h12 hrun' u ((mem_valueUsesOf k u).mp (hvalue ▸ (mem_valueUsesOf info u).mpr hv))
-  · intro u hu a hr hax
-    have hm : Mentions k u := (mem_usesOf k u).mp (huses ▸ (mem_usesOf info u).mpr hu)
-    exact h4 a (.step ⟨k, hk, .inl hm⟩ hr) hax
+    exact Prod.mk.inj ((hb k).trans ((congrArg (fun s => (s == .unsafe, s == .partial)) hsafety).trans (hb info).symm))
+  have hrun' (hr : (∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v)) :
+      (∃ v, k = .defnInfo v) ∨ (∃ v, k = .opaqueInfo v) := by
+    rcases hr with ⟨_, rfl⟩ | ⟨_, rfl⟩ <;> cases k <;> simp [Regula.Load.kindOf] at hkind ⊢
+  have hval {u} (hv : ValueMentions info u) : ValueMentions k u :=
+    (mem_valueUsesOf k u).mp (hvalue ▸ (mem_valueUsesOf info u).mpr hv)
+  refine ⟨shown_unreplaced hshown himpl hext,
+    fun hdef => let hki := (kindOf_definition info).mpr hdef
+      shown_uninitialized hshown hki (hinit ((kindOf_definition k).mp (hkind.trans hki))),
+    fun v hv => h1 ⟨k, hk, .inl ((kindOf_axiom k).mp (by simpa [hv, Regula.Load.kindOf] using hkind))⟩,
+    fun hflag => let ⟨hpart, hsf, _⟩ := h2 (by rwa [hsafe.1, hsafe.2]); ⟨hsafe.2 ▸ hpart, hsafe.1 ▸ hsf⟩,
+    fun l hl' hv => h3 l hl' (hval hv),
+    fun hrun hv => hfix (hrun' hrun) (hval hv),
+    fun hrun u hv => h12 (hrun' hrun) u (hval hv),
+    fun u hu a hr hax =>
+      h4 a (.step ⟨k, hk, .inl ((mem_usesOf k u).mp (huses ▸ (mem_usesOf info u).mpr hu))⟩ hr) hax⟩
 
 theorem profileOfRun_ok {version commit : String} {args : List String}
     {q : Regula.Closed.Profile} (h : Regula.Shell.profileOfRun version commit args = .ok q) :
     version = "4.35.0" ∧ commit = "eb6cafb7290e8bd5f2937522d8d804f58f02bafc" ∧
       ∃ text, args = [text] ∧ Regula.Closed.Profile.ofSpelling? text = some q := by
-  simp only [Regula.Shell.profileOfRun] at h
-  split at h
-  · cases h
-  · rename_i hs
-    have hs' : Regula.Shell.supportsLean version commit = true := by simpa using hs
-    simp only [Regula.Shell.supportsLean, Regula.Closed.pinnedLean, beq_iff_eq, Prod.mk.injEq] at hs'
-    refine ⟨hs'.1, hs'.2, ?_⟩
-    split at h
-    · rename_i text
-      split at h
-      · rename_i q' hq
-        simp only [Except.ok.injEq] at h
-        exact ⟨text, rfl, h ▸ hq⟩
-      · cases h
-    · cases h
+  simp only [Regula.Shell.profileOfRun] at h; (split at h <;> try cases h)
+  rename_i hs
+  simp only [Bool.not_eq_true', Bool.eq_false_iff, Classical.not_not, Regula.Shell.supportsLean,
+    Regula.Closed.pinnedLean, beq_iff_eq, Prod.mk.injEq] at hs
+  (split at h <;> try cases h); (split at h <;> try cases h)
+  exact ⟨hs.1, hs.2, _, rfl, ‹_›⟩
 
 theorem profileOf_eq_some {text : String} {q : Regula.Closed.Profile}
     (h : Regula.Closed.Profile.ofSpelling? text = some q) :
     (text = "kernel-only" ∧ q = .kernelOnly) ∨ (text = "choice-free" ∧ q = .choiceFree) ∨
       (text = "standard-logical" ∧ q = .standardLogical) := by
   have hs := Regula.Closed.Profile.ofSpelling?_eq_some.mp h
-  subst hs
-  cases q <;> simp [Regula.Closed.Profile.spelling]
+  subst hs; cases q <;> simp [Regula.Closed.Profile.spelling]
 
 /-- {name (full := Regula.Load.below)}`below` is a test on components: the directory's are a proper prefix of the path's. It does not resolve `..`, and it does not
 tell an absolute path from a relative one. -/
@@ -1298,10 +1020,8 @@ theorem exactBelow_iff (dir path real : System.FilePath) :
 its own. That {name}`IO.FS.realPath` gives a path with no `..` is the operating system's. -/
 theorem exactBelow_no_parent (dir path real : System.FilePath)
     (h : Regula.Load.exactBelow dir path real = true) (hr : ".." ∉ Regula.Load.parts real) :
-    ".." ∉ Regula.Load.parts path := by
-  intro hp
-  rw [((exactBelow_iff dir path real).mp h).1] at hr
-  exact hr hp
+    ".." ∉ Regula.Load.parts path :=
+  ((exactBelow_iff dir path real).mp h).1 ▸ hr
 
 /-- What the loader asks of each constant of a claimed module's own {lit}`.olean` that the environment does not show to the rules
 ({name (full := Regula.Load.Facts.shown)}`Facts.shown`), in the terms of the environment: a safe theorem with neither replacement attribute
@@ -1331,85 +1051,13 @@ structure LoadFloor (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Clos
   /-- What the environment does not show. -/
   unshown : EnvUnshown f p
 
-theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantInfo) :
-    Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true ↔
-      ModuleUnreplaced f.env x.1 x.2.1 ∧
-      Regula.Load.kindOf x.2.2 = .theorem ∧ Regula.Load.safetyOf x.2.2 = .safe ∧
-      (∀ b, x.2.1 ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions x.2.2 l) ∧
-      ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
-        ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
-  obtain ⟨m, n, info⟩ := x
-  have hheld : ∀ u, i.tables.index.contains u = true ↔ ∃ k, f.env.constants.map₁[u]? = some k := by
-    intro u
-    rw [← resolves_env hl u]
-    constructor
-    · intro hc
-      obtain ⟨d, hd⟩ : ∃ d, i.tables.index[u]? = some d := by
-        rw [Std.HashMap.contains_eq_isSome_getElem?] at hc
-        exact Option.isSome_iff_exists.mp hc
-      obtain ⟨hmem, rfl⟩ := (i.tables.mem_index _ _).mp hd
-      exact ⟨_, mem_decls.mpr ⟨d, hmem, rfl⟩, rfl⟩
-    · rintro ⟨x, hx, rfl⟩
-      obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
-      rw [Std.HashMap.contains_eq_isSome_getElem?]
-      change i.tables.index[d.name]?.isSome = true
-      rw [(i.tables.mem_index _ _).mpr ⟨hd, rfl⟩]
-      rfl
-  simp only [Regula.Load.fitsUnshown, Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true',
-    unreplaced_iff, List.all_eq_true, Array.all_eq_true_iff_forall_mem, and_assoc]
-  refine and_congr_right fun _ => ?_
-  refine and_congr_right fun _ => and_congr_right fun _ => and_congr ?_ (and_congr ?_ ?_)
-  · constructor
-    · intro hname b hb
-      simp [(isUnsafeRecName_eq n b).mpr hb] at hname
-    · intro hname
-      cases hu : Lean.Compiler.isUnsafeRecName? n with
-      | none => rfl
-      | some b => exact absurd ((isUnsafeRecName_eq n b).mp hu) (hname b)
-  · constructor
-    · intro hloop l hl' hv
-      have hc := hloop l (by simpa [Regula.Closed.loopConstructs, loopConstructs] using hl')
-      have hc' : l ∉ Regula.Load.valueUsesOf info := by simpa using hc
-      exact hc' (by simpa using (mem_valueUsesOf info l).mpr hv)
-    · intro hloop l hl'
-      have hn : l ∉ Regula.Load.valueUsesOf info := fun hin =>
-        hloop l (by simpa [Regula.Closed.loopConstructs, loopConstructs] using hl')
-          ((mem_valueUsesOf info l).mp (by simpa using hin))
-      simpa using hn
-  · have hadm : ∀ u, (∀ a ∈ i.tables.axiomSet u, i.tables.admits i.profile a = true) ↔
-        ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a := by
-      intro u
-      constructor
-      · intro hall a hr hea
-        have hax : a ∈ i.tables.axiomSet u :=
-          (axiomSet_iff _ u a).mpr ⟨(reaches_env hl u a).mpr hr, (isAxiom_env hl a).mpr hea⟩
-        obtain ⟨k, ha, -⟩ := id hea
-        exact (admits_env hl ha).mp ((admits_iff _ i.profile a).mp (hall a hax))
-      · intro hall a hax
-        obtain ⟨hr, hia⟩ := (axiomSet_iff _ u a).mp hax
-        have hea := (isAxiom_env hl a).mp hia
-        obtain ⟨k, ha, -⟩ := id hea
-        exact (admits_iff _ i.profile a).mpr
-          ((admits_env hl ha).mpr (hall a ((reaches_env hl u a).mp hr) hea))
-    constructor
-    · intro huses u hu
-      obtain ⟨h1, h2⟩ := huses u (by simpa using (mem_usesOf info u).mpr hu)
-      exact ⟨(hheld u).mp h1, (hadm u).mp h2⟩
-    · intro huses u hu
-      obtain ⟨h1, h2⟩ := huses u ((mem_usesOf info u).mp (by simpa using hu))
-      exact ⟨(hheld u).mpr h1, (hadm u).mpr h2⟩
-
 theorem unread_none_of {i : Regula.Closed.Input}
     (h : ∀ x ∈ f.claimedConstants,
       f.shown x = true ∨ Regula.Load.fitsUnshown f i.tables x.1 x.2.1 x.2.2 = true) :
     f.unread? i.tables = none := by
-  simp only [Regula.Load.Facts.unread?, Regula.Load.Facts.unshown, Option.map_eq_none_iff, List.find?_eq_none,
-    Bool.not_eq_true']
-  intro x hmem
-  simp only [List.mem_filter, Bool.not_eq_true'] at hmem
-  rcases h x hmem.1 with hs | hf
-  · simp [hmem.2] at hs
-  · simpa using hf
+  simp only [Regula.Load.Facts.unread?, Regula.Load.Facts.unshown, Option.map_eq_none_iff,
+    List.find?_eq_none, List.mem_filter, Bool.not_eq_true']
+  rintro x ⟨hx, hns⟩; simpa [hns] using h x hx
 
 theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e : ε) (h : l.mapM g = .error e) :
     ∃ a ∈ l, ∃ e', g a = .error e' := by
@@ -1418,69 +1066,48 @@ theorem mapM_error {α β ε : Type} (g : α → Except ε β) (l : List α) (e 
   | cons a l ih =>
     simp only [List.mapM_cons, bind, Except.bind] at h
     cases hg : g a with
-    | error e' => exact ⟨a, List.mem_cons_self .., e', hg⟩
-    | ok b =>
+    | error e' => exact ⟨a, List.mem_cons_self, e', hg⟩
+    | ok _ =>
       rw [hg] at h
-      simp only at h
       cases hl : l.mapM g with
-      | error e' =>
-        obtain ⟨x, hx, hy⟩ := ih e' hl
-        exact ⟨x, List.mem_cons_of_mem _ hx, hy⟩
-      | ok r =>
-        rw [hl] at h
-        cases h
+      | error e' => obtain ⟨x, hx, hy⟩ := ih e' hl; exact ⟨x, List.mem_cons_of_mem _ hx, hy⟩
+      | ok _ => rw [hl] at h; cases h
 
 theorem admitDraft_of_floor (h : LoadFloor f roots p) : ∃ i, f.admitDraft roots p = .ok i := by
   simp only [Regula.Load.Facts.admitDraft]
   split
-  · rename_i m hfind
-    have hmem := List.mem_of_find?_eq_some hfind
-    have hnot := List.find?_some hfind
-    have := h.roots m hmem
-    simp [this] at hnot
-  rename_i hfind
+  · rename_i m hf
+    exact absurd (List.find?_some hf) (by simp [h.roots m (List.mem_of_find?_eq_some hf)])
   split
-  · rename_i why hcs
+  · rename_i _ hcs
     simp only [Regula.Load.Facts.csimps, Except.map] at hcs
     cases hmap : f.claimed.mapM f.moduleCSimps with
-    | error why' =>
-      obtain ⟨m, hm', e', he'⟩ := mapM_error _ _ _ hmap
-      obtain ⟨⟨idx, hidx⟩, -⟩ := h.floor.2.1 m hm'
+    | error _ =>
+      obtain ⟨m, hm', _, he'⟩ := mapM_error _ _ _ hmap
+      obtain ⟨⟨_, hidx⟩, -⟩ := h.floor.2.1 m hm'
       simp [Regula.Load.Facts.moduleCSimps, hidx] at he'
     | ok _ => simp [hmap] at hcs
-  rename_i csimps hcs
   split
-  · rename_i why hm
-    obtain ⟨⟨n, info⟩, hx, e', he⟩ := mapM_error _ _ _ hm
-    have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hx
-    obtain ⟨m, hmod⟩ := h.placed n info hget
+  · rename_i _ hm
+    obtain ⟨⟨n, info⟩, hx, _, he⟩ := mapM_error _ _ _ hm
+    obtain ⟨_, hmod⟩ := h.placed n info (Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hx)
     simp [Regula.Load.Facts.decl, hmod] at he
-  rename_i decls hm
+  rename_i csimps _ decls hm
   obtain ⟨h1, h2, -⟩ := Regula.Load.mapM_ok
     (fun x : Name × ConstantInfo => f.decl x.1 x.2 (f.stated.getD x.1 []))
     (·.name) (·.1) (fun _ _ hb => f.decl_name hb) _ _ hm
-  have hwf : (toSpecDraft
-      { profile := p, modules := f.claimed, moduleFiles := f.moduleFiles,
-        claimedConstants := f.claimedCSimpTargets csimps,
-        csimps := csimps, decls := decls,
-        unique := f.decls_nodup (stated := (f.stated.getD · [])) hm }).WellFormed := by
-    rw [wf_toSpecDraft_iff]
-    refine ⟨fun x hx u hu => ?_, h.form.claims⟩
-    obtain ⟨⟨n, info⟩, hin, hok⟩ := h1 x hx
-    obtain ⟨m, -, rfl⟩ := decl_ok hok
-    have hget := Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hin
-    obtain ⟨k, hk⟩ := h.form.closed n u ⟨info, hget, (mem_usesIn info _ u).mp hu⟩
-    obtain ⟨y, hy, hoky⟩ := h2 (u, k) (Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr hk)
-    exact ⟨y, hy, f.decl_name hoky⟩
-  exact (admit_ok_iff _).mpr hwf
+  refine (admit_ok_iff _).mpr ((wf_toSpecDraft_iff _).mpr ⟨fun x hx u hu => ?_, h.form.claims⟩)
+  obtain ⟨⟨n, info⟩, hin, hok⟩ := h1 x hx
+  obtain ⟨_, -, rfl⟩ := decl_ok hok
+  obtain ⟨k, hk⟩ := h.form.closed n u ⟨info, Std.HashMap.mem_toList_iff_getElem?_eq_some.mp hin, (mem_usesIn info _ u).mp hu⟩
+  obtain ⟨y, hy, hoky⟩ := h2 (u, k) (Std.HashMap.mem_toList_iff_getElem?_eq_some.mpr hk)
+  exact ⟨y, hy, f.decl_name hoky⟩
 
 theorem prepare_of_floor (h : LoadFloor f roots p) : ∃ prep, f.prepare roots p = .ok prep := by
   obtain ⟨i', hd⟩ := admitDraft_of_floor h
-  have hl := admitDraft_loaded hd
-  have hnone : f.unread? i'.tables = none := unread_none_of fun x hx => by
-    by_cases hs : f.shown x = true
-    · exact .inl hs
-    · exact .inr ((fitsUnshown_iff hl x).mpr (h.unshown x hx (by simpa using hs)))
+  have hnone := unread_none_of (i := i') fun x hx =>
+    (Bool.eq_false_or_eq_true (f.shown x)).elim .inl
+      fun hs => .inr ((fitsUnshown_iff (admitDraft_loaded hd) x).mpr (h.unshown x hx hs))
   exact ⟨⟨i', i'.tables⟩, by simp [Regula.Load.Facts.prepare, hd, Regula.Load.Facts.checkUnread, hnone]⟩
 
 theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok i := by
@@ -1488,23 +1115,16 @@ theorem input_of_floor (h : LoadFloor f roots p) : ∃ i, f.input roots p = .ok 
   exact ⟨prep.input, by rw [Regula.Load.Facts.input_eq_prepare_map, hprep]; rfl⟩
 
 theorem pass_iff_floor :
-    (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ LoadFloor f roots p := by
-  constructor
-  · intro h
-    obtain ⟨h1, -, h3, h4, h5⟩ := pass_floor h
+    (Regula.Closed.decision (f.input roots p)).verdict = .pass ↔ LoadFloor f roots p :=
+  ⟨fun h => by
+    obtain ⟨h1, -, _, h4, h5⟩ := pass_floor h
     obtain ⟨i, hi, -⟩ := decision_pass h
     have hl := input_loaded hi
-    refine ⟨h1, fun n info hn => ?_, h4, h5, fun x hx hs => ?_⟩
-    · obtain ⟨m, hm⟩ := module_of hl hn
-      exact ⟨m, hm⟩
-    · rcases input_kept hi hx with h' | h'
-      · simp [hs] at h'
-      · exact (fitsUnshown_iff hl x).mp h'
-  · intro h
+    exact ⟨h1, fun _ _ hn => module_of hl hn, h4, h5, fun x hx hs =>
+      (input_kept hi hx).elim (by simp [hs]) (fitsUnshown_iff hl x).mp⟩,
+   fun h => by
     obtain ⟨i, hi⟩ := input_of_floor h
-    have hl := input_loaded hi
-    rw [hi]
-    exact (pass_iff hi).mpr ⟨h.form, h.floor⟩
+    exact hi ▸ (pass_iff hi).mpr ⟨h.form, h.floor⟩⟩
 
 /-! ## The cone that Lean's kernel replays -/
 
@@ -1554,23 +1174,15 @@ theorem reach_cons {next : Name → List Name} {c u e : Name} (h : Regula.Closed
   | step _ hb ih => exact .step ih hb
 
 theorem reach_inputMentions_iff (i : Regula.Closed.Input) {s x : Name} :
-    Regula.Closed.Reach (inputMentions i) s x ↔ i.Reaches s x := by
-  constructor
-  · intro h
-    induction h with
-    | refl => exact .refl s
-    | step _ hc ih => exact reaches_snoc i ih hc
-  · intro h
-    induction h with
-    | refl => exact .refl
-    | step d hd hn hu _ ih =>
-      subst hn
-      exact reach_cons ih ((inputMentions_name i hd).symm ▸ hu)
+    Regula.Closed.Reach (inputMentions i) s x ↔ i.Reaches s x :=
+  ⟨fun h => by induction h with | refl => exact .refl s | step _ hc ih => exact reaches_snoc i ih hc,
+   fun h => by induction h with | refl => exact .refl | step _ hd hn hu _ ih =>
+     subst hn; exact reach_cons ih ((inputMentions_name i hd).symm ▸ hu)⟩
 
 /-- **The checker's search gives exactly what its seeds reach** through what each constant of the input mentions. -/
 theorem mem_cone (i : Regula.Closed.Input) (seeds : List Name) (x : Name) :
     (i.cone seeds).contains x = true ↔ ∃ s ∈ inputSeeds i seeds, i.Reaches s x := by
-  rw [cone_eq, Regula.Closed.mem_reach (i.decls.map (·.name)) (inputSeeds i seeds) ?_ ?_]
+  rw [cone_eq, Regula.Closed.mem_reach (i.decls.map (·.name)) (inputSeeds i seeds)]
   · simp only [reach_inputMentions_iff]
   · intro n hn
     unfold inputMentions at hn
@@ -1580,8 +1192,7 @@ theorem mem_cone (i : Regula.Closed.Input) (seeds : List Name) (x : Name) :
       obtain ⟨hd, rfl⟩ := (i.index_eq_some n d).mp hget
       exact List.mem_map_of_mem hd
   · rw [List.map_map]
-    refine Nat.le_of_eq (congrArg List.sum (List.map_congr_left fun d hd => ?_))
-    simp [inputMentions_name i hd]
+    exact Nat.le_of_eq (congrArg List.sum (List.map_congr_left fun d hd => by simp [inputMentions_name i hd]))
 
 /-- Where the cone of a claim starts, in the terms of the environment: a constant of a claimed module, a name that a claimed
 module's own data states ({name}`mem_claimedConstants`), or one of {name}`KernelNames`. -/
@@ -1597,61 +1208,37 @@ def InCone (f : Regula.Load.Facts) (n : Name) : Prop :=
 /-- The cone is closed under what its names mention. -/
 theorem inCone_mentions {n u : Name} (h : InCone f n) (hm : EnvMentions f n u) : InCone f u := by
   obtain ⟨s, hs, hr⟩ := h
-  refine ⟨s, hs, ?_⟩
-  clear hs
-  induction hr with
-  | refl => exact .step hm (.refl u)
-  | step h₁ _ ih => exact .step h₁ (ih hm)
+  exact ⟨s, hs, by clear hs; induction hr with | refl => exact .step hm (.refl u) | step h₁ _ ih => exact .step h₁ (ih hm)⟩
 
 theorem index_contains (i : Regula.Closed.Input) (n : Name) :
     i.index.contains n = true ↔ ∃ d ∈ i.decls, d.name = n := by
-  rw [Std.HashMap.contains_eq_isSome_getElem?]
-  cases h : i.index[n]? with
-  | none =>
-    simp only [Option.isSome_none, Bool.false_eq_true, false_iff, not_exists, not_and]
-    intro d hd hn
-    rw [(i.index_eq_some n d).mpr ⟨hd, hn⟩] at h
-    cases h
-  | some d => exact ⟨fun _ => ⟨d, (i.index_eq_some n d).mp h⟩, fun _ => rfl⟩
+  rw [Std.HashMap.contains_eq_isSome_getElem?, Option.isSome_iff_exists]
+  exact exists_congr fun d => i.index_eq_some n d
 
 theorem mem_inputSeeds (hl : Loaded f roots p i) (s : Name) : s ∈ inputSeeds i f.coneSeeds ↔ ConeSeed f s := by
   simp only [inputSeeds, Regula.Load.Facts.coneSeeds, List.mem_append, List.mem_map,
-    Regula.Closed.Input.mem_claimedDecls, ConeSeed]
-  rw [kernelNames_eq]
-  refine or_congr ⟨?_, ?_⟩ (or_congr ⟨?_, ?_⟩ Iff.rfl)
+    Regula.Closed.Input.mem_claimedDecls, ConeSeed, kernelNames_eq]
+  refine or_congr ⟨?_, ?_⟩ (or_congr ⟨fun ⟨⟨m, _, info⟩, hx, h⟩ => ⟨m, info, h ▸ hx⟩,
+    fun ⟨m, info, hx⟩ => ⟨(m, s, info), hx, rfl⟩⟩ Iff.rfl)
   · rintro ⟨d, ⟨hd, hmod⟩, rfl⟩
     obtain ⟨info, m, hn, hm, hv⟩ := hl.sound d hd
-    have hdm : d.module = m.name := by rw [hv]; rfl
-    refine ⟨info, m.name, hn, (moduleOf?_eq_some).mpr ⟨m, hm, rfl⟩, ?_⟩
-    rw [← hl.modules, ← hdm]
-    exact hmod
+    exact ⟨info, m.name, hn, moduleOf?_eq_some.mpr ⟨m, hm, rfl⟩, hl.modules ▸ (by rw [hv] at hmod; exact hmod)⟩
   · rintro ⟨info, m, hn, hm, hc⟩
-    obtain ⟨lm, hlm, rfl⟩ := (moduleOf?_eq_some).mp hm
-    obtain ⟨lm', hlm', hmem⟩ := hl.whole s info hn
-    rw [hlm] at hlm'
-    cases hlm'
-    exact ⟨_, ⟨hmem, by rw [hl.modules]; exact hc⟩, rfl⟩
-  · rintro ⟨⟨m, n, info⟩, hx, rfl⟩
-    exact ⟨m, info, hx⟩
-  · rintro ⟨m, info, hx⟩
-    exact ⟨(m, s, info), hx, rfl⟩
+    obtain ⟨lm, hlm, rfl⟩ := moduleOf?_eq_some.mp hm
+    obtain ⟨_, hlm', hmem⟩ := hl.whole s info hn
+    rw [hlm] at hlm'; cases hlm'
+    exact ⟨_, ⟨hmem, hl.modules.symm ▸ hc⟩, rfl⟩
 
 /-- **The cone that the checker computes is the cone of the claim**, in the terms of the environment. -/
 theorem mem_cone_env (hl : Loaded f roots p i) (n : Name) : (i.cone f.coneSeeds).contains n = true ↔ InCone f n := by
   rw [mem_cone]
-  constructor
-  · rintro ⟨s, hs, hr⟩
-    exact ⟨s, (mem_inputSeeds hl s).mp hs, (reaches_env hl s n).mp (Link.reaches_iff.mp hr)⟩
-  · rintro ⟨s, hs, hr⟩
-    exact ⟨s, (mem_inputSeeds hl s).mpr hs, Link.reaches_iff.mpr ((reaches_env hl s n).mpr hr)⟩
+  exact exists_congr fun s => and_congr (mem_inputSeeds hl s) (Link.reaches_iff.trans (reaches_env hl s n))
 
 /-- Which constants Lean's replay is given, in other terms than the checker's test: each but a quotient's companion. -/
 theorem replays_iff (info : ConstantInfo) :
     Regula.Load.replays info = true ↔ ∀ v, info = .quotInfo v → v.kind = .type := by
   cases info with
-  | quotInfo v =>
-    simp only [Regula.Load.replays, ConstantInfo.quotInfo.injEq, forall_eq']
-    cases v.kind <;> simp
+  | quotInfo v => rcases v with ⟨_, k⟩; cases k <;> simp [Regula.Load.replays]
   | _ => simp [Regula.Load.replays]
 
 theorem replayStep_get (M m : Std.HashMap Name ConstantInfo) (x n : Name) (info : ConstantInfo)
@@ -1659,43 +1246,14 @@ theorem replayStep_get (M m : Std.HashMap Name ConstantInfo) (x n : Name) (info 
     (Regula.Load.replayStep M m x)[n]? = some info ↔
       (x = n ∧ M[n]? = some info ∧ Regula.Load.replays info = true) ∨ m[n]? = some info := by
   unfold Regula.Load.replayStep
+  have hm' := hm info
   cases hx : M[x]? with
-  | none =>
-    refine ⟨.inr, ?_⟩
-    rintro (⟨rfl, h, -⟩ | h)
-    · rw [hx] at h
-      cases h
-    · exact h
+  | none => grind only
   | some k =>
     dsimp only
-    by_cases hr : Regula.Load.replays k = true
-    · simp only [hr, ↓reduceIte]
-      rw [Std.HashMap.getElem?_insert]
-      by_cases hxn : x = n
-      · subst hxn
-        simp only [BEq.rfl, ↓reduceIte, Option.some.injEq, true_and]
-        constructor
-        · rintro rfl
-          exact .inl ⟨hx, hr⟩
-        · rintro (⟨h, -⟩ | h)
-          · rw [hx] at h
-            exact Option.some.inj h
-          · have h' := hm _ h
-            rw [hx] at h'
-            exact Option.some.inj h'
-      · have hb : (x == n) = false := by simpa using hxn
-        simp only [hb, Bool.false_eq_true, ↓reduceIte]
-        refine ⟨.inr, ?_⟩
-        rintro (⟨h, -⟩ | h)
-        · exact absurd h hxn
-        · exact h
-    · simp only [hr, ↓reduceIte, Bool.false_eq_true]
-      refine ⟨.inr, ?_⟩
-      rintro (⟨rfl, h, h'⟩ | h)
-      · rw [hx] at h
-        cases h
-        exact absurd h' hr
-      · exact h
+    split
+    · simp only [Std.HashMap.getElem?_insert, beq_iff_eq]; grind only
+    · grind only
 
 theorem replayFold_get (M : Std.HashMap Name ConstantInfo) (n : Name) (info : ConstantInfo) :
     ∀ (l : List Name) (init : Std.HashMap Name ConstantInfo), (∀ v, init[n]? = some v → M[n]? = some v) →
@@ -1703,18 +1261,10 @@ theorem replayFold_get (M : Std.HashMap Name ConstantInfo) (n : Name) (info : Co
         (n ∈ l ∧ M[n]? = some info ∧ Regula.Load.replays info = true) ∨ init[n]? = some info)
   | [], _, _ => by simp
   | x :: l, init, hinit => by
-    have hinv : ∀ v, (Regula.Load.replayStep M init x)[n]? = some v → M[n]? = some v := fun v hv =>
-      ((replayStep_get M init x n v hinit).mp hv).elim (fun h => h.2.1) (hinit v)
+    have hinv v hv := ((replayStep_get M init x n v hinit).mp hv).elim (·.2.1) (hinit v)
     rw [List.foldl_cons, replayFold_get M n info l _ hinv, replayStep_get M init x n info hinit, List.mem_cons]
-    constructor
-    · rintro (⟨hl, h1, h2⟩ | ⟨rfl, h1, h2⟩ | h)
-      · exact .inl ⟨.inr hl, h1, h2⟩
-      · exact .inl ⟨.inl rfl, h1, h2⟩
-      · exact .inr h
-    · rintro (⟨rfl | hl, h1, h2⟩ | h)
-      · exact .inr (.inl ⟨rfl, h1, h2⟩)
-      · exact .inl ⟨hl, h1, h2⟩
-      · exact .inr (.inr h)
+    simp only [or_and_right, eq_comm (a := x)]
+    rw [or_left_comm, ← or_assoc]
 
 /-- The part of the replay's map that the cone gives. -/
 def coneConstants (f : Regula.Load.Facts) (i : Regula.Closed.Input) : Std.HashMap Name ConstantInfo :=
@@ -1741,38 +1291,16 @@ theorem mem_insertFold (L : List (Name × ConstantInfo)) (hL : (L.map (·.1)).No
   induction L generalizing base with
   | nil => simp
   | cons a L ih =>
-    obtain ⟨a1, a2⟩ := a
     simp only [List.map_cons, List.nodup_cons] at hL
     rw [List.foldl_cons, ih hL.2, Std.HashMap.getElem?_insert]
-    by_cases han : a1 = n
-    · subst han
-      have hnot : a1 ∉ L.map (·.1) := hL.1
-      have hnotL : ∀ x, (a1, x) ∉ L := fun x hx => hnot (List.mem_map.mpr ⟨_, hx, rfl⟩)
-      simp only [BEq.rfl, ↓reduceIte, List.mem_cons, Prod.mk.injEq, true_and, List.map_cons, not_or,
-        not_true_eq_false, false_and, or_false]
-      constructor
-      · rintro (h | ⟨-, h⟩)
-        · exact absurd h (hnotL info)
-        · exact .inl (Option.some.inj h).symm
-      · rintro (rfl | h)
-        · exact .inr ⟨hnot, rfl⟩
-        · exact absurd h (hnotL info)
-    · have hb : (a1 == n) = false := by simpa using han
-      have hne : n ≠ a1 := fun h => han h.symm
-      simp only [hb, Bool.false_eq_true, ↓reduceIte, List.mem_cons, Prod.mk.injEq, List.map_cons, not_or]
-      constructor
-      · rintro (h | ⟨h1, h2⟩)
-        · exact .inl (.inr h)
-        · exact .inr ⟨⟨hne, h1⟩, h2⟩
-      · rintro ((⟨h, -⟩ | h) | ⟨⟨-, h1⟩, h2⟩)
-        · exact absurd h hne
-        · exact .inl h
-        · exact .inr ⟨h1, h2⟩
+    have hnotL : (a.1, info) ∉ L := fun hx => hL.1 (List.mem_map.mpr ⟨_, hx, rfl⟩)
+    simp only [List.mem_cons, List.map_cons, beq_iff_eq]
+    grind only
 
 theorem depth_zeros (d : Nat) : Regula.Load.depth (Regula.Load.zeros d) = d := by
   induction d with
   | zero => rfl
-  | succ d ih => simp [Regula.Load.zeros, Regula.Load.depth, ih]
+  | succ d ih => rw [Regula.Load.zeros, Regula.Load.depth, ih]
 
 theorem depth_le_fold (l : List Name) (init : Nat) :
     init ≤ l.foldl (fun d n => max d (Regula.Load.depth n)) init ∧
@@ -1781,10 +1309,8 @@ theorem depth_le_fold (l : List Name) (init : Nat) :
   | nil => simp
   | cons a l ih =>
     obtain ⟨h1, h2⟩ := ih (max init (Regula.Load.depth a))
-    refine ⟨Nat.le_trans (Nat.le_max_left _ _) h1, fun x hx => ?_⟩
-    rcases List.mem_cons.mp hx with rfl | hx
-    · exact Nat.le_trans (Nat.le_max_right _ _) h1
-    · exact h2 x hx
+    simp only [List.foldl_cons]
+    exact ⟨by omega, fun x hx => (List.mem_cons.mp hx).elim (fun h => by subst h; omega) (h2 x)⟩
 
 /-- **No constant of the environment has the name of a copy**: the root of those names is deeper than each of its names. -/
 theorem copy_name_fresh (f : Regula.Load.Facts) (k : Nat) :
@@ -1810,18 +1336,13 @@ theorem replayConstants_env (hl : Loaded f roots p i) (n : Name) (info : Constan
       (f.env.constants.map₁[n]? = some info ∧ InCone f n ∧ ∀ v, info = .quotInfo v → v.kind = .type) ∨
         (n, info) ∈ copyEntries f := by
   rw [replayConstants_eq, mem_insertFold _ (copyEntries_nodup f), mem_coneConstants, mem_cone_env hl, replays_iff]
-  constructor
-  · rintro (h | ⟨-, h1, h2, h3⟩)
-    · exact .inr h
-    · exact .inl ⟨h2, h1, h3⟩
-  · rintro (⟨h2, h1, h3⟩ | h)
-    · refine .inr ⟨fun hn => ?_, h1, h2, h3⟩
-      obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hn
-      obtain ⟨y, -, rfl⟩ := List.mem_map.mp hx
-      exact copy_name_fresh f y.2 (Std.HashMap.mem_iff_isSome_getElem?.mpr (by
-        show (f.env.constants.map₁[(Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) y).1]?).isSome = true
-        rw [h2]; rfl))
-    · exact .inl h
+  refine ⟨fun h => h.elim .inr fun ⟨_, h1, h2, h3⟩ => .inl ⟨h2, h1, h3⟩,
+    fun h => h.elim (fun ⟨h2, h1, h3⟩ => .inr ⟨fun hn => ?_, h1, h2, h3⟩) .inl⟩
+  obtain ⟨_, hx, rfl⟩ := List.mem_map.mp hn
+  obtain ⟨y, -, rfl⟩ := List.mem_map.mp hx
+  exact copy_name_fresh f y.2 (Std.HashMap.mem_iff_isSome_getElem?.mpr (by
+    show (f.env.constants.map₁[(Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) y).1]?).isSome = true
+    rw [h2]; rfl))
 
 /-- **Each theorem of a claimed module is checked**: as its own module's data states it, it is, by {lit}`==`, the constant of its
 name that the environment keeps, or the replay is given it under a name of its own, with its type and its value. -/
@@ -1832,13 +1353,10 @@ theorem claimed_theorem_replayed (hl : Loaded f roots p i) {m n : Name} {v : Lea
         some (Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁) (v, k)).2 := by
   by_cases hk : (f.env.constants.map₁[n]? == some (.thmInfo v)) = true
   · exact .inl hk
-  · refine .inr ?_
-    have hv : v ∈ f.copies := by
-      simp only [Regula.Load.Facts.copies, List.mem_filterMap]
-      exact ⟨(m, n, .thmInfo v), hx, by simp [hk]⟩
-    obtain ⟨k, hk'⟩ := List.mem_iff_getElem?.mp hv
-    refine ⟨k, (replayConstants_env hl _ _).mpr (.inr ?_)⟩
-    exact List.mem_map.mpr ⟨(v, k), List.mem_zipIdx_iff_getElem?.mpr hk', rfl⟩
+  · obtain ⟨k, hk'⟩ := List.mem_iff_getElem?.mp
+      (List.mem_filterMap.mpr ⟨(m, n, .thmInfo v), hx, by simp [hk]⟩ : v ∈ f.copies)
+    exact .inr ⟨k, (replayConstants_env hl _ _).mpr
+      (.inr (List.mem_map.mpr ⟨(v, k), List.mem_zipIdx_iff_getElem?.mpr hk', rfl⟩))⟩
 
 /-- Each constant of a claimed module is in the cone, so the replay is given it unless it is a quotient's companion. -/
 theorem claimed_inCone {n m : Name} {info : ConstantInfo} (hn : f.env.constants.map₁[n]? = some info)
