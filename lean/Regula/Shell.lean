@@ -92,7 +92,7 @@ abbrev fullVariable : String := "REGULA_FULL"
 the run is `incomplete`: any other release, and any argument list other than one profile. So no argument names a directory. -/
 def profileOfRun (version commit : String) (args : List String) : Except String Profile :=
   if !supportsLean version commit then
-    .error s!"this revision of Regula reads only Lean 4.35.0, and this is Lean {version} ({commit})"
+    .error s!"this revision of Regula reads only Lean 4.36.0, and this is Lean {version} ({commit})"
   else
     match args with
     | [text] =>

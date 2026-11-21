@@ -1,5 +1,5 @@
 name = "regula"
-version = "0.14.0"
+version = "0.15.0"
 description = "A checker of Lean builds: proof holes, project axioms, native proofs, axioms outside a profile, unsafe and partial declarations, Lean's loop constructs, constants whose compiled code is replaced, constants whose value mentions a panic form, claimed modules that are not `module` files, and a closed language checked before anything is compiled."
 keywords = ["linter", "devtool", "formal-verification", "software-verification"]
 license = "MIT"
@@ -21,7 +21,7 @@ linter.missingDocs = true
 # `specification/RegulaSpecification/`, the closed operations and their one table, the language check's reader and
 # the shell: every function of the checker that does not itself call Lake. Each rule's module below `Regula/Rules/`
 # is reached through the imports of `Regula.Rules`, the registry, and is part of this library by the root `Regula.Rules`
-# (`LeanLibConfig.isBuildableModule`, `Lake/Config/LeanLibConfig.lean:140-142` at v4.35.0), so adding a rule adds no line here.
+# (`LeanLibConfig.isBuildableModule`, `Lake/Config/LeanLibConfig.lean:140-142` at v4.36.0), so adding a rule adds no line here.
 [[lean_lib]]
 name = "RegulaChecker"
 roots = ["Regula.Rules"]

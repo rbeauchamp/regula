@@ -69,10 +69,11 @@ def valueNamesOf : ConstantInfo → List Name
   | .opaqueInfo v => v.value.getUsedConstants.toList
   | .axiomInfo _ | .quotInfo _ | .inductInfo _ | .ctorInfo _ | .recInfo _ => []
 
-/-- Two constants of which the rules read the same: the same kind, the same two flags and the same names. -/
-def SameRead (k v : ConstantInfo) : Prop :=
+/-- Two constants of which the rules read the same: the same kind, the same two flags, the same
+names, and the same {lit}`ctorIdx` structural classification. -/
+def SameRead (env : Lean.Environment) (n : Name) (k v : ConstantInfo) : Prop :=
   ConstantKind.ofConstantInfo k = ConstantKind.ofConstantInfo v ∧ k.isUnsafe = v.isUnsafe ∧ k.isPartial = v.isPartial ∧
-    namesOf k = namesOf v ∧ valueNamesOf k = valueNamesOf v
+    namesOf k = namesOf v ∧ valueNamesOf k = valueNamesOf v ∧ ctorIdxShape env n k = ctorIdxShape env n v
 
 namespace BuildAnswer
 
@@ -116,7 +117,7 @@ def Admits : Regula.Closed.Profile → Name → Prop
   | .choiceFree, n => (n = ``propext ∨ n = ``Quot.sound) ∧ a.InToolchain n
   | .standardLogical, n => (n = ``propext ∨ n = ``Quot.sound ∨ n = ``Classical.choice) ∧ a.InToolchain n
 
-/-- A constant of the exempted form beside a safe definition of the module {name}`m`, which names no origin. -/
+/-- A constant of the exempted recursion-helper form beside a safe definition of the module {name}`m`, which names no origin. -/
 def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
     Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
@@ -125,6 +126,44 @@ def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
       (a.place? b).map (·.1) = some m ∧ (ConstantInfo.defnInfo v).isUnsafe = false ∧
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? a.env b = none ∧ Lean.isExtern a.env b = false
+
+/-- The compiler-generated {lit}`T.ctorIdx` / {lit}`T.ctorIdx._impl` pair for safe inductive
+{name}`ind` in module {name}`m`, stated over the build answers alone. -/
+def CtorIdxPair (ind : Name) (defv implv : Lean.DefinitionVal) (m : Name) : Prop :=
+  let defName := Name.str ind "ctorIdx"
+  let implName := Name.str defName "_impl"
+  (∃ k, a.env.constants.map₁[`getObjTagNat]? = some k) ∧ a.InToolchain `getObjTagNat ∧
+  (∃ indv, a.env.constants.map₁[ind]? = some (.inductInfo indv) ∧
+    (∀ w, a.Stated ind w → ¬ AxiomInfo w) ∧
+    (a.place? ind).map (·.1) = some m ∧ (ConstantInfo.inductInfo indv).isUnsafe = false ∧
+    (ConstantInfo.inductInfo indv).isPartial = false) ∧
+  a.env.constants.map₁[defName]? = some (.defnInfo defv) ∧
+  (∀ w, a.Stated defName w → ¬ AxiomInfo w) ∧
+  (a.place? defName).map (·.1) = some m ∧
+  (ConstantInfo.defnInfo defv).isUnsafe = false ∧
+  (ConstantInfo.defnInfo defv).isPartial = false ∧
+  ctorIdxShape a.env defName (.defnInfo defv) = .defn ind ∧
+  Lean.Compiler.getImplementedBy? a.env defName = some implName ∧
+  Lean.isExtern a.env defName = false ∧
+  Lean.getInitFnNameFor? a.env defName = none ∧
+  a.env.constants.map₁[implName]? = some (.defnInfo implv) ∧
+  (∀ w, a.Stated implName w → ¬ AxiomInfo w) ∧
+  (a.place? implName).map (·.1) = some m ∧
+  (ConstantInfo.defnInfo implv).isUnsafe = true ∧
+  ctorIdxShape a.env implName (.defnInfo implv) = .impl ind ∧
+  Lean.Compiler.getImplementedBy? a.env implName = none ∧
+  Lean.isExtern a.env implName = false ∧
+  Lean.getInitFnNameFor? a.env implName = none
+
+/-- The safe half {lit}`T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair. -/
+def CtorIdxDef (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
+  ∃ ind defv implv, n = Name.str ind "ctorIdx" ∧ info = .defnInfo defv ∧
+    a.CtorIdxPair ind defv implv m
+
+/-- The unsafe half {lit}`T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair. -/
+def CtorIdxImpl (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
+  ∃ ind defv implv, n = Name.str (Name.str ind "ctorIdx") "_impl" ∧ info = .defnInfo implv ∧
+    a.CtorIdxPair ind defv implv m
 
 /-- A name that the environment holds as a theorem: the constant that it keeps is one, and no module states an
 axiom of that name. -/
@@ -142,12 +181,16 @@ def Own (m n : Name) (info : ConstantInfo) : Prop :=
     a.env.header.moduleData[k]? = some data ∧ (n, info) ∈ data.constNames.zip data.constants
 
 /-- A claimed module's own constant represented by the rules, including the absence of its own
-replacement attributes or a represented replacement that RG1011 refuses, and, of a definition, the absence of
-its own initialization function or a represented one. -/
+replacement attributes (or solely the compiler-generated {lit}`(n, n._impl)` entry of a
+{lit}`ctorIdx` definition) or a represented unexempted replacement that RG1011 refuses, and, of a
+definition, the absence of its own initialization function or a represented one. -/
 def Shown (m n : Name) (info : ConstantInfo) : Prop :=
-  (∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead k info ∧ StrictlyBelow a.rootDir x.2) ∧
-    (ModuleUnreplaced a.env m n ∨ (∃ impl, Lean.Compiler.getImplementedBy? a.env n = some impl) ∨
-      Lean.isExtern a.env n = true) ∧
+  (∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead a.env n k info ∧
+    StrictlyBelow a.rootDir x.2 ∧
+    (ModuleUnreplaced a.env m n ∨ ModuleCtorIdxEntryOnly a.env m n info ∨
+      Lean.isExtern a.env n = true ∨
+      ∃ impl, Lean.Compiler.getImplementedBy? a.env n = some impl ∧
+        ∀ ind, ctorIdxShape a.env n k = .defn ind → impl ≠ Name.str n "_impl")) ∧
     ((∃ v, info = .defnInfo v) → ModuleUninitialized a.env m n ∨ ∃ fn, Lean.getInitFnNameFor? a.env n = some fn)
 
 /-- What the rules ask of a finished build, by what Lean and Lake answered and with none of the checker's
@@ -167,16 +210,18 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
   {lit}`scoped`) {attr}`@[csimp]` entries names a constant declared in some claimed module's own
   {lit}`.olean` data. -/
   csimps : ∀ m, a.Claimed m → ModuleCSimpIn a.env (fun thm => ∃ cm info, a.Own cm thm info) m
-  /-- Each constant of a claimed module is no axiom, is a helper if it has a helper's marks, mentions no loop construct, has a value that does not mention {name}`Lean.Order.fix` when it is a definition or an opaque constant, reaches only axioms that the profile admits,
-  has neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
+  /-- Each constant of a claimed module is no axiom, has an exempted form ({name}`BuildAnswer.Helper` or {name}`BuildAnswer.CtorIdxImpl`) if it has unsafe, partial or helper-name marks, mentions no loop construct, has a value that does not mention {name}`Lean.Order.fix` when it is a definition or an opaque constant, reaches only axioms that the profile admits,
+  has neither {attr}`@[implemented_by]` (unless it is {name}`BuildAnswer.CtorIdxDef`) nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
   constant, has a value that mentions no panic form. -/
   floor : ∀ n info m, a.env.constants.map₁[n]? = some info → (a.place? n).map (·.1) = some m → a.Claimed m →
     ¬ a.Axiom n ∧
-    ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → a.Helper n info m) ∧
+    ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
+      a.Helper n info m ∨ a.CtorIdxImpl n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
     (∀ e, a.Reaches n e → a.Axiom e → a.Admits p e) ∧
-    Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
+    (Lean.Compiler.getImplementedBy? a.env n = none ∨ a.CtorIdxDef n info m) ∧
+    Lean.isExtern a.env n = false ∧
     ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? a.env n = none) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ a.Panic u)
   /-- A claimed module's own constant that the environment does not show has neither replacement attribute in its own module,
@@ -256,6 +301,19 @@ theorem helper_ofFacts (n : Name) (info : ConstantInfo) (m : Name) : (ofFacts f)
   simp only [Helper, EnvHelper, stated_ofFacts, placeName_ofFacts]
   rfl
 
+theorem ctorIdxPair_ofFacts (ind : Name) (defv implv : Lean.DefinitionVal) (m : Name) :
+    (ofFacts f).CtorIdxPair ind defv implv m ↔ EnvCtorIdxPair f ind defv implv m := by
+  simp only [CtorIdxPair, EnvCtorIdxPair, inToolchain_ofFacts, stated_ofFacts, placeName_ofFacts]
+  rfl
+
+theorem ctorIdxDef_ofFacts (n : Name) (info : ConstantInfo) (m : Name) :
+    (ofFacts f).CtorIdxDef n info m ↔ EnvCtorIdxDef f n info m := by
+  simp only [CtorIdxDef, EnvCtorIdxDef, ctorIdxPair_ofFacts]
+
+theorem ctorIdxImpl_ofFacts (n : Name) (info : ConstantInfo) (m : Name) :
+    (ofFacts f).CtorIdxImpl n info m ↔ EnvCtorIdxImpl f n info m := by
+  simp only [CtorIdxImpl, EnvCtorIdxImpl, ctorIdxPair_ofFacts]
+
 theorem panic_ofFacts (n : Name) : (ofFacts f).Panic n ↔ EnvPanic f n := by
   simp only [Panic, EnvPanic, Theorem, EnvTheorem, stated_ofFacts]
   rfl
@@ -327,16 +385,21 @@ theorem usesOf_toList (k : ConstantInfo) : (Regula.Load.usesOf k).toList = names
 theorem valueUsesOf_toList (k : ConstantInfo) : (Regula.Load.valueUsesOf k).toList = valueNamesOf k := by
   cases k <;> rfl
 
-theorem readOf_eq_iff (k v : ConstantInfo) : Regula.Load.readOf k = Regula.Load.readOf v ↔ SameRead k v := by
-  simp only [Regula.Load.readOf, Prod.mk.injEq, SameRead, kindOf_eq_iff, safetyOf_eq_iff, usesOf_toList, valueUsesOf_toList,
-    and_assoc]
+theorem readOf_eq_iff (env : Lean.Environment) (n : Name) (k v : ConstantInfo) :
+    Regula.Load.readOf env n k = Regula.Load.readOf env n v ↔ SameRead env n k v := by
+  simp only [Regula.Load.readOf, Prod.mk.injEq, SameRead, kindOf_eq_iff, safetyOf_eq_iff, usesOf_toList,
+    valueUsesOf_toList, ctorIdxFormOf_eq_iff, and_assoc]
 
 theorem shown_ofFacts (f : Regula.Load.Facts) (m n : Name) (info : ConstantInfo) :
     (BuildAnswer.ofFacts f).Shown m n info ↔ f.shown (m, n, info) = true := by
   simp only [BuildAnswer.Shown, BuildAnswer.place_ofFacts, Regula.Load.Facts.shown, Option.map_eq_some_iff]
   show _ ↔ (match f.env.constants.map₁[n]?, f.info? n with
-    | some kept, some lm => decide (Regula.Load.readOf kept = Regula.Load.readOf info) && lm.claimed &&
-        (f.unreplaced m n || (Lean.Compiler.getImplementedBy? f.env n).isSome || Lean.isExtern f.env n) &&
+    | some kept, some lm => decide (Regula.Load.readOf f.env n kept = Regula.Load.readOf f.env n info) && lm.claimed &&
+        (f.unreplaced m n || f.ctorIdxEntryOnly m n info || Lean.isExtern f.env n ||
+          match Lean.Compiler.getImplementedBy? f.env n, Regula.Load.ctorIdxFormOf f.env n kept with
+          | some impl, .defn _ => impl != .str n "_impl"
+          | some _, _ => true
+          | none, _ => false) &&
         (Regula.Load.kindOf info != .definition || f.uninitialized m n || (Lean.getInitFnNameFor? f.env n).isSome)
     | none, _ | some _, none => false) = true
   simp only [BuildAnswer.ofFacts]
@@ -354,6 +417,20 @@ theorem shown_ofFacts (f : Regula.Load.Facts) (m n : Name) (info : ConstantInfo)
         have hq := f.placed lm hm
         rw [hq]
         rfl
+      have hmatch : (match Lean.Compiler.getImplementedBy? f.env n, Regula.Load.ctorIdxFormOf f.env n kept with
+            | some impl, .defn _ => impl != .str n "_impl"
+            | some _, _ => true
+            | none, _ => false) = true ↔
+          ∃ impl, Lean.Compiler.getImplementedBy? f.env n = some impl ∧
+            ∀ ind, ctorIdxShape f.env n kept = .defn ind → impl ≠ Name.str n "_impl" := by
+        rw [← ctorIdxFormOf_eq_shape]
+        cases Lean.Compiler.getImplementedBy? f.env n with
+        | none => simp
+        | some impl =>
+          cases Regula.Load.ctorIdxFormOf f.env n kept with
+          | none => simp [Link.ctorIdxForm]
+          | impl _ => simp [Link.ctorIdxForm]
+          | defn _ => simp [Link.ctorIdxForm, bne_iff_ne]
       have hinit : (Regula.Load.kindOf info != .definition || f.uninitialized m n ||
           (Lean.getInitFnNameFor? f.env n).isSome) = true ↔
           ((∃ v, info = .defnInfo v) → ModuleUninitialized f.env m n ∨ ∃ fn, Lean.getInitFnNameFor? f.env n = some fn) := by
@@ -368,12 +445,12 @@ theorem shown_ofFacts (f : Regula.Load.Facts) (m n : Name) (info : ConstantInfo)
           · exact .inr (h hdef)
           · exact .inl hdef
       simp only [Option.some.injEq, Bool.and_eq_true, decide_eq_true_eq, hp, below_eq_true_iff, readOf_eq_iff,
-        hinit, Bool.or_eq_true, unreplaced_iff, Option.isSome_iff_exists, or_assoc]
+        hinit, Bool.or_eq_true, unreplaced_iff, ctorIdxEntryOnly_iff, hmatch, or_assoc]
       constructor
-      · rintro ⟨⟨k, x, rfl, ⟨y, rfl, rfl⟩, h3, h4⟩, ha, hb⟩
+      · rintro ⟨⟨k, x, rfl, ⟨y, rfl, rfl⟩, h3, h4, ha⟩, hb⟩
         exact ⟨⟨⟨h3, h4⟩, ha⟩, hb⟩
       · rintro ⟨⟨⟨h3, h4⟩, ha⟩, hb⟩
-        exact ⟨⟨kept, (lm.name, lm.olean), rfl, ⟨lm, rfl, rfl⟩, h3, h4⟩, ha, hb⟩
+        exact ⟨⟨kept, (lm.name, lm.olean), rfl, ⟨lm, rfl, rfl⟩, h3, h4, ha⟩, hb⟩
 
 theorem kindOf_theorem_iff (info : ConstantInfo) : Regula.Load.kindOf info = .theorem ↔ ∃ t, info = .thmInfo t := by
   cases info <;> simp [Regula.Load.kindOf]
@@ -403,15 +480,18 @@ theorem loadFloor_iff (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Cl
       ∀ n info m, (BuildAnswer.ofFacts f).env.constants.map₁[n]? = some info → ((BuildAnswer.ofFacts f).place? n).map (·.1) = some m →
       (BuildAnswer.ofFacts f).Claimed m →
       ¬ (BuildAnswer.ofFacts f).Axiom n ∧
-      ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") → (BuildAnswer.ofFacts f).Helper n info m) ∧
+      ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
+        (BuildAnswer.ofFacts f).Helper n info m ∨ (BuildAnswer.ofFacts f).CtorIdxImpl n info m) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
       (∀ e, (BuildAnswer.ofFacts f).Reaches n e → (BuildAnswer.ofFacts f).Axiom e → (BuildAnswer.ofFacts f).Admits p e) ∧
-      Lean.Compiler.getImplementedBy? (BuildAnswer.ofFacts f).env n = none ∧ Lean.isExtern (BuildAnswer.ofFacts f).env n = false ∧
+      (Lean.Compiler.getImplementedBy? (BuildAnswer.ofFacts f).env n = none ∨ (BuildAnswer.ofFacts f).CtorIdxDef n info m) ∧
+      Lean.isExtern (BuildAnswer.ofFacts f).env n = false ∧
       ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? (BuildAnswer.ofFacts f).env n = none) ∧
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ (BuildAnswer.ofFacts f).Panic u)) ↔
       EnvFloor f p := by
-    simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts, BuildAnswer.helper_ofFacts,
+    simp only [EnvFloor, BuildAnswer.placeName_ofFacts, BuildAnswer.claimed_ofFacts, BuildAnswer.axiom_ofFacts,
+      BuildAnswer.helper_ofFacts, BuildAnswer.ctorIdxImpl_ofFacts, BuildAnswer.ctorIdxDef_ofFacts,
       BuildAnswer.reaches_ofFacts, BuildAnswer.admits_ofFacts, BuildAnswer.panic_ofFacts, BuildAnswer.own_ofFacts]
     rfl
   have hunshown : (∀ m n info, (BuildAnswer.ofFacts f).Own m n info → ¬ (BuildAnswer.ofFacts f).Shown m n info →

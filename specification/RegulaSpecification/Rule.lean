@@ -148,6 +148,112 @@ theorem compiler_contains (a : Name) : Regula.Closed.compilerAxioms.contains a =
 
 theorem not_mem_compiler (a : Name) : a ∉ compilerAxioms := by simp [compilerAxioms]
 
+theorem kindDef_iff (b : Regula.Closed.Decl) :
+    b.kind = .definition ↔ (decl b).kind = .definition := by
+  cases hd : b.kind <;> simp [decl, constKind, hd]
+
+theorem kindInd_iff (b : Regula.Closed.Decl) :
+    b.kind = .inductive ↔ (decl b).kind = .inductive := by
+  cases hd : b.kind <;> simp [decl, constKind, hd]
+
+theorem safety_iff (b : Regula.Closed.Decl) (v : Regula.Closed.Safety) :
+    b.safety = v ↔ (decl b).safety = safety v := by
+  cases hd : b.safety <;> cases v <;> simp [decl, safety, hd]
+
+theorem ctorIdxForm_iff (b : Regula.Closed.Decl) (v : Regula.Closed.CtorIdxForm) :
+    b.ctorIdxForm = v ↔ (decl b).ctorIdxForm = ctorIdxForm v := by
+  cases hd : b.ctorIdxForm <;> cases v <;> simp [decl, ctorIdxForm, hd]
+
+theorem ctorIdxPair_iff (ind : Name) (defDecl implDecl : Regula.Closed.Decl) :
+    t.ctorIdxPair ind defDecl implDecl = true ↔
+      (toSpec i).CtorIdxPair ind (decl defDecl) (decl implDecl) := by
+  unfold Regula.Closed.Tables.ctorIdxPair Input.CtorIdxPair
+  have htag : (t.index[`getObjTagNat]?).any (·.inToolchain) = true ↔
+      (∃ g ∈ (toSpec i).decls, g.name = `getObjTagNat ∧ g.inToolchain = true) := by
+    rw [any_index_iff t]
+    exact ⟨by rintro ⟨g, hg, hn, ht⟩; exact ⟨decl g, mem_decls.mpr ⟨g, hg, rfl⟩, hn, ht⟩,
+     by rintro ⟨x, hx, hn, ht⟩; obtain ⟨g, hg, rfl⟩ := mem_decls.mp hx; exact ⟨g, hg, hn, ht⟩⟩
+  have hind : (t.index[ind]?).any (fun indDecl =>
+      indDecl.kind == .inductive && indDecl.safety == .safe && indDecl.module == defDecl.module) = true ↔
+      (∃ indDecl ∈ (toSpec i).decls, indDecl.name = ind ∧ indDecl.kind = .inductive ∧
+        indDecl.safety = .safe ∧ indDecl.module = (decl defDecl).module) := by
+    rw [any_index_iff t]
+    constructor
+    · rintro ⟨x, hx, hn, hp⟩
+      simp only [Bool.and_eq_true, beq_iff_eq] at hp
+      exact ⟨decl x, mem_decls.mpr ⟨x, hx, rfl⟩, hn, (kindInd_iff x).mp hp.1.1,
+        (safety_iff x .safe).mp hp.1.2, hp.2⟩
+    · rintro ⟨x, hx, hn, hk, hs, hm⟩
+      obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
+      refine ⟨y, hy, hn, ?_⟩
+      simp only [Bool.and_eq_true, beq_iff_eq]
+      exact ⟨⟨(kindInd_iff y).mpr hk, (safety_iff y .safe).mpr hs⟩, hm⟩
+  simp only [Bool.and_eq_true, Bool.not_eq_true', beq_iff_eq, Option.isNone_iff_eq_none,
+    htag, hind, kindDef_iff, safety_iff, ctorIdxForm_iff, and_assoc]
+  rfl
+
+theorem ctorIdxDef_iff (d : Regula.Closed.Decl) :
+    t.ctorIdxDef d = true ↔ (toSpec i).CtorIdxDef (decl d) := by
+  unfold Regula.Closed.Tables.ctorIdxDef Input.CtorIdxDef
+  cases hf : d.ctorIdxForm with
+  | none =>
+    simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro ind implDecl _ hp
+    obtain ⟨_, _, _, _, _, hcf, _⟩ := hp
+    simp [decl, ctorIdxForm, hf] at hcf
+  | impl ind =>
+    simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro ind' implDecl _ hp
+    obtain ⟨_, _, _, _, _, hcf, _⟩ := hp
+    simp [decl, ctorIdxForm, hf] at hcf
+  | defn ind =>
+    rw [any_index_iff t]
+    constructor
+    · rintro ⟨implDecl, himpl, _, hpair⟩
+      exact ⟨ind, decl implDecl, mem_decls.mpr ⟨implDecl, himpl, rfl⟩,
+        (ctorIdxPair_iff t ind d implDecl).mp hpair⟩
+    · rintro ⟨ind', implSpec, himplSpec, hpair⟩
+      obtain ⟨_, _, hdname, _, _, hcf, _, _, _, hiname, _⟩ := id hpair
+      have hind : ind = ind' := by
+        simp [decl, ctorIdxForm, hf] at hcf
+        exact hcf
+      subst hind
+      obtain ⟨implDecl, himpl, rfl⟩ := mem_decls.mp himplSpec
+      have hname : implDecl.name = Name.str d.name "_impl" := by
+        change implDecl.name = Name.str (Name.str ind "ctorIdx") "_impl" at hiname
+        change d.name = Name.str ind "ctorIdx" at hdname
+        rw [hiname, hdname]
+      exact ⟨implDecl, himpl, hname, (ctorIdxPair_iff t ind d implDecl).mpr hpair⟩
+
+theorem ctorIdxImpl_iff (d : Regula.Closed.Decl) :
+    t.ctorIdxImpl d = true ↔ (toSpec i).CtorIdxImpl (decl d) := by
+  unfold Regula.Closed.Tables.ctorIdxImpl Input.CtorIdxImpl
+  cases hf : d.ctorIdxForm with
+  | none =>
+    simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro ind defDecl _ hp
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, hcf, _⟩ := hp
+    simp [decl, ctorIdxForm, hf] at hcf
+  | defn ind =>
+    simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro ind' defDecl _ hp
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, hcf, _⟩ := hp
+    simp [decl, ctorIdxForm, hf] at hcf
+  | impl ind =>
+    rw [any_index_iff t]
+    constructor
+    · rintro ⟨defDecl, hdef, _, hpair⟩
+      exact ⟨ind, decl defDecl, mem_decls.mpr ⟨defDecl, hdef, rfl⟩,
+        (ctorIdxPair_iff t ind defDecl d).mp hpair⟩
+    · rintro ⟨ind', defSpec, hdefSpec, hpair⟩
+      obtain ⟨_, _, hdname, _, _, _, _, _, _, _, _, _, _, hcf, _⟩ := id hpair
+      have hind : ind = ind' := by
+        simp [decl, ctorIdxForm, hf] at hcf
+        exact hcf
+      subst hind
+      obtain ⟨defDecl, hdef, rfl⟩ := mem_decls.mp hdefSpec
+      exact ⟨defDecl, hdef, hdname, (ctorIdxPair_iff t ind defDecl d).mpr hpair⟩
+
 end Link
 
 end RegulaSpecification

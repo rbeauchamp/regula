@@ -58,6 +58,20 @@ inductive Safety where
   | «partial»
   deriving DecidableEq, Repr
 
+/-- Whether a constant has the exact structural form of one half of the pair Lean's `mkCtorIdx`
+generates for an inductive type `induct` (`Lean/Meta/Constructions/CtorIdx.lean:40-141` at v4.36.0):
+the safe definition `induct.ctorIdx` whose body dispatches on `induct.casesOn` to each constructor's
+index, or the unsafe implementation `induct.ctorIdx._impl` whose body calls `getObjTagNat` on the
+matched value. -/
+inductive CtorIdxForm where
+  /-- Neither half. -/
+  | none
+  /-- The safe definition `induct.ctorIdx`. -/
+  | defn (induct : Name)
+  /-- The unsafe implementation `induct.ctorIdx._impl`. -/
+  | impl (induct : Name)
+  deriving DecidableEq, Repr
+
 /-- One constant of a loaded environment, as Lean reports it from the build's `.olean` files. -/
 structure Decl where
   /-- Its name. -/
@@ -85,6 +99,9 @@ structure Decl where
   initFn : Option Name
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
+  /-- Whether it has the structural form of Lean's compiler-generated `T.ctorIdx` or `T.ctorIdx._impl`
+  (`Regula.Load.ctorIdxFormOf`). -/
+  ctorIdxForm : CtorIdxForm
   deriving Repr
 
 /-- The foundation profiles a project can state. -/
@@ -151,8 +168,8 @@ structure Draft where
   moduleFiles : List Name
   /-- Of the names that the entries of `csimps` give, those that a claimed module's own `.olean` data
   declares (`ModuleData.constNames`). On merged theorems, `Environment.getModuleIdxFor?` keeps the first
-  module (`Lean/Environment.lean:2345` at v4.35.0), which can be unclaimed even when a claimed module
-  declared the theorem, and `:2346-2348` also inserts IR `extraConstNames` into `const2ModIdx`; RG1011
+  module (`Lean/Environment.lean:2709` at v4.36.0), which can be unclaimed even when a claimed module
+  declared the theorem, and `:2710-2712` also inserts IR `extraConstNames` into `const2ModIdx`; RG1011
   reads this list so claimed-module ownership comes strictly from claimed modules' own `moduleData`. -/
   claimedConstants : List Name
   /-- Exported (`global` or `scoped`) `@[csimp]` entries of claimed modules

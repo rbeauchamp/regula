@@ -52,6 +52,18 @@ inductive Safety where
   | «partial»
   deriving DecidableEq, Repr
 
+/-- Whether a constant has the structural form of Lean's compiler-generated {lit}`T.ctorIdx`
+definition ({lit}`defn`), its unsafe implementation {lit}`T.ctorIdx._impl` ({lit}`impl`), or
+neither ({lit}`none`). -/
+inductive CtorIdxForm where
+  /-- Neither half of a compiler-generated {lit}`ctorIdx` pair. -/
+  | none
+  /-- Safe {lit}`T.ctorIdx` definition for inductive type {name}`ind`. -/
+  | defn (ind : Name)
+  /-- Unsafe {lit}`T.ctorIdx._impl` implementation for inductive type {name}`ind`. -/
+  | impl (ind : Name)
+  deriving DecidableEq, Repr
+
 /-- One constant of the loaded environment, as Lean reports it from the build's {lit}`.olean` files. -/
 structure Decl where
   /-- Its name. -/
@@ -84,6 +96,10 @@ structure Decl where
   initFn : Option Name
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
+  /-- Whether its kernel expression matches Lean's compiler-generated {lit}`T.ctorIdx` /
+  {lit}`T.ctorIdx._impl` structural shape ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141` at
+  v4.36.0). RG1006 and RG1011 read it together with the pairing conditions ({lit}`Input.CtorIdxPair`). -/
+  ctorIdxForm : CtorIdxForm
   deriving DecidableEq, Repr
 
 /-- The foundation profiles a project can state. -/
@@ -117,7 +133,7 @@ structure Input where
   moduleFiles : List Name
   /-- Of the names that the entries of {lit}`csimps` give, those that a claimed module's own {lit}`.olean`
   data declares (`ModuleData.constNames`). On merged theorems, `Environment.getModuleIdxFor?` keeps the first
-  module ({lit}`Lean/Environment.lean:2345` at v4.35.0), which can be unclaimed even when a claimed module
+  module ({lit}`Lean/Environment.lean:2709` at v4.36.0), which can be unclaimed even when a claimed module
   declared the theorem; RG1011 reads this list so merged claimed theorems count as claimed. -/
   claimedConstants : List Name
   /-- Exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entries of claimed modules
@@ -165,6 +181,38 @@ def IsAxiom (a : Name) : Prop := ∃ d ∈ i.decls, d.name = a ∧ d.kind = .axi
 
 /-- {name}`a` is an axiom in the transitive axiom set of {name}`c`. -/
 def AxiomOf (c a : Name) : Prop := i.Reaches c a ∧ i.IsAxiom a
+
+/-- {name}`defDecl` and {name}`implDecl` form the compiler-generated {lit}`T.ctorIdx` /
+{lit}`T.ctorIdx._impl` pair for the safe inductive type {name}`ind`
+({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141` at v4.36.0): {lit}`getObjTagNat` is the
+toolchain's constant ({lit}`Init/Prelude.lean:1381-1382`), {name}`ind` is a safe inductive in the
+same module, {name}`defDecl` is the safe definition {lit}`ind.ctorIdx` with
+{attr}`@[implemented_by]` naming {lit}`ind.ctorIdx._impl`, not {attr}`@[extern]` and with no
+initialization function, and {name}`implDecl` is the unsafe definition {lit}`ind.ctorIdx._impl`
+with neither replacement attribute and no initialization function. -/
+def CtorIdxPair (ind : Name) (defDecl implDecl : Decl) : Prop :=
+  let defName := Name.str ind "ctorIdx"
+  let implName := Name.str defName "_impl"
+  (∃ g ∈ i.decls, g.name = `getObjTagNat ∧ g.inToolchain = true) ∧
+  (∃ indDecl ∈ i.decls, indDecl.name = ind ∧ indDecl.kind = .inductive ∧
+    indDecl.safety = .safe ∧ indDecl.module = defDecl.module) ∧
+  defDecl.name = defName ∧ defDecl.kind = .definition ∧ defDecl.safety = .safe ∧
+  defDecl.ctorIdxForm = .defn ind ∧ defDecl.implementedBy = some implName ∧
+  defDecl.isExtern = false ∧ defDecl.initFn = none ∧
+  implDecl.name = implName ∧ implDecl.module = defDecl.module ∧
+  implDecl.kind = .definition ∧ implDecl.safety = .unsafe ∧
+  implDecl.ctorIdxForm = .impl ind ∧ implDecl.implementedBy = none ∧
+  implDecl.isExtern = false ∧ implDecl.initFn = none
+
+/-- {name}`d` is the safe half {lit}`T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair.
+RG1011 exempts its {attr}`@[implemented_by]` {lit}`T.ctorIdx._impl` attribute. -/
+def CtorIdxDef (d : Decl) : Prop :=
+  ∃ ind implDecl, implDecl ∈ i.decls ∧ i.CtorIdxPair ind d implDecl
+
+/-- {name}`d` is the unsafe half {lit}`T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx`
+pair. RG1006 exempts its {lit}`unsafe` safety. -/
+def CtorIdxImpl (d : Decl) : Prop :=
+  ∃ ind defDecl, defDecl ∈ i.decls ∧ i.CtorIdxPair ind defDecl d
 
 /-- The admission of the closed input: what the shell refuses, as incomplete, before any rule runs.
 Each mentioned constant is held, and at least one module is claimed, so that a claim of nothing is

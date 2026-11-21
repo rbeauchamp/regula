@@ -202,6 +202,254 @@ def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? f.env b = none ∧ Lean.isExtern f.env b = false
 
+/-- The fifteen types with builtin runtime support ({lit}`Lean.Compiler.LCNF.builtinRuntimeTypes`,
+{lit}`Lean/Compiler/LCNF/Util.lean:40-47` at v4.36.0), stated as a literal apart from the checker's list. -/
+def RuntimeBuiltinTypes : List Name :=
+  [`String, `UInt8, `UInt16, `UInt32, `UInt64, `USize, `Float, `Float32,
+   `Thunk, `Task, `Array, `ByteArray, `FloatArray, `Nat, `Int]
+
+/-- Strips {lit}`k` leading lambda binders from an expression. -/
+def stripLamsSpec : Nat → Lean.Expr → Option Lean.Expr
+  | 0, e => some e
+  | k + 1, .lam _ _ b _ => stripLamsSpec k b
+  | _ + 1, _ => none
+
+/-- Strips {lit}`k` leading forall binders from an expression. -/
+def stripForallsSpec : Nat → Lean.Expr → Option Lean.Expr
+  | 0, e => some e
+  | k + 1, .forallE _ _ b _ => stripForallsSpec k b
+  | _ + 1, _ => none
+
+/-- Strips {lit}`k` leading lambda binders from {lit}`val` and {lit}`k` leading forall binders from
+{lit}`ty` in lockstep, checking {lit}`Expr.eqv` ({lit}`==`) on each binder domain. -/
+def stripLamMatchingForallSpec : Nat → Lean.Expr → Lean.Expr → Option (Lean.Expr × Lean.Expr)
+  | 0, v, t => some (v, t)
+  | k + 1, .lam _ vd vb _, .forallE _ td tb _ =>
+    if vd == td then stripLamMatchingForallSpec k vb tb else none
+  | _ + 1, _, _ => none
+
+/-- Applies {name}`fn` to {lit}`n` consecutive bound variables down to {lit}`offset`. -/
+def mkBVarAppsSpec (fn : Lean.Expr) : Nat → Nat → Lean.Expr
+  | 0, _ => fn
+  | n + 1, offset => mkBVarAppsSpec (.app fn (.bvar (n + offset))) n offset
+
+/-- Unwinds nested applications into head and argument list. -/
+def unappGoSpec : Lean.Expr → List Lean.Expr → Lean.Expr × List Lean.Expr
+  | .app f a, acc => unappGoSpec f (a :: acc)
+  | e, acc => (e, acc)
+
+/-- The list of {lit}`n` consecutive bound variables down to {lit}`offset`. -/
+def bvarListSpec : Nat → Nat → List Lean.Expr
+  | 0, _ => []
+  | n + 1, offset => .bvar (n + offset) :: bvarListSpec n offset
+
+/-- Checks that each branch matches its constructor's arity and index literal {lit}`cInfo.cidx`. -/
+def checkCtorAltsSpec (env : Lean.Environment) (ind : Name) : List Name → List Lean.Expr → Bool
+  | [], [] => true
+  | c :: cs, alt :: alts =>
+    match env.find? c with
+    | some (.ctorInfo cInfo) =>
+      cInfo.induct == ind &&
+        stripLamsSpec cInfo.numFields alt == some (.lit (.natVal cInfo.cidx)) &&
+        checkCtorAltsSpec env ind cs alts
+    | _ => false
+  | _, _ => false
+
+/-- Independent specification of the structural shape of Lean's safe {lit}`ind.ctorIdx` definition
+({lit}`Lean/Meta/Constructions/CtorIdx.lean:77-141` at v4.36.0), stated apart from {lit}`Regula.Load`. -/
+def ctorIdxDefShape (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal)
+    (d : Lean.DefinitionVal) : Bool :=
+  let np := indInfo.numParams
+  let ni := indInfo.numIndices
+  let n := np + ni
+  let us := indInfo.levelParams.map Lean.Level.param
+  !indInfo.isUnsafe && indInfo.numCtors != 1 && !RuntimeBuiltinTypes.contains ind &&
+    d.safety == .safe && d.levelParams == indInfo.levelParams &&
+    stripForallsSpec n indInfo.type != some (.sort .zero) &&
+    match stripLamMatchingForallSpec (n + 1) d.value d.type, stripForallsSpec n d.type with
+    | some (body, retTy), some (.forallE _ discrTy (.const `Nat []) _) =>
+      retTy == .const `Nat [] &&
+        discrTy == mkBVarAppsSpec (.const ind us) n 0 &&
+        let (fn, args) := unappGoSpec body []
+        fn == .const (Name.str ind "casesOn") (.succ .zero :: us) &&
+          args.length == np + 1 + ni + 1 + indInfo.ctors.length &&
+          match args.drop np with
+          | motive :: rest2 =>
+            match rest2.drop ni with
+            | discr :: alts =>
+              args.take np == bvarListSpec np (ni + 1) &&
+                stripLamsSpec (ni + 1) motive == some (.const `Nat []) &&
+                rest2.take ni == bvarListSpec ni 1 &&
+                discr == .bvar 0 &&
+                checkCtorAltsSpec env ind indInfo.ctors alts
+            | [] => false
+          | [] => false
+    | _, _ => false
+
+/-- Independent specification of the structural shape of Lean's unsafe {lit}`ind.ctorIdx._impl`
+implementation ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-69` at v4.36.0), stated apart from
+{lit}`Regula.Load`. -/
+def ctorIdxImplShape (ind : Name) (indInfo : Lean.InductiveVal)
+    (dDef d : Lean.DefinitionVal) : Bool :=
+  let n := indInfo.numParams + indInfo.numIndices
+  let us := indInfo.levelParams.map Lean.Level.param
+  !indInfo.isUnsafe && indInfo.numCtors != 1 && !RuntimeBuiltinTypes.contains ind &&
+    d.safety == .unsafe &&
+    d.levelParams == indInfo.levelParams && d.levelParams == dDef.levelParams &&
+    d.type == dDef.type &&
+    stripForallsSpec n indInfo.type != some (.sort .zero) &&
+    match stripLamMatchingForallSpec (n + 1) d.value d.type with
+    | some (.app (.app (.const `getObjTagNat [u]) tyArg) (.bvar 0), .const `Nat []) =>
+      u.isNeverZero && tyArg == mkBVarAppsSpec (.const ind us) n 1
+    | _ => false
+
+/-- Independent classification of a constant {name}`n` with {name}`info` in {name}`env` as
+{lit}`CtorIdxForm.defn`, {lit}`CtorIdxForm.impl`, or {lit}`CtorIdxForm.none`, stated without naming
+{lit}`Regula.Load`. -/
+def ctorIdxShape (env : Lean.Environment) (n : Name) (info : ConstantInfo) : CtorIdxForm :=
+  match n, info with
+  | .str (.str ind "ctorIdx") "_impl", .defnInfo d =>
+    match env.find? ind, env.find? (Name.str ind "ctorIdx") with
+    | some (.inductInfo indInfo), some (.defnInfo dDef) =>
+      if ctorIdxImplShape ind indInfo dDef d then .impl ind else .none
+    | _, _ => .none
+  | .str ind "ctorIdx", .defnInfo d =>
+    match env.find? ind with
+    | some (.inductInfo indInfo) =>
+      if ctorIdxDefShape env ind indInfo d then .defn ind else .none
+    | _ => .none
+  | _, _ => .none
+
+theorem runtimeBuiltinTypes_eq : Regula.Load.runtimeBuiltinTypes = RuntimeBuiltinTypes := by rfl
+
+theorem stripLams_eq (k : Nat) (e : Lean.Expr) :
+    Regula.Load.stripLams k e = stripLamsSpec k e := by
+  induction k generalizing e with
+  | zero => rfl
+  | succ k ih => cases e <;> first | rfl | exact ih _
+
+theorem stripForalls_eq (k : Nat) (e : Lean.Expr) :
+    Regula.Load.stripForalls k e = stripForallsSpec k e := by
+  induction k generalizing e with
+  | zero => rfl
+  | succ k ih => cases e <;> first | rfl | exact ih _
+
+theorem stripLamMatchingForall_eq (k : Nat) (v t : Lean.Expr) :
+    Regula.Load.stripLamMatchingForall k v t = stripLamMatchingForallSpec k v t := by
+  induction k generalizing v t with
+  | zero => rfl
+  | succ k ih =>
+    cases v <;> cases t <;> first | rfl | (
+      simp only [Regula.Load.stripLamMatchingForall, stripLamMatchingForallSpec]
+      split <;> first | rfl | exact ih _ _)
+
+theorem mkBVarApps_eq (fn : Lean.Expr) (n offset : Nat) :
+    Regula.Load.mkBVarApps fn n offset = mkBVarAppsSpec fn n offset := by
+  induction n generalizing fn with
+  | zero => rfl
+  | succ n ih => exact ih _
+
+theorem unappGo_eq (e : Lean.Expr) (acc : List Lean.Expr) :
+    Regula.Load.unappGo e acc = unappGoSpec e acc := by
+  induction e generalizing acc with
+  | app f a ihf _ => exact ihf _
+  | _ => rfl
+
+theorem bvarList_eq (n offset : Nat) :
+    Regula.Load.bvarList n offset = bvarListSpec n offset := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simp [Regula.Load.bvarList, bvarListSpec, ih]
+
+theorem checkCtorAlts_eq (env : Lean.Environment) (ind : Name) (cs : List Name)
+    (alts : List Lean.Expr) :
+    Regula.Load.checkCtorAlts env ind cs alts = checkCtorAltsSpec env ind cs alts := by
+  induction cs generalizing alts with
+  | nil => cases alts <;> rfl
+  | cons c cs ih =>
+    cases alts with
+    | nil => rfl
+    | cons a alts =>
+      simp only [Regula.Load.checkCtorAlts, checkCtorAltsSpec, stripLams_eq, ih]
+      rfl
+
+theorem isCtorIdxDef_eq (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal)
+    (d : Lean.DefinitionVal) :
+    Regula.Load.isCtorIdxDef env ind indInfo d = ctorIdxDefShape env ind indInfo d := by
+  simp only [Regula.Load.isCtorIdxDef, ctorIdxDefShape, runtimeBuiltinTypes_eq,
+    stripForalls_eq, stripLamMatchingForall_eq, mkBVarApps_eq, unappGo_eq, bvarList_eq,
+    stripLams_eq, checkCtorAlts_eq]
+  rfl
+
+theorem isCtorIdxImpl_eq (ind : Name) (indInfo : Lean.InductiveVal)
+    (dDef d : Lean.DefinitionVal) :
+    Regula.Load.isCtorIdxImpl ind indInfo dDef d = ctorIdxImplShape ind indInfo dDef d := by
+  simp only [Regula.Load.isCtorIdxImpl, ctorIdxImplShape, runtimeBuiltinTypes_eq,
+    stripForalls_eq, stripLamMatchingForall_eq, mkBVarApps_eq]
+  rfl
+
+theorem ctorIdxFormOf_eq_shape (env : Lean.Environment) (n : Name) (info : ConstantInfo) :
+    Link.ctorIdxForm (Regula.Load.ctorIdxFormOf env n info) = ctorIdxShape env n info := by
+  unfold Regula.Load.ctorIdxFormOf ctorIdxShape
+  split
+  · split <;> simp_all [isCtorIdxImpl_eq]
+    · split <;> rfl
+    · rfl
+  · split <;> simp_all [isCtorIdxDef_eq]
+    · split <;> rfl
+    · rfl
+  · split <;> simp_all [Link.ctorIdxForm]
+
+theorem ctorIdxForm_inj {a b : Regula.Closed.CtorIdxForm} :
+    Link.ctorIdxForm a = Link.ctorIdxForm b ↔ a = b := by
+  cases a <;> cases b <;> simp [Link.ctorIdxForm]
+
+theorem ctorIdxFormOf_eq_iff (env : Lean.Environment) (n : Name) (k v : ConstantInfo) :
+    Regula.Load.ctorIdxFormOf env n k = Regula.Load.ctorIdxFormOf env n v ↔
+      ctorIdxShape env n k = ctorIdxShape env n v := by
+  rw [← ctorIdxForm_inj, ctorIdxFormOf_eq_shape, ctorIdxFormOf_eq_shape]
+
+/-- The compiler-generated {lit}`T.ctorIdx` / {lit}`T.ctorIdx._impl` pair for safe inductive
+{name}`ind` in module {name}`m`, stated in the terms of the loaded environment. -/
+def EnvCtorIdxPair (f : Regula.Load.Facts) (ind : Name) (defv implv : Lean.DefinitionVal)
+    (m : Name) : Prop :=
+  let defName := Name.str ind "ctorIdx"
+  let implName := Name.str defName "_impl"
+  (∃ k, f.env.constants.map₁[`getObjTagNat]? = some k) ∧ EnvToolchain f `getObjTagNat ∧
+  (∃ indv, f.env.constants.map₁[ind]? = some (.inductInfo indv) ∧
+    (∀ w ∈ f.stated.getD ind [], ¬ AxiomInfo w) ∧
+    f.moduleOf? ind = some m ∧ (ConstantInfo.inductInfo indv).isUnsafe = false ∧
+    (ConstantInfo.inductInfo indv).isPartial = false) ∧
+  f.env.constants.map₁[defName]? = some (.defnInfo defv) ∧
+  (∀ w ∈ f.stated.getD defName [], ¬ AxiomInfo w) ∧
+  f.moduleOf? defName = some m ∧
+  (ConstantInfo.defnInfo defv).isUnsafe = false ∧
+  (ConstantInfo.defnInfo defv).isPartial = false ∧
+  ctorIdxShape f.env defName (.defnInfo defv) = .defn ind ∧
+  Lean.Compiler.getImplementedBy? f.env defName = some implName ∧
+  Lean.isExtern f.env defName = false ∧
+  Lean.getInitFnNameFor? f.env defName = none ∧
+  f.env.constants.map₁[implName]? = some (.defnInfo implv) ∧
+  (∀ w ∈ f.stated.getD implName [], ¬ AxiomInfo w) ∧
+  f.moduleOf? implName = some m ∧
+  (ConstantInfo.defnInfo implv).isUnsafe = true ∧
+  ctorIdxShape f.env implName (.defnInfo implv) = .impl ind ∧
+  Lean.Compiler.getImplementedBy? f.env implName = none ∧
+  Lean.isExtern f.env implName = false ∧
+  Lean.getInitFnNameFor? f.env implName = none
+
+/-- The safe half {lit}`T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair in the loaded
+environment. -/
+def EnvCtorIdxDef (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
+  ∃ ind defv implv, n = Name.str ind "ctorIdx" ∧ info = .defnInfo defv ∧
+    EnvCtorIdxPair f ind defv implv m
+
+/-- The unsafe half {lit}`T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair in the
+loaded environment. -/
+def EnvCtorIdxImpl (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
+  ∃ ind defv implv, n = Name.str (Name.str ind "ctorIdx") "_impl" ∧ info = .defnInfo implv ∧
+    EnvCtorIdxPair f ind defv implv m
+
 /-- The environment holds {name}`u` as a theorem: the constant that it keeps is one, and no loaded module
 states an axiom of that name. -/
 def EnvTheorem (f : Regula.Load.Facts) (u : Name) : Prop :=
@@ -239,14 +487,15 @@ and has a module index whose exported ({lit}`global` or {lit}`scoped`) {attr}`@[
 constant declared in some claimed module's own {lit}`.olean` data (RG1011, with a missing index refused as
 RG2001). And what RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module: no loaded
 module states an axiom of its name (RG1001). When it is unsafe or partial, or
-has a recursion helper's name, it has the form of a recursion helper (RG1006), its value
-mentions no loop construct of Lean (RG1006), and, when it is a definition or an opaque constant,
+has a recursion helper's name, it has an exempted form ({name}`EnvHelper` or {name}`EnvCtorIdxImpl`, RG1006),
+its value mentions no loop construct of Lean (RG1006), and, when it is a definition or an opaque constant,
 its value does not mention {name}`Lean.Order.fix` (RG1006). Each axiom that it reaches, through what any loaded
 module's own
 data states, is one that the profile admits (RG1005), which also excludes {name}`sorryAx` (RG1002), a
 native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_hole`,
 {name}`rg1005_of_compiler`, {name}`rg1005_of_unknown`. The environment gives it no constant by
-{attr}`@[implemented_by]`, does not mark it {attr}`@[extern]` and, when it is a definition, names no
+{attr}`@[implemented_by]` (unless it is the safe half of a verified {lit}`ctorIdx` pair,
+{name}`EnvCtorIdxDef`), does not mark it {attr}`@[extern]` and, when it is a definition, names no
 initialization function for it (RG1011). When it is a definition or an
 opaque constant, its value mentions no panic form (RG1012). -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
@@ -255,11 +504,12 @@ def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ n info m, f.env.constants.map₁[n]? = some info → f.moduleOf? n = some m → m ∈ f.claimed →
     ¬ EnvAxiom f n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
-      EnvHelper f n info m) ∧
+      EnvHelper f n info m ∨ EnvCtorIdxImpl f n info m) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
     (∀ a, EnvReaches f n a → EnvAxiom f a → EnvAdmits f p a) ∧
-    Lean.Compiler.getImplementedBy? f.env n = none ∧ Lean.isExtern f.env n = false ∧
+    (Lean.Compiler.getImplementedBy? f.env n = none ∨ EnvCtorIdxDef f n info m) ∧
+    Lean.isExtern f.env n = false ∧
     ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? f.env n = none) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u)
 
@@ -276,6 +526,32 @@ theorem unreplaced_iff (m n : Name) :
   cases f.env.getModuleIdx? m <;>
     simp only [Option.some.injEq, reduceCtorEq, false_and, exists_false, Bool.false_eq_true,
       exists_eq_left', Bool.and_eq_true, Array.all_eq_true_iff_forall_mem, bne_iff_ne]
+
+/-- Module {name}`m`'s own replacement entries for {name}`n` are solely the compiler-generated
+{lit}`(n, n._impl)` entry for a constant whose expression has shape {lit}`CtorIdxForm.defn`,
+with no {attr}`@[extern]` entry and no other {attr}`@[implemented_by]` entry. -/
+def ModuleCtorIdxEntryOnly (env : Lean.Environment) (m n : Name) (info : ConstantInfo) : Prop :=
+  (∃ ind, ctorIdxShape env n info = .defn ind) ∧
+  ∃ idx, env.getModuleIdx? m = some idx ∧
+    (∀ entry ∈ Lean.Compiler.implementedByAttr.ext.getModuleEntries env idx,
+      entry.1 = n → entry.2 = .str n "_impl") ∧
+    (∀ entry ∈ Lean.externAttr.ext.getModuleEntries env idx, entry.1 ≠ n)
+
+theorem ctorIdxEntryOnly_iff (m n : Name) (info : ConstantInfo) :
+    f.ctorIdxEntryOnly m n info = true ↔ ModuleCtorIdxEntryOnly f.env m n info := by
+  unfold Regula.Load.Facts.ctorIdxEntryOnly ModuleCtorIdxEntryOnly
+  rw [← ctorIdxFormOf_eq_shape]
+  have hor : ∀ e : Name × Name, (e.1 ≠ n ∨ e.2 = .str n "_impl") ↔ (e.1 = n → e.2 = .str n "_impl") :=
+    fun _ => Decidable.imp_iff_not_or.symm
+  cases Regula.Load.ctorIdxFormOf f.env n info with
+  | none | impl _ => simp [Link.ctorIdxForm]
+  | defn ind =>
+    cases f.env.getModuleIdx? m with
+    | none => simp [Link.ctorIdxForm]
+    | some idx =>
+      simp only [Link.ctorIdxForm, CtorIdxForm.defn.injEq, exists_eq', true_and,
+        Option.some.injEq, exists_eq_left', Bool.and_eq_true,
+        Array.all_eq_true_iff_forall_mem, Bool.or_eq_true, bne_iff_ne, beq_iff_eq, hor]
 
 /-- The module's own entries of {attr}`@[init]` and {attr}`@[builtin_init]` name no initialization function
 for this name: each of its entries for the name holds the anonymous name, the form that names none. -/
@@ -355,6 +631,10 @@ theorem safetyOf_partial (info : ConstantInfo) :
 
 theorem safetyOf_safe (info : ConstantInfo) :
     Regula.Load.safetyOf info = .safe ↔ info.isUnsafe = false ∧ info.isPartial = false := by
+  unfold Regula.Load.safetyOf; cases info.isUnsafe <;> cases info.isPartial <;> decide
+
+theorem safetyOf_unsafe (info : ConstantInfo) :
+    Regula.Load.safetyOf info = .unsafe ↔ info.isUnsafe = true := by
   unfold Regula.Load.safetyOf; cases info.isUnsafe <;> cases info.isPartial <;> decide
 
 /-- What the loader gives, in the terms of the environment. -/
@@ -451,16 +731,34 @@ theorem decl_ok {n : Name} {info : ConstantInfo} {s : List ConstantInfo} {d : Re
 
 theorem shown_true {x : Name × Name × ConstantInfo} (h : f.shown x = true) :
     ∃ k m, f.env.constants.map₁[x.2.1]? = some k ∧
-      Regula.Load.readOf k = Regula.Load.readOf x.2.2 ∧ f.info? x.2.1 = some m ∧
-      m.claimed = true := by
+      Regula.Load.readOf f.env x.2.1 k = Regula.Load.readOf f.env x.2.1 x.2.2 ∧
+      f.info? x.2.1 = some m ∧ m.claimed = true := by
   simp only [Regula.Load.Facts.shown] at h; split at h <;> try cases h
   simp only [Bool.and_eq_true, decide_eq_true_eq] at h; exact ⟨_, _, ‹_›, h.1.1.1, ‹_›, h.1.1.2⟩
 
-theorem shown_unreplaced {x : Name × Name × ConstantInfo} (h : f.shown x = true)
-    (hi : Lean.Compiler.getImplementedBy? f.env x.2.1 = none)
-    (he : Lean.isExtern f.env x.2.1 = false) : ModuleUnreplaced f.env x.1 x.2.1 := by
-  simp only [Regula.Load.Facts.shown] at h; split at h <;> try cases h
-  simp only [Bool.and_eq_true] at h; exact (unreplaced_iff _ _).mp (by simpa [hi, he] using h.1.2)
+theorem shown_unreplaced {x : Name × Name × ConstantInfo} {k : ConstantInfo}
+    (h : f.shown x = true) (hk : f.env.constants.map₁[x.2.1]? = some k)
+    (hi : Lean.Compiler.getImplementedBy? f.env x.2.1 = none ∨
+      (∃ ind, ctorIdxShape f.env x.2.1 k = .defn ind ∧
+        Lean.Compiler.getImplementedBy? f.env x.2.1 = some (Name.str x.2.1 "_impl")))
+    (he : Lean.isExtern f.env x.2.1 = false) :
+    ModuleUnreplaced f.env x.1 x.2.1 ∨ ModuleCtorIdxEntryOnly f.env x.1 x.2.1 x.2.2 := by
+  simp only [Regula.Load.Facts.shown, hk] at h
+  cases hm : f.info? x.2.1 with
+  | none => simp [hm] at h
+  | some lm =>
+    simp only [hm, Bool.and_eq_true, Bool.or_eq_true, he, Bool.false_eq_true, or_false] at h
+    rcases h.1.2 with (hu | hc) | hmatch
+    · exact .inl ((unreplaced_iff _ _).mp hu)
+    · exact .inr ((ctorIdxEntryOnly_iff _ _ _).mp hc)
+    · exfalso
+      rcases hi with hnone | ⟨ind, hshape, hsome⟩
+      · simp [hnone] at hmatch
+      · have hform : Regula.Load.ctorIdxFormOf f.env x.2.1 k = .defn ind := by
+          have h1 := ctorIdxFormOf_eq_shape f.env x.2.1 k
+          rw [hshape] at h1
+          exact ctorIdxForm_inj.mp h1
+        simp [hsome, hform] at hmatch
 
 theorem shown_uninitialized {x : Name × Name × ConstantInfo} (h : f.shown x = true)
     (hk : Regula.Load.kindOf x.2.2 = .definition)
@@ -652,6 +950,14 @@ theorem kind_definition {n : Name} {m : Regula.Load.LoadedModule} {info : Consta
   (decl_kind_eq (k := .definition)).trans
     ((kindIn_eq_of_ne_axiom (by decide)).trans (and_congr_left fun _ => kindOf_definition info))
 
+theorem kind_inductive {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
+    {s : List ConstantInfo} :
+    (decl (f.declIn n m info s)).kind = .inductive ↔
+      (∃ v, info = .inductInfo v) ∧ ∀ w ∈ s, ¬ AxiomInfo w :=
+  (decl_kind_eq (k := .inductive)).trans
+    ((kindIn_eq_of_ne_axiom (by decide)).trans (and_congr_left fun _ => by
+      cases info with | inductInfo v => exact ⟨fun _ => ⟨v, rfl⟩, fun _ => rfl⟩ | _ => exact ⟨(fun h => by cases h), (by rintro ⟨_, h⟩; cases h)⟩))
+
 theorem kind_envAxiom {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     (hn : f.env.constants.map₁[n]? = some info) :
     (decl (f.declIn n m info (f.stated.getD n []))).kind = .axiom ↔ EnvAxiom f n :=
@@ -728,6 +1034,11 @@ theorem safety_safe {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
       info.isUnsafe = false ∧ info.isPartial = false :=
   (decl_safety_eq (v := .safe)).trans (safetyOf_safe info)
 
+theorem safety_unsafe {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
+    {s : List ConstantInfo} :
+    (decl (f.declIn n m info s)).safety = .unsafe ↔ info.isUnsafe = true :=
+  (decl_safety_eq (v := .unsafe)).trans (safetyOf_unsafe info)
+
 theorem helper_env (hl : Loaded f roots p i) (n : Name) (m : Regula.Load.LoadedModule)
     (info : ConstantInfo) :
     (toSpec i).HelperForm (decl (f.declIn n m info (f.stated.getD n []))) ↔
@@ -743,6 +1054,113 @@ theorem helper_env (hl : Loaded f roots p i) (n : Name) (m : Regula.Load.LoadedM
     obtain ⟨lm, hm', hlm⟩ := moduleOf?_eq_some.mp hmod
     exact ⟨safety_partial.mpr ⟨hp, hs⟩, h2, h3, _, to_mem hl hn' hm', hname,
       kind_definition.mpr ⟨⟨v, rfl⟩, hst⟩, hlm, safety_safe.mpr ⟨hu1, hu2⟩, hi', he⟩
+
+theorem ctorIdxDef_env (hl : Loaded f roots p i) {n : Name} {m : Regula.Load.LoadedModule}
+    {info : ConstantInfo} (hn : f.env.constants.map₁[n]? = some info) (hm : f.info? n = some m) :
+    (toSpec i).CtorIdxDef (decl (f.declIn n m info (f.stated.getD n []))) ↔
+      EnvCtorIdxDef f n info m.name := by
+  constructor
+  · rintro ⟨ind, implSpec, himplMem, hpair⟩
+    obtain ⟨⟨g, hgMem, hgName, hgTc⟩, ⟨indSpec, hindMem, hindName, hindKind, hindSafe, hindMod⟩,
+      hdName, hdKind, hdSafe, hdForm, hdImpl, hdExt, hdInit,
+      hiName, hiMod, hiKind, hiSafe, hiForm, hiImpl, hiExt, hiInit⟩ := hpair
+    change n = Name.str ind "ctorIdx" at hdName
+    obtain ⟨⟨defv, rfl⟩, hdSt⟩ := kind_definition.mp hdKind
+    obtain ⟨hdU, hdP⟩ := safety_safe.mp hdSafe
+    have hdShape : ctorIdxShape f.env n (.defnInfo defv) = .defn ind := by
+      simpa [decl, Regula.Load.Facts.declIn, ctorIdxFormOf_eq_shape] using hdForm
+    obtain ⟨gk, glm, hgk, hglm, hgv⟩ := of_mem hl hgMem
+    have hgtag : (∃ k, f.env.constants.map₁[`getObjTagNat]? = some k) ∧ EnvToolchain f `getObjTagNat := by
+      rw [hgName] at hgk hglm; rw [hgv] at hgTc
+      exact ⟨⟨gk, hgk⟩, glm, hglm, hgTc⟩
+    obtain ⟨indInfo, indLm, hindK, hindLm, hindV⟩ := of_mem hl hindMem
+    rw [hindName] at hindK hindLm; rw [hindV] at hindKind hindSafe hindMod
+    obtain ⟨⟨indv, rfl⟩, hindSt⟩ := kind_inductive.mp hindKind
+    obtain ⟨hindU, hindP⟩ := safety_safe.mp hindSafe
+    obtain ⟨implInfo, implLm, himplK, himplLm, himplV⟩ := of_mem hl himplMem
+    rw [hiName] at himplK himplLm; rw [himplV] at hiMod hiKind hiSafe hiForm hiImpl hiExt hiInit
+    obtain ⟨⟨implv, rfl⟩, himplSt⟩ := kind_definition.mp hiKind
+    have himplU := safety_unsafe.mp hiSafe
+    have himplShape : ctorIdxShape f.env (Name.str (Name.str ind "ctorIdx") "_impl") (.defnInfo implv) = .impl ind := by
+      simpa [decl, Regula.Load.Facts.declIn, hiName, ctorIdxFormOf_eq_shape] using hiForm
+    refine ⟨ind, defv, implv, hdName, rfl, hgtag.1, hgtag.2,
+      ⟨indv, hindK, hindName ▸ hindSt, moduleOf?_eq_some.mpr ⟨indLm, hindLm, hindMod⟩, hindU, hindP⟩,
+      hdName ▸ hn, hdName ▸ hdSt, hdName ▸ moduleOf?_eq_some.mpr ⟨m, hm, rfl⟩,
+      hdU, hdP, hdName ▸ hdShape, hdName ▸ hdImpl, hdName ▸ hdExt, hdName ▸ hdInit,
+      himplK, hiName ▸ himplSt, moduleOf?_eq_some.mpr ⟨implLm, himplLm, hiMod⟩,
+      himplU, himplShape, hiName ▸ hiImpl, hiName ▸ hiExt, hiName ▸ hiInit⟩
+  · rintro ⟨ind, defv, implv, rfl, rfl, ⟨gk, hgk⟩, ⟨glm, hglm, hgTc⟩,
+      ⟨indv, hindK, hindSt, hindMod, hindU, hindP⟩,
+      _, hdSt, _, hdU, hdP, hdShape, hdImpl, hdExt, hdInit,
+      himplK, himplSt, himplMod, himplU, himplShape, hiImpl, hiExt, hiInit⟩
+    obtain ⟨indLm, hindLm, hindLmName⟩ := moduleOf?_eq_some.mp hindMod
+    obtain ⟨implLm, himplLm, himplLmName⟩ := moduleOf?_eq_some.mp himplMod
+    refine ⟨ind, decl (f.declIn (Name.str (Name.str ind "ctorIdx") "_impl") implLm (.defnInfo implv)
+        (f.stated.getD (Name.str (Name.str ind "ctorIdx") "_impl") [])),
+      to_mem hl himplK himplLm, ?_⟩
+    exact ⟨⟨_, to_mem hl hgk hglm, rfl, hgTc⟩,
+      ⟨_, to_mem hl hindK hindLm, rfl, kind_inductive.mpr ⟨⟨indv, rfl⟩, hindSt⟩,
+        safety_safe.mpr ⟨hindU, hindP⟩, hindLmName⟩,
+      rfl, kind_definition.mpr ⟨⟨defv, rfl⟩, hdSt⟩, safety_safe.mpr ⟨hdU, hdP⟩,
+      by simpa [decl, Regula.Load.Facts.declIn, ctorIdxFormOf_eq_shape] using hdShape,
+      hdImpl, hdExt, hdInit,
+      rfl, himplLmName, kind_definition.mpr ⟨⟨implv, rfl⟩, himplSt⟩, safety_unsafe.mpr himplU,
+      by simpa [decl, Regula.Load.Facts.declIn, ctorIdxFormOf_eq_shape] using himplShape,
+      hiImpl, hiExt, hiInit⟩
+
+theorem ctorIdxImpl_env (hl : Loaded f roots p i) {n : Name} {m : Regula.Load.LoadedModule}
+    {info : ConstantInfo} (hn : f.env.constants.map₁[n]? = some info) (hm : f.info? n = some m) :
+    (toSpec i).CtorIdxImpl (decl (f.declIn n m info (f.stated.getD n []))) ↔
+      EnvCtorIdxImpl f n info m.name := by
+  constructor
+  · rintro ⟨ind, defSpec, hdefMem, hpair⟩
+    obtain ⟨⟨g, hgMem, hgName, hgTc⟩, ⟨indSpec, hindMem, hindName, hindKind, hindSafe, hindMod⟩,
+      hdName, hdKind, hdSafe, hdForm, hdImpl, hdExt, hdInit,
+      hiName, hiMod, hiKind, hiSafe, hiForm, hiImpl, hiExt, hiInit⟩ := hpair
+    change n = Name.str (Name.str ind "ctorIdx") "_impl" at hiName
+    obtain ⟨⟨implv, rfl⟩, hiSt⟩ := kind_definition.mp hiKind
+    have hiU := safety_unsafe.mp hiSafe
+    have hiShape : ctorIdxShape f.env n (.defnInfo implv) = .impl ind := by
+      simpa [decl, Regula.Load.Facts.declIn, ctorIdxFormOf_eq_shape] using hiForm
+    obtain ⟨gk, glm, hgk, hglm, hgv⟩ := of_mem hl hgMem
+    have hgtag : (∃ k, f.env.constants.map₁[`getObjTagNat]? = some k) ∧ EnvToolchain f `getObjTagNat := by
+      rw [hgName] at hgk hglm; rw [hgv] at hgTc
+      exact ⟨⟨gk, hgk⟩, glm, hglm, hgTc⟩
+    obtain ⟨defInfo, defLm, hdefK, hdefLm, hdefV⟩ := of_mem hl hdefMem
+    rw [hdName] at hdefK hdefLm; rw [hdefV] at hdKind hdSafe hdForm hdImpl hdExt hdInit hiMod hindMod
+    have hdefLmName : defLm.name = m.name := hiMod.symm
+    obtain ⟨⟨defv, rfl⟩, hdSt⟩ := kind_definition.mp hdKind
+    obtain ⟨hdU, hdP⟩ := safety_safe.mp hdSafe
+    have hdShape : ctorIdxShape f.env (Name.str ind "ctorIdx") (.defnInfo defv) = .defn ind := by
+      simpa [decl, Regula.Load.Facts.declIn, hdName, ctorIdxFormOf_eq_shape] using hdForm
+    obtain ⟨indInfo, indLm, hindK, hindLm, hindV⟩ := of_mem hl hindMem
+    rw [hindName] at hindK hindLm; rw [hindV] at hindKind hindSafe hindMod
+    obtain ⟨⟨indv, rfl⟩, hindSt⟩ := kind_inductive.mp hindKind
+    obtain ⟨hindU, hindP⟩ := safety_safe.mp hindSafe
+    refine ⟨ind, defv, implv, hiName, rfl, hgtag.1, hgtag.2,
+      ⟨indv, hindK, hindName ▸ hindSt, moduleOf?_eq_some.mpr ⟨indLm, hindLm, hindMod.trans hdefLmName⟩, hindU, hindP⟩,
+      hdefK, hdName ▸ hdSt, moduleOf?_eq_some.mpr ⟨defLm, hdefLm, hdefLmName⟩,
+      hdU, hdP, hdShape, hdName ▸ hdImpl, hdName ▸ hdExt, hdName ▸ hdInit,
+      hiName ▸ hn, hiName ▸ hiSt, hiName ▸ moduleOf?_eq_some.mpr ⟨m, hm, rfl⟩,
+      hiU, hiName ▸ hiShape, hiName ▸ hiImpl, hiName ▸ hiExt, hiName ▸ hiInit⟩
+  · rintro ⟨ind, defv, implv, rfl, rfl, ⟨gk, hgk⟩, ⟨glm, hglm, hgTc⟩,
+      ⟨indv, hindK, hindSt, hindMod, hindU, hindP⟩,
+      hdefK, hdSt, hdefMod, hdU, hdP, hdShape, hdImpl, hdExt, hdInit,
+      _, hiSt, _, hiU, hiShape, hiImpl, hiExt, hiInit⟩
+    obtain ⟨indLm, hindLm, hindLmName⟩ := moduleOf?_eq_some.mp hindMod
+    obtain ⟨defLm, hdefLm, hdefLmName⟩ := moduleOf?_eq_some.mp hdefMod
+    refine ⟨ind, decl (f.declIn (Name.str ind "ctorIdx") defLm (.defnInfo defv)
+        (f.stated.getD (Name.str ind "ctorIdx") [])),
+      to_mem hl hdefK hdefLm, ?_⟩
+    exact ⟨⟨_, to_mem hl hgk hglm, rfl, hgTc⟩,
+      ⟨_, to_mem hl hindK hindLm, rfl, kind_inductive.mpr ⟨⟨indv, rfl⟩, hindSt⟩,
+        safety_safe.mpr ⟨hindU, hindP⟩, hindLmName.trans hdefLmName.symm⟩,
+      rfl, kind_definition.mpr ⟨⟨defv, rfl⟩, hdSt⟩, safety_safe.mpr ⟨hdU, hdP⟩,
+      by simpa [decl, Regula.Load.Facts.declIn, ctorIdxFormOf_eq_shape] using hdShape,
+      hdImpl, hdExt, hdInit,
+      rfl, hdefLmName.symm, kind_definition.mpr ⟨⟨implv, rfl⟩, hiSt⟩, safety_unsafe.mpr hiU,
+      by simpa [decl, Regula.Load.Facts.declIn, ctorIdxFormOf_eq_shape] using hiShape,
+      hiImpl, hiExt, hiInit⟩
 
 theorem wf_env (hl : Loaded f roots p i) : (toSpec i).WellFormed ↔ EnvForm f :=
   ⟨fun h => ⟨by rintro _ u ⟨info, hn, hm⟩; obtain ⟨_, hmod⟩ := module_of hl hn; exact (resolves_env hl u).mp (h.closed _ (to_mem hl hn hmod) u ((mem_usesIn info _ u).mpr hm)),
@@ -800,7 +1218,9 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
     have hr11 := fun r => h11 n (.inl ⟨_, hx, rfl, hcm, r⟩)
     refine ⟨fun hax => h1 n ⟨_, hx, rfl, hcm, (kind_envAxiom hn).mpr hax⟩,
       fun hflag => Classical.byContradiction fun hno =>
-        hr6 (.inl ⟨flagged_iff.mpr hflag, fun hh => hno ((helper_env hl n lm info).mp hh)⟩),
+        hr6 (.inl ⟨flagged_iff.mpr hflag,
+          fun hh => hno (.inl ((helper_env hl n lm info).mp hh)),
+          fun hc' => hno (.inr ((ctorIdxImpl_env hl hn hlm).mp hc'))⟩),
       fun l hl' hv => hr6 (.inr (.inl ⟨l, hl', (mem_valueUsesOf info l).mpr hv⟩)),
       fun hrun hv => hr6 (.inr (.inr ⟨(kind_runs hs).mpr hrun, (mem_valueUsesOf info ``Lean.Order.fix).mpr hv⟩)),
       fun a hr hax => hax.elim fun _ ha => Classical.byContradiction fun hno =>
@@ -810,7 +1230,10 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       fun hrun u hv hpanic => h12 n ⟨_, hx, rfl, hcm, (kind_runs hs).mpr hrun, u,
         (mem_valueUsesOf info u).mpr hv, (panic_env hl u).mpr hpanic⟩⟩
     · cases hi : Lean.Compiler.getImplementedBy? f.env n with
-      | none => rfl | some impl => exact (hr11 (.inl ⟨impl, hi⟩)).elim
+      | none => exact .inl rfl
+      | some impl =>
+        exact .inr (Classical.byContradiction fun hno =>
+          hr11 (.inl ⟨⟨impl, hi⟩, fun hc' => hno ((ctorIdxDef_env hl hn hlm).mp hc')⟩))
     · cases he : Lean.isExtern f.env n with
       | false => rfl | true => exact (hr11 (.inr (.inl he))).elim
     · cases hfn : Lean.getInitFnNameFor? f.env n with
@@ -838,17 +1261,22 @@ theorem allHold_env (hl : Loaded f roots p i) : AllHold (toSpec i) ↔ EnvFloor 
       obtain ⟨hna, h6, h7, hfix, -⟩ := hget hn hm hd hcm
       have hmn : m.name = x.module := by rw [hd]; rfl
       rw [hd] at hv
-      rcases hv with ⟨hflag, hno⟩ | ⟨l, hl', hu⟩ | ⟨hk, hu⟩
-      · exact hno ((helper_env hl _ m info).mpr (hmn ▸ h6 (flagged_iff.mp hflag)))
+      rcases hv with ⟨hflag, hno, hnc⟩ | ⟨l, hl', hu⟩ | ⟨hk, hu⟩
+      · rcases hmn ▸ h6 (flagged_iff.mp hflag) with hh | hc'
+        · exact hno ((helper_env hl _ m info).mpr hh)
+        · exact hnc ((ctorIdxImpl_env hl hn hm).mpr hc')
       · exact h7 l hl' ((mem_valueUsesOf info l).mp hu)
       · exact hfix ((kind_runs fun w hw hax => hna ⟨info, hn, .inr ⟨w, hw, hax⟩⟩).mp hk)
           ((mem_valueUsesOf info ``Lean.Order.fix).mp hu)
     · rintro c (⟨x, hx, rfl, hcm, hr⟩ | ⟨m, hcm, hcs, hnot⟩)
       · obtain ⟨info, m, hn, hm, hd⟩ := of_mem hl hx
         obtain ⟨-, -, -, -, -, hi, he, hinit, -⟩ := hget hn hm hd hcm
+        have hmn : m.name = x.module := by rw [hd]; rfl
         rw [hd] at hr
-        rcases hr with ⟨_, himpl⟩ | hext | ⟨hkind, _, hfn⟩
-        · cases himpl.symm.trans hi
+        rcases hr with ⟨⟨_, himpl⟩, hnc⟩ | hext | ⟨hkind, _, hfn⟩
+        · rcases hi with hnone | hcd
+          · cases himpl.symm.trans hnone
+          · exact hnc ((ctorIdxDef_env hl hn hm).mpr (hmn ▸ hcd))
         · cases hext.symm.trans he
         · cases hfn.symm.trans (hinit (kind_definition.mp hkind).1)
       · obtain ⟨hm, hreg⟩ := (hasCSimp_env hl m c).mp hcs
@@ -927,11 +1355,12 @@ theorem fitsUnshown_iff (hl : Loaded f roots p i) (x : Name × Name × ConstantI
 
 theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pass) {m n : Name}
     {info : ConstantInfo} (hx : (m, n, info) ∈ f.claimedConstants) :
-    ModuleUnreplaced f.env m n ∧
+    (ModuleUnreplaced f.env m n ∨ ModuleCtorIdxEntryOnly f.env m n info) ∧
     ((∃ v, info = .defnInfo v) → ModuleUninitialized f.env m n) ∧
     (∀ v, info ≠ .axiomInfo v) ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
-      info.isPartial = true ∧ info.isUnsafe = false) ∧
+      (info.isPartial = true ∧ info.isUnsafe = false) ∨
+        (info.isUnsafe = true ∧ ∃ ind, ctorIdxShape f.env n info = .impl ind)) ∧
     (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u) ∧
@@ -940,7 +1369,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   rcases (input_kept hi hx).symm with hfits | hshown
   · obtain ⟨hattrs, hkind, hsafety, hname, hloop, huses⟩ := (fitsUnshown_iff hl _).mp hfits
     obtain ⟨hunsafe, hpartial⟩ := (safetyOf_safe info).mp hsafety
-    refine ⟨hattrs, (by rintro ⟨_, rfl⟩; cases hkind),
+    refine ⟨.inl hattrs, (by rintro ⟨_, rfl⟩; cases hkind),
       (by rintro _ rfl; cases hkind),
       fun | .inl h => (by rw [hunsafe] at h; cases h)
           | .inr (.inl h) => (by rw [hpartial] at h; cases h)
@@ -954,7 +1383,9 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
   have hcl : lm.name ∈ f.claimed := (mem_claimed_iff f _).mpr ⟨lm, mem_modules_of_info hinfo, rfl, hclaimed⟩
   obtain ⟨h1, h2, h3, hfix, h4, himpl, hext, hinit, h12⟩ := ((pass_iff hi).mp hp).2.2.2 n k lm.name hk hmod hcl
   simp only [Regula.Load.readOf, Prod.mk.injEq] at hread
-  obtain ⟨hkind, hsafety, huses, hvalue⟩ := hread
+  obtain ⟨hkind, hsafety, huses, hvalue, hctor⟩ := hread
+  have hshape : ctorIdxShape f.env n k = ctorIdxShape f.env n info :=
+    (ctorIdxFormOf_eq_iff f.env n k info).mp hctor
   have hsafe : k.isUnsafe = info.isUnsafe ∧ k.isPartial = info.isPartial := by
     let flags : Regula.Closed.Safety → Bool × Bool
       | .unsafe => (true, false) | .partial => (false, true) | .safe => (false, false)
@@ -968,11 +1399,18 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
     cases k <;> rcases hr with ⟨_, rfl⟩ | ⟨_, rfl⟩ <;> first | exact .inl ⟨_, rfl⟩ | exact .inr ⟨_, rfl⟩ | cases hkind
   have hval {u} (hv : ValueMentions info u) : ValueMentions k u :=
     (mem_valueUsesOf k u).mp (hvalue ▸ (mem_valueUsesOf info u).mpr hv)
-  refine ⟨shown_unreplaced hshown himpl hext,
+  refine ⟨shown_unreplaced hshown hk (himpl.imp id fun hcd => by
+      obtain ⟨ind, defv, implv, rfl, rfl, hpair⟩ := hcd
+      obtain ⟨-, -, -, -, -, -, -, -, hsh, himp, -⟩ := hpair
+      exact ⟨ind, hsh, himp⟩) hext,
     fun hdef => let hki := (kindOf_definition info).mpr hdef
       shown_uninitialized hshown hki (hinit ((kindOf_definition k).mp (hkind.trans hki))),
     fun v hv => h1 ⟨k, hk, .inl ((kindOf_axiom k).mp (hkind.trans (congrArg Regula.Load.kindOf hv)))⟩,
-    fun hflag => (by obtain ⟨hpart, hsf, _⟩ := h2 (by rwa [hsafe.1, hsafe.2]); exact ⟨hsafe.2 ▸ hpart, hsafe.1 ▸ hsf⟩),
+    fun hflag => (by
+      rcases h2 (by rwa [hsafe.1, hsafe.2]) with ⟨hpart, hsf, _⟩ | ⟨ind, defv, implv, rfl, rfl, hpair⟩
+      · exact .inl ⟨hsafe.2 ▸ hpart, hsafe.1 ▸ hsf⟩
+      · obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, huns, hsh, -⟩ := hpair
+        exact .inr ⟨hsafe.1 ▸ huns, ind, hshape ▸ hsh⟩),
     fun l hl' hv => h3 l hl' (hval hv),
     fun hrun hv => hfix (hrun' hrun) (hval hv),
     fun hrun u hv => h12 (hrun' hrun) u (hval hv),
@@ -981,7 +1419,7 @@ theorem pass_held (h : (Regula.Closed.decision (f.input roots p)).verdict = .pas
 
 theorem profileOfRun_ok {version commit : String} {args : List String}
     {q : Regula.Closed.Profile} (h : Regula.Shell.profileOfRun version commit args = .ok q) :
-    version = "4.35.0" ∧ commit = "eb6cafb7290e8bd5f2937522d8d804f58f02bafc" ∧
+    version = "4.36.0" ∧ commit = "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9" ∧
       ∃ text, args = [text] ∧ Regula.Closed.Profile.ofSpelling? text = some q := by
   unfold Regula.Shell.profileOfRun at h; (split at h <;> try cases h)
   rename_i hs
@@ -1122,10 +1560,10 @@ theorem pass_iff_floor :
 
 /-! ## The cone that Lean's kernel replays -/
 
-/-- The constants that Lean's kernel builds into a term that it checks, read from its source at v4.35.0: the types of a
+/-- The constants that Lean's kernel builds into a term that it checks, read from its source at v4.36.0: the types of a
 literal, what it unfolds a number and a string literal to, and the values of its arithmetic on numbers
-({lit}`Lean/Expr.lean:622-624`, {lit}`src/kernel/inductive.cpp:1359-1401`, {lit}`src/kernel/type_checker.cpp:669`,
-{lit}`src/library/constants.cpp:147-150`). It is stated here as a literal, apart from the checker's list. -/
+({lit}`Lean/Expr.lean:622-624`, {lit}`src/kernel/inductive.cpp:1347-1390`, {lit}`src/kernel/type_checker.cpp:665`,
+{lit}`src/library/constants.cpp:12-15`). It is stated here as a literal, apart from the checker's list. -/
 def KernelNames : List Name :=
   [`Nat, `String, `Nat.zero, `Nat.succ, `String.ofList, `List.cons, `List.nil, `Char, `Char.ofNat, `Bool.true,
     `Bool.false]

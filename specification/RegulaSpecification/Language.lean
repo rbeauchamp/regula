@@ -136,7 +136,7 @@ def TreeRelative (base path rel : List String) : Prop :=
   path = base ++ rel ∧ ∀ c ∈ rel, c ≠ "" ∧ c.front ≠ '.'
 
 /-- The project's configuration has a dependency: some key has the root {lit}`require`, which is the one key
-Lake decodes a dependency from ({lit}`Lake/Load/Toml.lean:499` at v4.35.0). The key walk gives every TOML form
+Lake decodes a dependency from ({lit}`Lake/Load/Toml.lean:499` at v4.36.0). The key walk gives every TOML form
 of it such a key. -/
 def RequiresDependency (r : Reading) : Prop :=
   ∃ k ∈ r.configKeys, k.getRoot = `require
@@ -466,7 +466,7 @@ hold the other names of those families out of it. -/
 
 /-- The kinds of the constructs the owner's words name, and the others of their families, read from
 {lit}`Init/Tactics.lean`, {lit}`Lean/Parser/Command.lean`, {lit}`Lean/Parser/Syntax.lean` and `Lean/Elab/` at Lean
-v4.35.0. -/
+v4.36.0. -/
 def refusedKinds : List Name :=
   [`Lean.runCmd, `Lean.Parser.Command.eval, `Lean.Parser.Command.evalBang,
     `Lean.Parser.Command.guardCmd, `Lean.guardMsgsCmd, `Lean.runElab, `Lean.runMeta,
@@ -609,11 +609,13 @@ that uses them names them, and they are re-read at each Lean upgrade (`README.md
 - {lit}`h1`: the tree the reader got is the tree Lean's frontend elaborates, for a file of a reading that
   the check admits.
 - {lit}`h2`: Lean's elaboration of such trees runs no code written in the project and installs nothing that
-  replaces what the compiler runs for a definition. -/
+  replaces what the compiler runs for a definition, apart from Lean's own compiler-generated
+  {lit}`T.ctorIdx` replacement ({lit}`ctorIdxTag`). -/
 structure LeanBehaviour where
   /-- Lean's frontend elaborates these trees for this file. -/
   Elaborates : FileRead → List Syntax → Prop
-  /-- Elaborating these trees runs no code that the project wrote and replaces no compiled code. -/
+  /-- Elaborating these trees runs no code that the project wrote and replaces no compiled code,
+  apart from Lean's own compiler-generated {lit}`T.ctorIdx` replacement ({lit}`ctorIdxTag`). -/
   NoProjectCode : List Syntax → Prop
   /-- H1. -/
   h1 : ∀ r, Inside r → ∀ f ∈ r.files, Elaborates f f.commands

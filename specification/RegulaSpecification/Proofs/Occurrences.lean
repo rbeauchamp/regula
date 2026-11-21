@@ -134,7 +134,7 @@ theorem pass_occurs (hused : UsedConstantsComplete)
 
 /-- Each pair of {lit}`constNames.zip constants` of each claimed module is one that {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants` lists, and so one that
 {name}`pass_held` reaches, when the header holds data for each of its modules. Lean builds {name (full := Lean.EnvironmentHeader.moduleData)}`moduleData`
-and {name (full := Lean.EnvironmentHeader.modules)}`modules` from one array ({lit}`Lean/Environment.lean:2313-2317` and {lit}`2369-2371`), so this is the
+and {name (full := Lean.EnvironmentHeader.modules)}`modules` from one array ({lit}`Lean/Environment.lean:2677-2681` and {lit}`2734-2737`), so this is the
 fact about Lean, as the hypothesis {name}`hsize`. -/
 theorem claimedConstants_complete (hsize : f.env.header.moduleData.size = f.modules.size) {k : Nat}
     {lm : Regula.Load.LoadedModule} (hk : f.modules[k]? = some lm) (hc : lm.claimed = true) :

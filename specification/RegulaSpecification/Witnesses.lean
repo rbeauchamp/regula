@@ -24,13 +24,13 @@ namespace Witnesses
 /-- A safe constant with nothing marked, outside the toolchain. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
   { name, module, kind, safety := .safe, uses, valueUses := [], implementedBy := none,
-    isExtern := false, initFn := none, inToolchain := false }
+    isExtern := false, initFn := none, inToolchain := false, ctorIdxForm := .none }
 
 /-- A constant of the toolchain's own library. -/
 def toolchain (name : Name) (kind : Kind) : Decl :=
   { plain name `Init.Core kind [] with inToolchain := true }
 
-/-- A constant of the exempted form beside `Good.f`. -/
+/-- A constant of the exempted recursion-helper form beside `Good.f`. -/
 def helperDecl : Decl :=
   { plain `Good.f._unsafe_rec `Good .definition [`Good.f._unsafe_rec] with safety := .partial }
 

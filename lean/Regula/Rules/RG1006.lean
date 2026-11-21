@@ -6,14 +6,16 @@ import Lean.Compiler.Old
 /-!
 # RG1006: `unsafe`, `partial`, loop and `partial_fixpoint` declarations
 
-A claimed module holds a constant that is unsafe, partial or named as a recursion helper, without the
-exempted form, a constant whose value mentions a loop construct of Lean, or a definition or opaque
-constant whose value directly mentions `Lean.Order.fix`, which `partial_fixpoint` elaborates to
-(`Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:103-111,191,220`, `Lean/Meta/Order.lean:52-58`,
-`Init/Internal/Order/Basic.lean:486` at v4.35.0). That last clause reads no theorem (such as a
+A claimed module holds a constant that is unsafe, partial or named as a recursion helper, without an
+exempted form (a `partial` recursion helper `b._unsafe_rec` beside its safe definition `b`, or the
+unsafe half `T.ctorIdx._impl` of a verified compiler-generated `ctorIdx` pair), a constant whose value
+mentions a loop construct of Lean, or a definition or opaque constant whose value directly mentions
+`Lean.Order.fix`, which `partial_fixpoint` elaborates to
+(`Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:103-111,192,221`, `Lean/Meta/Order.lean:52-58`,
+`Init/Internal/Order/Basic.lean:486` at v4.36.0). That last clause reads no theorem (such as a
 realized dependency `.eq_def` lemma) and not `Lean.Order.lfp_monotone` (`inductive_fixpoint`,
 `coinductive_fixpoint`, `coinductive`). The other clauses read every claimed constant, and the
-exempted form exempts a constant only from the first.
+exempted forms exempt a constant only from the first.
 `specification/RegulaSpecification/Rules/RG1006.lean` states the rule and proves this check against it.
 -/
 
@@ -47,7 +49,7 @@ def helperBaseFits (d : Decl) : Bool :=
         b.implementedBy.isNone && !b.isExtern
   | none => false
 
-/-- `d` has the exempted form, beside a safe definition in the same module, which names no origin. -/
+/-- `d` has the exempted recursion-helper form, beside a safe definition in the same module, which names no origin. -/
 def helperForm (d : Decl) : Bool :=
   d.safety == .partial && d.implementedBy.isNone && !d.isExtern && helperBaseFits t d
 
@@ -97,11 +99,11 @@ def escapeReport (d : Decl) : String × Guidance :=
     | .safe => ("has the name of a recursion helper, and is not partial", forgedHelperGuidance)
 
 /-- The constants of claimed modules that are unsafe, partial or named as a recursion helper, without
-the exempted form, whose value mentions a loop construct of Lean, or that are definitions or opaque
+an exempted form, whose value mentions a loop construct of Lean, or that are definitions or opaque
 constants whose value directly mentions `Lean.Order.fix`. -/
 def check : List Violation :=
   t.claimed.filterMap fun d =>
-    if ((d.safety != .safe || namedAsHelper d) && !helperForm t d) ||
+    if ((d.safety != .safe || namedAsHelper d) && !helperForm t d && !t.ctorIdxImpl d) ||
         mentionsLoop d || mentionsOrderFix d then
       some (let report := escapeReport d; violation d report.1 report.2)
     else none

@@ -55,7 +55,7 @@ def Event.line? : Event L E → Option String
   | _ => none
 
 /-- The physical lines requested by the run's {name (full := Regula.Effect.Op.println)}`println` calls, in order, splitting each argument at LF.
-{name}`IO.println` appends LF ({lit}`Init/System/IO.lean:1276-1277` at v4.35.0), so each call ends its last line.
+{name}`IO.println` appends LF ({lit}`Init/System/IO.lean:1276-1277` at v4.36.0), so each call ends its last line.
 This is requested output, independent of print success, and excludes output from child processes. -/
 def printed (t : List (Event L E)) : List String :=
   (t.filterMap Event.line?).flatMap fun text => (text.toList.splitOn '\n').map String.ofList

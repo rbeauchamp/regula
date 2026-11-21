@@ -23,13 +23,14 @@ base.
 What it reads, and through what:
 - The constants: each constant of an environment that `Lean.importModules` loads with `loadExts := false`,
   so no extension state is built and no initializer of a loaded module runs, and at the level `.private`, so a
-  `module` file gives each constant with its body, exposed or not (`Lean/Environment.lean:1871` and `:2183` at
-  v4.35.0). `getImplementedBy?`, `isExtern` and `getInitFnNameFor?` read the module entries of an extension
+  `module` file gives each constant with its body, exposed or not (`Lean/Environment.lean:2213` and `:2547` at
+  v4.36.0). `getImplementedBy?`, `isExtern` and `getInitFnNameFor?` read the module entries of an extension
   (`getModuleEntries`), which `importModules` sets whatever `loadExts` is, and no extension's built state.
-  `Facts.unreplaced` and `Facts.uninitialized` also read each claimed module's own entries, so a name that
-  two modules state cannot hide an attribute, and `Facts.csimps` reads each claimed module's exported
-  (`global` and `scoped`) `@[csimp]` entries through `Lean.Compiler.CSimp.ext.ext.getModuleEntries`
-  (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0), refusing a claimed module with no module index.
+  `Facts.unreplaced`, `Facts.ctorIdxEntryOnly`, and `Facts.uninitialized` also read each claimed module's
+  own entries, so a name that two modules state cannot hide an attribute, and `Facts.csimps` reads each
+  claimed module's exported (`global` and `scoped`) `@[csimp]` entries through
+  `Lean.Compiler.CSimp.ext.ext.getModuleEntries` (`Lean/Environment.lean:1990-1996`, `:2742` at v4.36.0),
+  refusing a claimed module with no module index.
   `Facts.claimedCSimpTargets` checks claimed ownership of exported `@[csimp]` entries strictly against
   claimed modules' own `moduleData` (`Facts.claimedConstants`), skipping all declaration work when no
   claimed module registers an entry and building only a set of the entry target names when entries are
@@ -37,14 +38,14 @@ What it reads, and through what:
   `Facts.claimedConstants` steps once over the loaded modules, dependencies included, to select the
   claimed ones). `const2ModIdx` cannot decide
   ownership in either direction because `finalizeImport` keeps the first module on merged theorems and
-  also inserts IR `extraConstNames` (`Lean/Environment.lean:2345-2348` at v4.35.0).
+  also inserts IR `extraConstNames` (`Lean/Environment.lean:2709-2712` at v4.36.0).
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
   constant must also fit the rules itself (`Facts.unread?`).
 - Whether each loaded module is a `module` file: the flag `isModule` of its data in `header.moduleData`, which Lean
   writes from the header of the environment that elaborated the file (`mkModuleData` and `writeModule`,
-  `Lean/Environment.lean:1883-1886` and `1902-1918` at v4.35.0).
+  `Lean/Environment.lean:2224-2227` and `2243-2259` at v4.36.0).
 - The place of each module: where `Lean.findOLean` finds its `.olean` on Lake's search path. A claimed
   module lies below the root package's library directory; a constant of the toolchain is one whose module lies
   below the toolchain's library directory.
@@ -54,7 +55,7 @@ public section
 
 namespace Regula.Load
 
-open Lean (ConstantInfo Environment Name TheoremVal findOLean isExtern)
+open Lean (ConstantInfo DefinitionVal Environment Expr InductiveVal Level Name TheoremVal findOLean isExtern)
 open System (FilePath)
 open Regula.Closed
 
@@ -102,7 +103,7 @@ constant, the value of a definition, theorem or opaque constant, the constructor
 block, the inductive type of a constructor, the types of a recursor's block, and `Eq` for a quotient. Lean's replay follows
 `ConstantInfo.getUsedConstantsAsSet` (`Lean/Util/FoldConsts.lean:67-74`), reads each type of a block and its constructors
 (`Lean/Replay.lean:105-111`), and adds `Eq` before a quotient, whose check reads it (`Lean/Replay.lean:129-133`,
-`src/kernel/quot.cpp:19-50`), at v4.35.0. -/
+`src/kernel/quot.cpp:19-50`), at v4.36.0. -/
 def usesOf (info : ConstantInfo) : Array Name :=
   dedup <| match info with
     | .axiomInfo v => v.type.getUsedConstants
@@ -137,6 +138,131 @@ def valueUsesOf : ConstantInfo → Array Name
 (`ConstantInfo.isUnsafe` and `ConstantInfo.isPartial`). -/
 def safetyOf (info : ConstantInfo) : Safety :=
   if info.isUnsafe then .unsafe else if info.isPartial then .partial else .safe
+
+/-- The fifteen types with builtin runtime support (`Lean.Compiler.LCNF.builtinRuntimeTypes`,
+`Lean/Compiler/LCNF/Util.lean:40-47` at v4.36.0), for which Lean generates no `ctorIdx._impl`
+(`Lean/Meta/Constructions/CtorIdx.lean:131-137`). -/
+def runtimeBuiltinTypes : List Name :=
+  [`String, `UInt8, `UInt16, `UInt32, `UInt64, `USize, `Float, `Float32,
+   `Thunk, `Task, `Array, `ByteArray, `FloatArray, `Nat, `Int]
+
+/-- Strips `k` leading lambda binders from `e`, returning the body when all `k` exist. -/
+def stripLams : Nat → Expr → Option Expr
+  | 0, e => some e
+  | k + 1, .lam _ _ b _ => stripLams k b
+  | _ + 1, _ => none
+
+/-- Strips `k` leading forall binders from `e`, returning the body when all `k` exist. -/
+def stripForalls : Nat → Expr → Option Expr
+  | 0, e => some e
+  | k + 1, .forallE _ _ b _ => stripForalls k b
+  | _ + 1, _ => none
+
+/-- Strips `k` leading lambda binders from `val` and `k` leading forall binders from `ty` in lockstep,
+checking `Expr.eqv` (`==`) on each binder domain. -/
+def stripLamMatchingForall : Nat → Expr → Expr → Option (Expr × Expr)
+  | 0, v, t => some (v, t)
+  | k + 1, .lam _ vd vb _, .forallE _ td tb _ =>
+    if vd == td then stripLamMatchingForall k vb tb else none
+  | _ + 1, _, _ => none
+
+/-- Applies `f` to `n` consecutive bound variables, from `bvar (n - 1 + offset)` down to
+`bvar offset`. -/
+def mkBVarApps (f : Expr) : Nat → Nat → Expr
+  | 0, _ => f
+  | n + 1, offset => mkBVarApps (.app f (.bvar (n + offset))) n offset
+
+/-- Unwinds nested applications `f a₁ ... aₙ` into `(f, [a₁, ..., aₙ])`. -/
+def unappGo : Expr → List Expr → Expr × List Expr
+  | .app f a, acc => unappGo f (a :: acc)
+  | e, acc => (e, acc)
+
+/-- The list `[.bvar (n - 1 + offset), ..., .bvar offset]`. -/
+def bvarList : Nat → Nat → List Expr
+  | 0, _ => []
+  | n + 1, offset => .bvar (n + offset) :: bvarList n offset
+
+/-- Checks that each branch in `alts` matches its constructor in `ctors`: `cInfo.numFields` lambdas
+around the raw natural literal `cInfo.cidx` (`Lean/Meta/Constructions/CtorIdx.lean:108-113` at
+v4.36.0). -/
+def checkCtorAlts (env : Environment) (ind : Name) : List Name → List Expr → Bool
+  | [], [] => true
+  | c :: cs, alt :: alts =>
+    match env.find? c with
+    | some (.ctorInfo cInfo) =>
+      cInfo.induct == ind &&
+        stripLams cInfo.numFields alt == some (.lit (.natVal cInfo.cidx)) &&
+        checkCtorAlts env ind cs alts
+    | _ => false
+  | _, _ => false
+
+/-- Whether `d` has the exact structural form of Lean's compiler-generated safe definition
+`ind.ctorIdx` (`Lean/Meta/Constructions/CtorIdx.lean:77-141` at v4.36.0): a safe definition for a
+safe, non-single-constructor, non-builtin, non-`Prop` inductive `ind`, dispatching via
+`ind.casesOn.{1, us}` over `ind`'s parameters, constant `Nat` motive, indices, and matched value to
+each constructor's index literal `cInfo.cidx`. -/
+def isCtorIdxDef (env : Environment) (ind : Name) (indInfo : InductiveVal) (d : DefinitionVal) :
+    Bool :=
+  let np := indInfo.numParams
+  let ni := indInfo.numIndices
+  let n := np + ni
+  let us := indInfo.levelParams.map Level.param
+  !indInfo.isUnsafe && indInfo.numCtors != 1 && !runtimeBuiltinTypes.contains ind &&
+    d.safety == .safe && d.levelParams == indInfo.levelParams &&
+    stripForalls n indInfo.type != some (.sort .zero) &&
+    match stripLamMatchingForall (n + 1) d.value d.type, stripForalls n d.type with
+    | some (body, retTy), some (.forallE _ discrTy (.const `Nat []) _) =>
+      retTy == .const `Nat [] &&
+        discrTy == mkBVarApps (.const ind us) n 0 &&
+        let (fn, args) := unappGo body []
+        fn == .const (Name.str ind "casesOn") (.succ .zero :: us) &&
+          args.length == np + 1 + ni + 1 + indInfo.ctors.length &&
+          match args.drop np with
+          | motive :: rest2 =>
+            match rest2.drop ni with
+            | discr :: alts =>
+              args.take np == bvarList np (ni + 1) &&
+                stripLams (ni + 1) motive == some (.const `Nat []) &&
+                rest2.take ni == bvarList ni 1 &&
+                discr == .bvar 0 &&
+                checkCtorAlts env ind indInfo.ctors alts
+            | [] => false
+          | [] => false
+    | _, _ => false
+
+/-- Whether `d` has the exact structural form of Lean's compiler-generated unsafe implementation
+`ind.ctorIdx._impl` (`Lean/Meta/Constructions/CtorIdx.lean:40-69` at v4.36.0): an unsafe definition
+matching `dDef`'s universe parameters and type verbatim, whose body is `n + 1` lambdas matching
+`d.type`'s binder domains around `@getObjTagNat.{u} (ind.{us} #n ... #1) #0` with `u.isNeverZero`. -/
+def isCtorIdxImpl (ind : Name) (indInfo : InductiveVal) (dDef d : DefinitionVal) : Bool :=
+  let n := indInfo.numParams + indInfo.numIndices
+  let us := indInfo.levelParams.map Level.param
+  !indInfo.isUnsafe && indInfo.numCtors != 1 && !runtimeBuiltinTypes.contains ind &&
+    d.safety == .unsafe &&
+    d.levelParams == indInfo.levelParams && d.levelParams == dDef.levelParams &&
+    d.type == dDef.type &&
+    stripForalls n indInfo.type != some (.sort .zero) &&
+    match stripLamMatchingForall (n + 1) d.value d.type with
+    | some (.app (.app (.const `getObjTagNat [u]) tyArg) (.bvar 0), .const `Nat []) =>
+      u.isNeverZero && tyArg == mkBVarApps (.const ind us) n 1
+    | _ => false
+
+/-- Classifies constant `n` with body `info` in environment `env` as neither half (`.none`), the
+safe definition `ind.ctorIdx` (`.defn ind`), or the unsafe implementation `ind.ctorIdx._impl`
+(`.impl ind`) of Lean's compiler-generated `ctorIdx` pair. -/
+def ctorIdxFormOf (env : Environment) (n : Name) (info : ConstantInfo) : CtorIdxForm :=
+  match n, info with
+  | .str (.str ind "ctorIdx") "_impl", .defnInfo d =>
+    match env.find? ind, env.find? (.str ind "ctorIdx") with
+    | some (.inductInfo indInfo), some (.defnInfo dDef) =>
+      if isCtorIdxImpl ind indInfo dDef d then .impl ind else .none
+    | _, _ => .none
+  | .str ind "ctorIdx", .defnInfo d =>
+    match env.find? ind with
+    | some (.inductInfo indInfo) =>
+      if isCtorIdxDef env ind indInfo d then .defn ind else .none
+    | _ => .none
+  | _, _ => .none
 
 /-- One module that an environment loaded, with where its `.olean` lies and what that place
 decides. -/
@@ -187,7 +313,7 @@ def Facts.claimed (f : Facts) : List Name :=
   (f.modules.toList.filter (·.claimed)).map (·.name)
 
 /-- The loaded modules whose own data states that Lean read the file as a `module` file (`ModuleData.isModule`,
-`Lean/Environment.lean:109-111` at v4.35.0). -/
+`Lean/Environment.lean:109-111` at v4.36.0). -/
 def Facts.moduleFiles (f : Facts) : List Name :=
   ((f.modules.zip f.env.header.moduleData).toList.filter (·.2.isModule)).map (·.1.name)
 
@@ -220,6 +346,7 @@ def Facts.declIn (f : Facts) (n : Name) (m : LoadedModule) (info : ConstantInfo)
   isExtern := isExtern f.env n
   initFn := Lean.getInitFnNameFor? f.env n
   inToolchain := m.inToolchain
+  ctorIdxForm := ctorIdxFormOf f.env n info
 
 /-- The constant `n` as the closed input states it, or the refusal of a constant that no loaded
 module holds. -/
@@ -286,9 +413,12 @@ theorem Facts.decls_nodup (f : Facts) {stated : Name → List ConstantInfo} {dec
   intro a b hab heq
   simp [heq] at hab
 
-/-- What the rules read of a constant: its kind, its safety and what it mentions. -/
-def readOf (info : ConstantInfo) : Kind × Safety × List Name × List Name :=
-  (kindOf info, safetyOf info, (usesOf info).toList, (valueUsesOf info).toList)
+/-- What the rules read of a constant: its kind, its safety, what it mentions, and its `ctorIdx`
+form. -/
+def readOf (env : Environment) (n : Name) (info : ConstantInfo) :
+    Kind × Safety × List Name × List Name × CtorIdxForm :=
+  (kindOf info, safetyOf info, (usesOf info).toList, (valueUsesOf info).toList,
+    ctorIdxFormOf env n info)
 
 /-- Each constant of each claimed module, with its module, as that module's `.olean` states it. -/
 def Facts.claimedConstants (f : Facts) : List (Name × Name × ConstantInfo) :=
@@ -297,7 +427,7 @@ def Facts.claimedConstants (f : Facts) : List (Name × Name × ConstantInfo) :=
 
 /-- Whether the module's own entries give `n` neither replacement attribute. A missing module
 index is not an empty set of attributes. Lean's name-based queries select only one module when
-theorem names merge (`Lean/Attributes.lean:306-318` at v4.35.0). -/
+theorem names merge (`Lean/Attributes.lean:310-322` at v4.36.0). -/
 def Facts.unreplaced (f : Facts) (m n : Name) : Bool :=
   match f.env.getModuleIdx? m with
   | none => false
@@ -305,9 +435,20 @@ def Facts.unreplaced (f : Facts) (m n : Name) : Bool :=
     (Lean.Compiler.implementedByAttr.ext.getModuleEntries f.env idx).all (·.1 != n) &&
       (Lean.externAttr.ext.getModuleEntries f.env idx).all (·.1 != n)
 
+/-- Whether module `m`'s own replacement entries for `n` are solely the compiler-generated
+`(n, n._impl)` entry for a constant of form `CtorIdxForm.defn`, with no `@[extern]` entry and no
+other `@[implemented_by]` entry. -/
+def Facts.ctorIdxEntryOnly (f : Facts) (m n : Name) (info : ConstantInfo) : Bool :=
+  match ctorIdxFormOf f.env n info, f.env.getModuleIdx? m with
+  | .defn _, some idx =>
+    (Lean.Compiler.implementedByAttr.ext.getModuleEntries f.env idx).all
+      (fun e => e.1 != n || e.2 == .str n "_impl") &&
+      (Lean.externAttr.ext.getModuleEntries f.env idx).all (·.1 != n)
+  | _, _ => false
+
 /-- Whether the module's own entries of `@[init]` and `@[builtin_init]` name no initialization function
 for `n`. An entry with the anonymous name is the form that names none (`getInitFnNameForCore?`,
-`Lean/Compiler/InitAttr.lean:112-116` at v4.35.0). A missing module index is not an empty set of
+`Lean/Compiler/InitAttr.lean:112-116` at v4.36.0). A missing module index is not an empty set of
 entries. -/
 def Facts.uninitialized (f : Facts) (m n : Name) : Bool :=
   match f.env.getModuleIdx? m with
@@ -320,18 +461,25 @@ def Facts.uninitialized (f : Facts) (m n : Name) : Bool :=
 of that name of which the rules read the same, in a claimed module. Lean's import merges two
 theorems of one name and type, and a theorem with an axiom of that name and type: it keeps one, and
 gives the name the first module that holds it (`subsumesInfo` and `finalizeImport`,
-`Lean/Environment.lean:2269` and `2336-2345`). So a module's own constant can be one that no rule
+`Lean/Environment.lean:2633` and `2700-2709`). So a module's own constant can be one that no rule
 reads as a subject. What a dropped constant mentions, and whether it is an axiom, the input still
 states of its name (`Facts.stated`), in every loaded module; this check decides whether the rules
-read a claimed module's own constant as a subject. Its own replacement attributes must be absent
-or the represented constant must already carry a replacement that RG1011 refuses. When the module's own
+read a claimed module's own constant as a subject. Its own replacement attributes must be absent,
+solely the compiler-generated `(n, n._impl)` entry of a `ctorIdx` definition, or the represented
+constant must already carry an unexempted replacement that RG1011 refuses. When the module's own
 constant is a definition, its own entries must name no initialization function, or the query must give
 one for the represented constant. -/
 def Facts.shown (f : Facts) (x : Name × Name × ConstantInfo) : Bool :=
   match f.env.constants.map₁[x.2.1]?, f.info? x.2.1 with
-  | some kept, some m => decide (readOf kept = readOf x.2.2) && m.claimed &&
-      (f.unreplaced x.1 x.2.1 || (Lean.Compiler.getImplementedBy? f.env x.2.1).isSome ||
-        isExtern f.env x.2.1) &&
+  | some kept, some m =>
+    decide (readOf f.env x.2.1 kept = readOf f.env x.2.1 x.2.2) && m.claimed &&
+      (f.unreplaced x.1 x.2.1 ||
+        f.ctorIdxEntryOnly x.1 x.2.1 x.2.2 ||
+        isExtern f.env x.2.1 ||
+        match Lean.Compiler.getImplementedBy? f.env x.2.1, ctorIdxFormOf f.env x.2.1 kept with
+        | some impl, .defn _ => impl != .str x.2.1 "_impl"
+        | some _, _ => true
+        | none, _ => false) &&
       (kindOf x.2.2 != .definition || f.uninitialized x.1 x.2.1 ||
         (Lean.getInitFnNameFor? f.env x.2.1).isSome)
   | none, _ | some _, none => false
@@ -360,7 +508,7 @@ def Facts.unread? (f : Facts) {i : Input} (t : Tables i) : Option (Name × Name)
 /-- The exported (`global` or `scoped`) `@[csimp]` entries registered by module `m`, or an error if Lean
 gives `m` no module index. A missing module index is not an empty set of entries. Reads
 `Lean.Compiler.CSimp.ext.ext.getModuleEntries`, which `finalizeImport` populates unconditionally even
-under `loadExts := false` (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0). -/
+under `loadExts := false` (`Lean/Environment.lean:1990-1996`, `:2742` at v4.36.0). -/
 def Facts.moduleCSimps (f : Facts) (m : Name) : Except String (List CSimpEntry) :=
   match f.env.getModuleIdx? m with
   | none => .error s!"the claimed module {m} has no index in the loaded environment, so its \
@@ -498,8 +646,8 @@ def copyRoot (constants : Std.HashMap Name ConstantInfo) : Name :=
 
 /-- Each theorem of a claimed module, as that module's `.olean` states it, that is not the constant of its name that the
 environment keeps. Lean's import keeps one of the theorems of a name and type that its modules state (`subsumesInfo` and
-`finalizeImport`, `Lean/Environment.lean:2269-2275` and `2336-2345` at v4.35.0), so the kernel can check the others only as
-copies. A theorem counts as kept when `==` (`Expr.eqv` on each expression, `Lean/Expr.lean:804-812`) relates the two. -/
+`finalizeImport`, `Lean/Environment.lean:2633-2639` and `2700-2709` at v4.36.0), so the kernel can check the others only as
+copies. A theorem counts as kept when `==` (`Expr.eqv` on each expression, `Lean/Expr.lean:803-811`) relates the two. -/
 def Facts.copies (f : Facts) : List TheoremVal :=
   f.claimedConstants.filterMap fun (_, n, info) =>
     match info with

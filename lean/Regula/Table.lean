@@ -10,7 +10,7 @@ import Lean.Parser.Extension
 # The one table of effects
 
 `table` answers each operation of `Regula.Effect.Op` by a straight line of calls of Lean or of the operating system's
-function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. A lookup or an import takes its search path as an argument, and its row sets `Lean.searchPathRef` to it first, because `Lean.findOLean` and `Lean.importModules` read that reference and take no path (`Lean/Util/Path.lean:117-118`, `Lean/Environment.lean:2079-2080` at v4.35.0). Nothing here tests a result: a row
+function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. A lookup or an import takes its search path as an argument, and its row sets `Lean.searchPathRef` to it first, because `Lean.findOLean` and `Lean.importModules` read that reference and take no path (`Lean/Util/Path.lean:138-139`, `Lean/Environment.lean:2443-2444` at v4.36.0). Nothing here tests a result: a row
 passes on what the calls give. `table_rows` in `specification/RegulaSpecification/Proofs/Program.lean` states each row.
 -/
 

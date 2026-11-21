@@ -11,9 +11,9 @@ import all Regula.Rules.RG1012
 
 A definition or opaque constant of a claimed module whose value mentions a panic form. Lean's total functions
 can still panic, and a panic gives the type's default value, in Lean's logic ({name}`panicCore` is
-{name}`default`, {lit}`Init/Prelude.lean:3849` at v4.35.0) and in the compiled program, which prints the
+{name}`default`, {lit}`Init/Prelude.lean:3857` at v4.36.0) and in the compiled program, which prints the
 message and goes on with that value unless the variable {lit}`LEAN_ABORT_ON_PANIC` is set or the program asked
-to exit on a panic ({lit}`lean_panic_impl`, {lit}`src/runtime/object.cpp:176-207` at v4.35.0). So a proved
+to exit on a panic ({lit}`lean_panic_impl`, {lit}`src/runtime/object.cpp:176-207` at v4.36.0). So a proved
 function can go on with a value that its proofs never considered.
 
 A panic form is one of Lean's four panic functions, or a constant that is no theorem and whose name's last

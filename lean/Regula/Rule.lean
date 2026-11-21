@@ -24,7 +24,7 @@ open Lean (Name)
 /-- The three axioms of Lean's logic that a profile can admit. -/
 def logicalAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
-/-- The axioms of the toolchain by which Lean's kernel trusts the compiler: none at v4.35.0. -/
+/-- The axioms of the toolchain by which Lean's kernel trusts the compiler: none at v4.36.0. -/
 def compilerAxioms : List Name := []
 
 /-- Whether `a` has the name form of the axiom a native proof adds:
@@ -34,7 +34,7 @@ def nativeProofAxiom : Name → Bool
   | _ => false
 
 /-- The constants through which Lean's `while`, `repeat` and `repeat ... until` run: the one value
-of the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.35.0).
+of the type `Lean.Loop` that they iterate over, and the loop itself (`Init/While.lean` at v4.36.0).
 RG1006 reads it, and so does the loader's check of a constant that Lean's import replaced
 (`Regula.Load.fitsUnshown`). -/
 def loopConstructs : List Name := [``Lean.Loop.mk, ``repeatM]
@@ -129,6 +129,51 @@ def admits : Profile → Name → Bool
   | .kernelOnly, _ => false
   | .choiceFree, a => t.known a && (a == ``propext || a == ``Quot.sound)
   | .standardLogical, a => t.known a
+
+/-- `defDecl` and `implDecl` form the compiler-generated `T.ctorIdx` / `T.ctorIdx._impl` pair for
+the safe inductive type `ind` (`Lean/Meta/Constructions/CtorIdx.lean:40-141` at v4.36.0): `ind` is a
+safe inductive in the same module, `getObjTagNat` is the toolchain's constant
+(`Init/Prelude.lean:1381-1382`), `defDecl` is the safe definition `ind.ctorIdx` whose sole
+replacement is `@[implemented_by ind.ctorIdx._impl]` with no initialization function, and `implDecl`
+is the unsafe definition `ind.ctorIdx._impl` with no replacement attribute or initialization
+function. -/
+def ctorIdxPair (ind : Name) (defDecl implDecl : Decl) : Bool :=
+  let defName := Name.str ind "ctorIdx"
+  let implName := Name.str defName "_impl"
+  (t.index[`getObjTagNat]?).any (·.inToolchain) &&
+  (t.index[ind]?).any (fun indDecl =>
+    indDecl.kind == .inductive &&
+    indDecl.safety == .safe &&
+    indDecl.module == defDecl.module) &&
+  defDecl.name == defName &&
+  defDecl.kind == .definition &&
+  defDecl.safety == .safe &&
+  defDecl.ctorIdxForm == .defn ind &&
+  defDecl.implementedBy == some implName &&
+  !defDecl.isExtern &&
+  defDecl.initFn.isNone &&
+  implDecl.name == implName &&
+  implDecl.module == defDecl.module &&
+  implDecl.kind == .definition &&
+  implDecl.safety == .unsafe &&
+  implDecl.ctorIdxForm == .impl ind &&
+  implDecl.implementedBy.isNone &&
+  !implDecl.isExtern &&
+  implDecl.initFn.isNone
+
+/-- `d` is the safe half `T.ctorIdx` of a valid compiler-generated `ctorIdx` pair. RG1011 exempts
+its `@[implemented_by T.ctorIdx._impl]` attribute. -/
+def ctorIdxDef (d : Decl) : Bool :=
+  match d.ctorIdxForm with
+  | .defn ind => (t.index[Name.str d.name "_impl"]?).any (t.ctorIdxPair ind d ·)
+  | _ => false
+
+/-- `d` is the unsafe half `T.ctorIdx._impl` of a valid compiler-generated `ctorIdx` pair. RG1006
+exempts its `unsafe` safety. -/
+def ctorIdxImpl (d : Decl) : Bool :=
+  match d.ctorIdxForm with
+  | .impl ind => (t.index[Name.str ind "ctorIdx"]?).any (t.ctorIdxPair ind · d)
+  | _ => false
 
 end Tables
 

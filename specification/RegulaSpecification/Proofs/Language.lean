@@ -3,6 +3,7 @@ module
 public import Regula.Language
 public import RegulaSpecification.Language
 import all Init.Data.Array.BinSearch
+import all Init.Data.ByteArray.Lex
 import all Init.Data.Ord.String
 import all Init.Prelude
 import all Lean.Data.Name
@@ -189,14 +190,14 @@ theorem nameLt_total (a b : Name) (h1 : Name.lt a b = false) (h2 : Name.lt b a =
 theorem strLt_trans (a b c : String) (h1 : strLt a b = true) (h2 : strLt b c = true) :
     strLt a c = true := by
   simp only [strLt, decide_eq_true_eq] at h1 h2 ⊢
-  exact String.lt_trans h1 h2
+  exact Std.lt_trans h1 h2
 
 theorem strLt_irrefl (a : String) : strLt a a = false := by
-  simp [strLt, String.lt_irrefl]
+  simp [strLt, Std.lt_irrefl]
 
 theorem strLt_total (a b : String) (h1 : strLt a b = false) (h2 : strLt b a = false) : a = b := by
   simp only [strLt, decide_eq_false_iff_not] at h1 h2
-  exact String.le_antisymm (String.not_lt.mp h2) (String.not_lt.mp h1)
+  exact Std.le_antisymm (Std.not_lt.mp h2) (Std.not_lt.mp h1)
 
 theorem kinds_sorted : isSorted Name.lt kinds = true := by decide +kernel
 theorem leafKinds_sorted : isSorted Name.lt leafKinds = true := by decide +kernel
