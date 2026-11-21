@@ -51,6 +51,38 @@ def helperBaseFits (d : Decl) : Bool :=
 def helperForm (d : Decl) : Bool :=
   d.safety == .partial && d.implementedBy.isNone && !d.isExtern && helperBaseFits t d
 
+/-- Fix guidance for loop constructs (`while`/`repeat`). -/
+def loopGuidance : Guidance :=
+  { text := "replace while/repeat loops with finite for iteration, structural recursion, or total \
+      recursion using termination_by/decreasing_by or a derived fuel bound"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for `Lean.Order.fix` (`partial_fixpoint`). -/
+def orderFixGuidance : Guidance :=
+  { text := "replace partial_fixpoint / Lean.Order.fix with structural recursion, \
+      termination_by/decreasing_by, or a derived fuel bound"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for `unsafe` declarations. -/
+def unsafeGuidance : Guidance :=
+  { text := "remove unsafe and rewrite as safe total code (structural recursion, \
+      termination_by/decreasing_by, or a derived fuel bound); isolate unavoidable runtime entry points \
+      outside claimed modules"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for `partial` declarations. -/
+def partialGuidance : Guidance :=
+  { text := "remove partial and prove termination via structural recursion, \
+      termination_by/decreasing_by, a derived fuel bound, or a witness paired with a small total \
+      checker (do not use partial_fixpoint)"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for a safe declaration forged with a `._unsafe_rec` helper name. -/
+def forgedHelperGuidance : Guidance :=
+  { text := "do not declare names ending in ._unsafe_rec; rename the declaration so Lean's compiler \
+      does not substitute it for the base definition"
+    nonblank := by simp [Char.isWhitespace] }
+
 /-- What RG1006 prints of a constant that it reports. -/
 def escapeDetail (d : Decl) : String :=
   if mentionsLoop d then "mentions a loop construct of Lean"
@@ -61,6 +93,16 @@ def escapeDetail (d : Decl) : String :=
     | .partial => "is partial"
     | .safe => "has the name of a recursion helper, and is not partial"
 
+/-- Fix guidance for a constant that RG1006 reports, matching the branch selected by `escapeDetail`. -/
+def escapeGuidance (d : Decl) : Guidance :=
+  if mentionsLoop d then loopGuidance
+  else if mentionsOrderFix d then orderFixGuidance
+  else
+    match d.safety with
+    | .unsafe => unsafeGuidance
+    | .partial => partialGuidance
+    | .safe => forgedHelperGuidance
+
 /-- The constants of claimed modules that are unsafe, partial or named as a recursion helper, without
 the exempted form, whose value mentions a loop construct of Lean, or that are definitions or opaque
 constants whose value directly mentions `Lean.Order.fix`. -/
@@ -68,7 +110,7 @@ def check : List Violation :=
   t.claimed.filterMap fun d =>
     if ((d.safety != .safe || namedAsHelper d) && !helperForm t d) ||
         mentionsLoop d || mentionsOrderFix d then
-      some (violation d (escapeDetail d))
+      some (violation d (escapeDetail d) (escapeGuidance d))
     else none
 
 /-- RG1006, for the registry. Its body is exposed so that the registry reads its spelling (`Regula.Closed.spellings_nodup`). -/

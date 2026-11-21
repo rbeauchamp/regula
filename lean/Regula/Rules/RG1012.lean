@@ -47,6 +47,24 @@ def panicForm (u : Name) : Bool :=
 /-- Whether `d` is a definition or an opaque constant. -/
 def hasRunValue (d : Decl) : Bool := d.kind == .definition || d.kind == .opaque
 
+/-- Fix guidance for explicit panic functions (`panic!`, `unreachable!`, `assert!`, `panicCore`). -/
+def panicFnGuidance : Guidance :=
+  { text := "replace panic!/unreachable!/assert! with intrinsic typing (narrowed input types or \
+      impossible-case proofs via nomatch/contradiction) or explicit Option/Except; avoid masking \
+      failures with silent default/getD unless part of the specification"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for `!`-named panicking operations (such as `xs[i]!`, `Option.get!`, `List.head!`). -/
+def bangOpGuidance : Guidance :=
+  { text := "replace !-operations with intrinsic typing (Fin, xs[i]'h, or narrowed input types) or \
+      explicit Option/Except (such as xs[i]?); avoid masking failures with silent default/getD unless \
+      part of the specification"
+    nonblank := by simp [Char.isWhitespace] }
+
+/-- Fix guidance for a panic form `u`. -/
+def panicGuidance (u : Name) : Guidance :=
+  if panicFunctions.contains u then panicFnGuidance else bangOpGuidance
+
 /-- The definitions and opaque constants of claimed modules whose value mentions a panic form, each with the
 first panic form that its value mentions. -/
 def check : List Violation :=
@@ -56,6 +74,7 @@ def check : List Violation :=
         violation d s!"its value mentions {u}, a panic form: one of Lean's four panic functions, or a \
           constant that is no theorem and whose name's last string component, with its macro scopes erased, \
           contains `!`, Lean's naming for an operation that panics when it fails"
+          (panicGuidance u)
     else none
 
 /-- RG1012, for the registry. Its body is exposed so that the registry reads its spelling (`Regula.Closed.spellings_nodup`). -/

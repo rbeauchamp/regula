@@ -52,16 +52,45 @@ def Subject.name : Subject → Name
   | .constant name _ => name
   | .module name => name
 
-/-- What a rule reports of one subject: the subject and what the rule found. -/
+/-- Non-blank fix guidance for a finding: non-empty text whose first character is not whitespace,
+so no rule can emit empty, blank, or leading-whitespace guidance. -/
+structure Guidance where
+  /-- The remediation text printed beneath the finding line. -/
+  text : String
+  /-- The guidance begins with a non-whitespace character. -/
+  nonblank : text.toList.head?.any (!·.isWhitespace) = true
+
+namespace Guidance
+
+theorem text_ne_empty (g : Guidance) : g.text ≠ "" := by
+  intro h
+  have hn := g.nonblank
+  rw [h] at hn
+  simp at hn
+
+theorem exists_nonwhitespace (g : Guidance) : ∃ c ∈ g.text.toList, c.isWhitespace = false := by
+  have hn := g.nonblank
+  cases hl : g.text.toList with
+  | nil => simp [hl] at hn
+  | cons c cs =>
+    rw [hl] at hn
+    simp only [List.head?_cons, Option.any_some, Bool.not_eq_true'] at hn
+    exact ⟨c, by simp, hn⟩
+
+end Guidance
+
+/-- What a rule reports of one subject: the subject, what the rule found, and non-blank fix guidance. -/
 structure Violation where
   /-- The constant or module that violated the rule. -/
   subject : Subject
   /-- What the rule found. -/
   detail : String
+  /-- Actionable fix guidance for the finding. -/
+  guidance : Guidance
 
 /-- A violation by the constant `d`. -/
-def violation (d : Decl) (detail : String) : Violation :=
-  { subject := .constant d.name d.module, detail }
+def violation (d : Decl) (detail : String) (guidance : Guidance) : Violation :=
+  { subject := .constant d.name d.module, detail, guidance }
 
 /-- A rule: the name that its findings print, and the subjects that it reports on an input, read
 through the tables of that input. -/
@@ -71,7 +100,7 @@ structure Rule where
   /-- The subjects of the input that violate the rule. -/
   check : ∀ {i : Input}, Tables i → List Violation
 
-/-- One finding: the spelling of the rule that reports it, the subject, and a detail. -/
+/-- One finding: the spelling of the rule that reports it, the subject, a detail, and fix guidance. -/
 structure Finding where
   /-- The spelling of the rule. -/
   rule : String
@@ -79,10 +108,12 @@ structure Finding where
   subject : Subject
   /-- What the rule found. -/
   detail : String
+  /-- Actionable fix guidance for the finding. -/
+  guidance : Guidance
 
 /-- The finding of the rule `r` that its violation `v` gives. -/
 def Finding.of (r : Rule) (v : Violation) : Finding :=
-  { rule := r.spelling, subject := v.subject, detail := v.detail }
+  { rule := r.spelling, subject := v.subject, detail := v.detail, guidance := v.guidance }
 
 namespace Tables
 

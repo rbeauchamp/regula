@@ -56,14 +56,45 @@ theorem detailText_lines (s : String) :
   simp only [List.map_singleton, String.ofList_toList]
 
 /-- A constant finding formats with its module in parentheses, even when constant and module share a name. -/
-theorem line_constant (rule : String) (name m : Name) (detail : String) :
-    Regula.Shell.line { rule, subject := .constant name m, detail } =
+theorem line_constant (rule : String) (name m : Name) (detail : String)
+    (guidance : Regula.Closed.Guidance) :
+    Regula.Shell.line { rule, subject := .constant name m, detail, guidance } =
       s!"{rule} {name} (module {m}): {detail}" := by rfl
 
 /-- A module finding formats without a parenthesized module suffix. -/
-theorem line_module (rule : String) (name : Name) (detail : String) :
-    Regula.Shell.line { rule, subject := .module name, detail } =
+theorem line_module (rule : String) (name : Name) (detail : String)
+    (guidance : Regula.Closed.Guidance) :
+    Regula.Shell.line { rule, subject := .module name, detail, guidance } =
       s!"{rule} {name}: {detail}" := by rfl
+
+/-- The indented fix-guidance line emitted beneath a finding carries the finding's guidance text
+after a two-space indent and {lit}`fix: `. -/
+theorem guidanceLine_eq (f : Regula.Closed.Finding) :
+    Regula.Shell.guidanceLine f = "  fix: " ++ f.guidance.text := by rfl
+
+/-- Each finding emits its primary finding line followed immediately by its indented guidance line. -/
+theorem findingLines_eq (f : Regula.Closed.Finding) :
+    Regula.Shell.findingLines f = [Regula.Shell.line f, Regula.Shell.guidanceLine f] := by rfl
+
+/-- A failing report emits the primary line and guidance line for each finding, followed by the
+finding count. -/
+theorem details_fail (first : Regula.Closed.Finding) (rest : List Regula.Closed.Finding) :
+    Regula.Shell.details (.fail first rest) =
+      (first :: rest).flatMap Regula.Shell.findingLines ++ [s!"{rest.length + 1} findings"] := by rfl
+
+theorem detailText_append (a b : String) :
+    detailText (a ++ b) = detailText a ++ detailText b := by
+  simp [detailText, String.toList_append, List.flatMap_append, String.ofList_append]
+
+/-- Passing a finding's guidance line through {name}`Regula.Reader.say` renders a single physical
+line starting with four spaces ({lit}`    fix: `) followed by the escaped guidance text. -/
+theorem detailText_guidanceLine (f : Regula.Closed.Finding) :
+    "  " ++ detailText (Regula.Shell.guidanceLine f) =
+      "    fix: " ++ detailText f.guidance.text := by
+  rw [guidanceLine_eq, detailText_append]
+  have hp : detailText "  fix: " = "  fix: " := by decide
+  rw [hp, ← String.append_assoc]
+  rfl
 
 theorem details_nil : Details (L := L) (E := E) [] := by
   simp [Details, printed]
@@ -97,6 +128,21 @@ theorem say_spec {s : String} {t : List (Event L E)} {u : Unit} (h : Runs (say s
         List.flatMap_cons, List.flatMap_nil, List.nil_append] using hl
     rw [detailText_lines] at hl'
     exact ⟨detailText s, List.mem_singleton.mp hl'⟩
+
+/-- Running {name}`Regula.Reader.say` on a finding's guidance line prints exactly one physical line,
+indented four spaces with {lit}`fix: `, with LF and CR escaped, satisfying {name}`Details` (hence {name}`IsDetail`). -/
+theorem say_guidanceLine_spec {f : Regula.Closed.Finding} {t : List (Event L E)} {u : Unit}
+    (h : Runs (say (Regula.Shell.guidanceLine f) : Prog L E Unit) t u) :
+    printed t = ["    fix: " ++ detailText f.guidance.text] ∧ Details t := by
+  have hd := say_spec h
+  refine ⟨?_, hd⟩
+  unfold say at h
+  obtain ⟨t₁, t₂, r, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
+  obtain rfl := runs_call_iff.mp h₁
+  obtain ⟨rfl, -⟩ := runs_pure_iff.mp h₂
+  simp only [printed, Event.line?, List.append_nil, List.filterMap_cons, List.filterMap_nil,
+    List.flatMap_cons, List.flatMap_nil]
+  rw [detailText_lines, detailText_guidanceLine]
 
 theorem sayAll_spec {ls : List String} {t : List (Event L E)} {u : Unit}
     (h : Runs (sayAll ls : Prog L E Unit) t u) : Details t := by

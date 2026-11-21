@@ -6,9 +6,9 @@ In Lean 4, proofs are erased at compile time, so compiled binaries run the execu
 
 Regula is a strict Lean 4 linter built to hold coding agents to verified engineering standards across both functional programming and theorem proving:
 
-- **Actionable agent diagnostics:** `lake lint` reads the finished build, reports exact findings such as `RG1002 double (module Demo): depends on sorryAx` (rule, constant and module), and ends with a verdict line (`regula: proof verdict: fail`) and exit code (0 for `pass` and for nothing else).
+- **Actionable agent diagnostics:** `lake lint` reads the finished build, reports exact findings such as `RG1002 double (module Demo): depends on sorryAx` (rule, constant and module) paired (on `main`, in no release yet) with an indented `fix:` guidance line beneath each finding, and ends with a verdict line (`regula: proof verdict: fail`) and exit code (0 for `pass` and for nothing else).
 - **Proved rules, not heuristics:** Each rule, RG1001 to RG1006 and RG1011 to RG1013, is proved in Lean 4 to refuse every violation and only violations over its input (`rg1001_exact` to `rg1006_exact`, `rg1011_exact` to `rg1013_exact`).
-- **Proved foundation today, broader standard ahead:** `v0.13.0` ships the 8-rule soundness, totality and build-isolation core; `main` adds RG1011, RG1012 and RG1013 (in no release yet) and publishes the standalone Lean 4 engineering standard in [`STANDARD.md`](STANDARD.md), distinguishing enforced rules from manual and planned practices. Further standard items, actionable fix guidance and new design, refactoring and architecture lint rules remain planned and ship only once formally specified and proved ([Purpose and constraint](#purpose-and-constraint), [Work on Regula](#work-on-regula)).
+- **Proved foundation today, broader standard ahead:** `v0.13.0` ships the 8-rule soundness, totality and build-isolation core; `main` adds RG1011, RG1012 and RG1013, proved-safe fix guidance on every registered rule (in no release yet), and publishes the standalone Lean 4 engineering standard in [`STANDARD.md`](STANDARD.md), distinguishing enforced rules from manual and planned practices. Further standard items and new design, refactoring and architecture lint rules remain planned and ship only once formally specified and proved ([Purpose and constraint](#purpose-and-constraint), [Work on Regula](#work-on-regula)).
 
 Regula gives one of two verdicts, and its output names which one ran ([full scope and assumptions](#what-a-pass-means)):
 
@@ -43,9 +43,13 @@ lake build --wfail
 lake lint
 ```
 
-For this `Demo.lean`, `lake build --wfail` fails at `double`, while a plain `lake build` only warns there. After that plain build, `lake lint` refuses `double` and `twice` (whose proof depends on `double`):
+For this `Demo.lean`, `lake build --wfail` fails at `double`, while a plain `lake build` only warns there. After that plain build, `lake lint` refuses `double` and `twice` (whose proof depends on `double`). The indented `fix:` lines shown below are on `main` (in no release yet); `v0.13.0` prints the same finding lines, finding count, and verdict line without `fix:` lines:
 
 ```lean
+module
+
+public section
+
 theorem double (n : Nat) : n + n = 2 * n := by sorry
 
 theorem twice (n : Nat) : 2 * n = n + n := (double n).symm
@@ -54,19 +58,23 @@ theorem twice (n : Nat) : 2 * n = n + n := (double n).symm
 ```text
   regula: read 1 claimed modules and 2 of their constants
   RG1002 twice (module Demo): depends on sorryAx
+    fix: complete the proof or remove the unfinished declaration rather than leaving sorry or admit; if inherited from a dependency, complete that declaration first
   RG1002 double (module Demo): depends on sorryAx
+    fix: complete the proof or remove the unfinished declaration rather than leaving sorry or admit; if inherited from a dependency, complete that declaration first
   RG1005 twice (module Demo): depends on [sorryAx], outside the profile
+    fix: remove the dependency on axioms outside the configured profile (kernel-only, choice-free, or standard-logical); sorryAx, native-proof, and non-standard axioms are refused by every profile
   RG1005 double (module Demo): depends on [sorryAx], outside the profile
+    fix: remove the dependency on axioms outside the configured profile (kernel-only, choice-free, or standard-logical); sorryAx, native-proof, and non-standard axioms are refused by every profile
   4 findings
 regula: proof verdict: fail
 ```
 
 - **Exit codes:** 0 for `pass`, 1 for `fail`, 2 for `incomplete`.
-- **Output format:** Diagnostic lines start with two spaces and escape newlines and carriage returns as `\n` and `\r`, so diagnostic text cannot forge the final verdict line. A `pass` ends its last line with the audited directory (the full gate also prints Lake's build output beforehand).
+- **Output format:** Diagnostic lines start with two spaces (and on `main`, each finding's indented `fix:` line starts with four spaces beneath it) and escape newlines and carriage returns as `\n` and `\r`, so neither findings nor fix guidance can forge the final verdict line. A `pass` ends its last line with the audited directory (the full gate also prints Lake's build output beforehand).
 
 ## The checks
 
-Eleven checks cover proof foundations, program totality, compiled code, hidden panics, module files, pre-build source admission, and kernel cone replay. RG1011, RG1012 and RG1013 (and RG1006's `partial_fixpoint` clause) are on `main` and in no release yet; `v0.13.0` has the other eight:
+Eleven checks cover proof foundations, program totality, compiled code, hidden panics, module files, pre-build source admission, and kernel cone replay. RG1011, RG1012 and RG1013, RG1006's `partial_fixpoint` clause, and per-finding `fix:` guidance across all nine registered rules are on `main` and in no release yet; `v0.13.0` has the other eight checks without fix guidance:
 
 | Rule | Area | What it refuses |
 | --- | --- | --- |
@@ -165,7 +173,7 @@ theorem swap (a b : Nat) : a + b = b + a := by omega
 
 Regula is a checker of Lean builds whose claim is meant to be exact and proved, so that people can trust it, and whose own code is meant to be the example of how Lean 4 code should be written: well factored, well designed, following best practice, and formally proven. Its owner decided on 2026-10-31 that being free of bugs outranks every lint rule and feature, so Regula gives up any rule, feature or package it cannot prove rather than patching it, documenting a limit or keeping a stated gap. Only Lean, its kernel and Lake's own behaviour are meant to stay trusted, with a short list of behaviours of the operating system, each tied to the platforms on which it was observed; Regula's own code is meant to be proved, or so thin that it only calls Lean. The [run of the checker](specification/README.md#the-run-of-the-checker) states what is proved of its effects, and the [trusted base](specification/README.md#the-trusted-base) what stays assumed.
 
-That floor is a foundation, not a frozen scope ([the record of 2026-11-03](specification/confirmation.md#2026-11-03-regulas-direction-and-the-readme)). Regula's long-term goal is to capture a strict Lean 4 engineering standard and enforce it as a linter across both theorem proving and functional programming, pairing exact diagnostics with actionable fix guidance so coding agents meet both functional and non-functional requirements across soundness, totality, design, refactoring and architecture. Today (`v0.13.0`), Regula ships only eight proved checks, those above but RG1011, RG1012 and RG1013, which `main` adds after that release, and emits no fix suggestions; `main` publishes the standalone engineering standard in [`STANDARD.md`](STANDARD.md), separating enforced rules from manual and planned practices. Earlier unproved rules and helpers were removed under the 2026-10-31 rule, and each new standard item, fix or rule lands only once it is simple enough to specify and prove to the same bar.
+That floor is a foundation, not a frozen scope ([the record of 2026-11-03](specification/confirmation.md#2026-11-03-regulas-direction-and-the-readme)). Regula's long-term goal is to capture a strict Lean 4 engineering standard and enforce it as a linter across both theorem proving and functional programming, pairing exact diagnostics with actionable fix guidance so coding agents meet both functional and non-functional requirements across soundness, totality, design, refactoring and architecture. Today (`v0.13.0`), Regula ships eight proved checks—those above except RG1011, RG1012 and RG1013—without fix suggestions; `main` adds RG1011, RG1012 and RG1013, emits proved-safe indented `fix:` guidance beneath every finding of the nine registered rules, and publishes the standalone engineering standard in [`STANDARD.md`](STANDARD.md), separating enforced rules from manual and planned practices. Earlier unproved rules and helpers were removed under the 2026-10-31 rule, and each new standard item, fix or rule lands only once it is simple enough to specify and prove to the same bar.
 
 Regula aims to be for Lean linters what [seL4](https://sel4.systems/Verification/proofs.html) is for kernels: a tool whose claim is exact and proved, which is what earns trust. That sentence states the aim and does not say it has been reached. Simplicity is how it becomes achievable, as in [LionsOS](https://trustworthy.systems/projects/LionsOS), where each component does only the minimum its use case needs. On 2026-11-01 the owner made this a constraint over all work on Regula, and it governs every later change:
 
@@ -194,7 +202,7 @@ The full verdict stays at its built size. On 2026-11-01 the owner was shown that
 
 Regula is built spec-first in Lean 4: specifications are written and proved non-vacuous before code changes, and every decision-bearing function is proved over the definitions the executable runs.
 
-- **Where to contribute:** Work is welcome across building out [the Lean 4 engineering standard](STANDARD.md), adding actionable fix guidance to diagnostics, proposing and proving new checks across functional programming, theorem proving, design, refactoring and architecture (each specified and proved before shipping), and shrinking the full verdict's specification without losing a confirmed guarantee.
+- **Where to contribute:** Work is welcome across building out [the Lean 4 engineering standard](STANDARD.md), refining proved-safe fix guidance for diagnostics, proposing and proving new checks across functional programming, theorem proving, design, refactoring and architecture (each specified and proved before shipping), and shrinking the full verdict's specification without losing a confirmed guarantee.
 - **Layout:** [`lean/Regula/`](lean/Regula/) holds the checker, each rule's check in a module of its own below [`lean/Regula/Rules/`](lean/Regula/Rules/); [`specification/`](specification/) holds the [`lean-intent`](https://github.com/rbeauchamp/lean-intent) specifications, bidirectional proofs and closed assumption list, each rule's statement and proofs below [`specification/RegulaSpecification/Rules/`](specification/RegulaSpecification/Rules/). Adding a rule is those two modules and a line in each registry ([how](CONTRIBUTING.md#adding-a-rule)), so that adding or fixing a rule does not break another; the local gate still rebuilds and re-checks every rule on each run.
 - **Local gate:** With Lean `v4.35.0` installed (and GitHub access on first build for `lean-intent`), run `lean --run lean/Regula/DiagnosticsGate.lean local`. A pull request runs the same command on GitHub ([`gate.yml`](.github/workflows/gate.yml)).
 - **Contributor docs:** [`STANDARD.md`](STANDARD.md) states the Lean 4 engineering standard and what Regula enforces; [the specification](specification/README.md) states each rule, proof and assumption; [`specification/confirmation.md`](specification/confirmation.md) records the owner's decisions; and [`CONTRIBUTING.md`](CONTRIBUTING.md) gives every rule for changes and reviews.
