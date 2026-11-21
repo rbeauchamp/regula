@@ -152,6 +152,30 @@ theorem not_native_of_components {a : Name} (h : components a < 3) : ¬ NativePr
 theorem not_known_of_not_logical {i : Input} {a : Name} (h : a ∉ logicalAxioms) : ¬ i.Known a :=
   fun hk => h hk.1
 
+/-- A safe inductive type `Good.T` of a claimed module. -/
+def ctorIdxInd : Decl := plain `Good.T `Good .inductive []
+
+/-- The safe half `Good.T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair. -/
+def ctorIdxDefDecl : Decl :=
+  { plain `Good.T.ctorIdx `Good .definition [`Good.T] with
+    implementedBy := some `Good.T.ctorIdx._impl, ctorIdxForm := .defn `Good.T }
+
+/-- The unsafe half `Good.T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair. -/
+def ctorIdxImplDecl : Decl :=
+  { plain `Good.T.ctorIdx._impl `Good .definition [`Good.T, `getObjTagNat] with
+    safety := .unsafe, ctorIdxForm := .impl `Good.T }
+
+/-- {name}`base`, with a verified compiler-generated {lit}`ctorIdx` pair for `Good.T`. -/
+def withCtorIdx : Input :=
+  withDecls [toolchain `getObjTagNat .opaque, ctorIdxInd, ctorIdxDefDecl, ctorIdxImplDecl]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd, ctorIdxDefDecl,
+      ctorIdxImplDecl])
+
+theorem wf_withCtorIdx : withCtorIdx.WellFormed :=
+  wf_withDecls _ _
+    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd,
+      ctorIdxDefDecl, ctorIdxImplDecl]))
+
 end Witnesses
 
 end RegulaSpecification

@@ -7,6 +7,8 @@ public import RegulaSpecification.Refinement
 public import Lean.Compiler.CSimpAttr
 public import Lean.Compiler.ExternAttr
 public import Lean.Compiler.ImplementedByAttr
+public import Lean.Compiler.LCNF.Util
+import all Lean.Compiler.LCNF.Util
 import all Lean.Declaration
 import all Regula.Input
 import all Regula.Load
@@ -214,11 +216,29 @@ def stripLamsSpec : Nat → Lean.Expr → Option Lean.Expr
   | k + 1, .lam _ _ b _ => stripLamsSpec k b
   | _ + 1, _ => none
 
-/-- Strips {lit}`k` leading forall binders from an expression. -/
-def stripForallsSpec : Nat → Lean.Expr → Option Lean.Expr
-  | 0, e => some e
-  | k + 1, .forallE _ _ b _ => stripForallsSpec k b
+/-- Strips {lit}`k` leading forall binders from an expression, returning their binder domains in
+order and the remaining body. -/
+def stripForallDomainsSpec : Nat → Lean.Expr → Option (List Lean.Expr × Lean.Expr)
+  | 0, e => some ([], e)
+  | k + 1, .forallE _ d b _ =>
+    match stripForallDomainsSpec k b with
+    | some (ds, rest) => some (d :: ds, rest)
+    | none => none
   | _ + 1, _ => none
+
+/-- Strips leading forall binders whose domains match {lit}`doms` by {lit}`Expr.eqv` ({lit}`==`). -/
+def stripForallsWithDomainsSpec : List Lean.Expr → Lean.Expr → Option Lean.Expr
+  | [], e => some e
+  | d :: ds, .forallE _ td b _ =>
+    if td == d then stripForallsWithDomainsSpec ds b else none
+  | _ :: _, _ => none
+
+/-- Strips leading lambda binders whose domains match {lit}`doms` by {lit}`Expr.eqv` ({lit}`==`). -/
+def stripLamsWithDomainsSpec : List Lean.Expr → Lean.Expr → Option Lean.Expr
+  | [], e => some e
+  | d :: ds, .lam _ vd b _ =>
+    if vd == d then stripLamsWithDomainsSpec ds b else none
+  | _ :: _, _ => none
 
 /-- Strips {lit}`k` leading lambda binders from {lit}`val` and {lit}`k` leading forall binders from
 {lit}`ty` in lockstep, checking {lit}`Expr.eqv` ({lit}`==`) on each binder domain. -/
@@ -228,30 +248,94 @@ def stripLamMatchingForallSpec : Nat → Lean.Expr → Lean.Expr → Option (Lea
     if vd == td then stripLamMatchingForallSpec k vb tb else none
   | _ + 1, _, _ => none
 
-/-- Applies {name}`fn` to {lit}`n` consecutive bound variables down to {lit}`offset`. -/
-def mkBVarAppsSpec (fn : Lean.Expr) : Nat → Nat → Lean.Expr
-  | 0, _ => fn
-  | n + 1, offset => mkBVarAppsSpec (.app fn (.bvar (n + offset))) n offset
-
-/-- Unwinds nested applications into head and argument list. -/
-def unappGoSpec : Lean.Expr → List Lean.Expr → Lean.Expr × List Lean.Expr
-  | .app f a, acc => unappGoSpec f (a :: acc)
-  | e, acc => (e, acc)
-
 /-- The list of {lit}`n` consecutive bound variables down to {lit}`offset`. -/
 def bvarListSpec : Nat → Nat → List Lean.Expr
   | 0, _ => []
   | n + 1, offset => .bvar (n + offset) :: bvarListSpec n offset
 
-/-- Checks that each branch matches its constructor's arity and index literal {lit}`cInfo.cidx`. -/
-def checkCtorAltsSpec (env : Lean.Environment) (ind : Name) : List Name → List Lean.Expr → Bool
+/-- Lifts outer parameter bound variables ({lit}`≥ depth`) in each index domain by {lit}`shift`. -/
+def liftIdxDomainsSpec (shift : Nat) : Nat → List Lean.Expr → List Lean.Expr
+  | _, [] => []
+  | depth, d :: ds => d.liftLooseBVars depth shift :: liftIdxDomainsSpec shift (depth + 1) ds
+
+/-- Independent check that each constructor's minor premise in {lit}`ind.casesOn` matches the
+corresponding kernel recursor rule in {lit}`recInfo.rules`, wrapping constructor fields and
+recursive induction hypotheses and calling only {lit}`casesOn`'s {lit}`j`-th alternative on the
+constructor's fields. -/
+def checkCasesOnMinorsSpec (env : Lean.Environment) (ind : Name) (np nm nmin k : Nat) :
+    Nat → List Name → List Lean.RecursorRule → List Lean.Expr → Bool
+  | _, [], [], _ => true
+  | j, c :: cs, rule :: rules, coMinors =>
+    match env.find? c with
+    | some (.ctorInfo cInfo) =>
+      let nf := cInfo.numFields
+      cInfo.induct == ind && cInfo.cidx == j && rule.ctor == c && rule.nfields == nf &&
+        match stripLamsSpec (np + nm + nmin + nf) rule.rhs with
+        | some ruleBody =>
+          match ruleBody.getAppFn with
+          | .bvar idx =>
+            let totalLams := ruleBody.getAppArgs.size
+            nf ≤ idx && idx < nf + nmin && nf ≤ totalLams &&
+              let minorIdx := nmin - 1 - (idx - nf)
+              match coMinors[minorIdx]? with
+              | some minor =>
+                stripLamsSpec totalLams minor ==
+                  some (Lean.mkAppN (.bvar (k - 1 - j + totalLams))
+                    (bvarListSpec nf (totalLams - nf)).toArray) &&
+                  checkCasesOnMinorsSpec env ind np nm nmin k (j + 1) cs rules coMinors
+              | none => false
+          | _ => false
+        | none => false
+    | _ => false
+  | _, _, _, _ => false
+
+/-- Independent check that {lit}`ind.casesOn` is a safe definition delegating directly to the
+kernel-checked recursor {lit}`ind.rec` ({lit}`Lean/Meta/Constructions/CasesOn.lean:17,71-81`). -/
+def checkCasesOnSpec (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal) : Bool :=
+  let np := indInfo.numParams
+  let ni := indInfo.numIndices
+  let k := indInfo.ctors.length
+  match env.find? (.str ind "rec"), env.find? (.str ind "casesOn"), indInfo.all.idxOf? ind with
+  | some (.recInfo recInfo), some (.defnInfo casesOnInfo), some motiveIdx =>
+    let nm := recInfo.numMotives
+    let nmin := recInfo.numMinors
+    casesOnInfo.safety == .safe && !recInfo.k &&
+      recInfo.all == indInfo.all && recInfo.numParams == np && recInfo.numIndices == ni &&
+      recInfo.levelParams.length == indInfo.levelParams.length + 1 &&
+      recInfo.levelParams.tail == indInfo.levelParams &&
+      casesOnInfo.levelParams == recInfo.levelParams &&
+      recInfo.rules.length == k && motiveIdx < nm &&
+      match stripLamsSpec (np + 1 + ni + 1 + k) casesOnInfo.value with
+      | some coBody =>
+        let coArgs := coBody.getAppArgs.toList
+        coBody.getAppFn ==
+            .const (.str ind "rec") (casesOnInfo.levelParams.map Lean.Level.param) &&
+          coArgs.length == np + nm + nmin + ni + 1 &&
+          coArgs.take np == bvarListSpec np (1 + ni + 1 + k) &&
+          coArgs[np + motiveIdx]? == some (.bvar (ni + 1 + k)) &&
+          coArgs.drop (np + nm + nmin) == bvarListSpec ni (1 + k) ++ [.bvar k] &&
+          checkCasesOnMinorsSpec env ind np nm nmin k 0 indInfo.ctors recInfo.rules
+            ((coArgs.drop (np + nm)).take nmin)
+      | none => false
+  | _, _, _ => false
+
+/-- Checks that each branch matches its constructor's field domains derived from {lit}`cInfo.type`
+with parameters instantiated, and ends in the index literal {lit}`cInfo.cidx`. -/
+def checkCtorAltsSpec (env : Lean.Environment) (ind : Name) (np ni : Nat)
+    (paramDoms : List Lean.Expr) : List Name → List Lean.Expr → Bool
   | [], [] => true
   | c :: cs, alt :: alts =>
     match env.find? c with
     | some (.ctorInfo cInfo) =>
       cInfo.induct == ind &&
-        stripLamsSpec cInfo.numFields alt == some (.lit (.natVal cInfo.cidx)) &&
-        checkCtorAltsSpec env ind cs alts
+        match stripForallsWithDomainsSpec paramDoms cInfo.type with
+        | some cRest =>
+          let cInst := cRest.instantiateRev (bvarListSpec np (ni + 1)).toArray
+          match stripLamMatchingForallSpec cInfo.numFields alt cInst with
+          | some (.lit (.natVal cidx), _) =>
+            cidx == cInfo.cidx && checkCtorAltsSpec env ind np ni paramDoms cs alts
+          | _ => false
+        | none => false
     | _ => false
   | _, _ => false
 
@@ -265,26 +349,35 @@ def ctorIdxDefShape (env : Lean.Environment) (ind : Name) (indInfo : Lean.Induct
   let us := indInfo.levelParams.map Lean.Level.param
   !indInfo.isUnsafe && indInfo.numCtors != 1 && !RuntimeBuiltinTypes.contains ind &&
     d.safety == .safe && d.levelParams == indInfo.levelParams &&
-    stripForallsSpec n indInfo.type != some (.sort .zero) &&
-    match stripLamMatchingForallSpec (n + 1) d.value d.type, stripForallsSpec n d.type with
-    | some (body, retTy), some (.forallE _ discrTy (.const `Nat []) _) =>
-      retTy == .const `Nat [] &&
-        discrTy == mkBVarAppsSpec (.const ind us) n 0 &&
-        let (fn, args) := unappGoSpec body []
-        fn == .const (Name.str ind "casesOn") (.succ .zero :: us) &&
-          args.length == np + 1 + ni + 1 + indInfo.ctors.length &&
-          match args.drop np with
-          | motive :: rest2 =>
-            match rest2.drop ni with
-            | discr :: alts =>
-              args.take np == bvarListSpec np (ni + 1) &&
-                stripLamsSpec (ni + 1) motive == some (.const `Nat []) &&
-                rest2.take ni == bvarListSpec ni 1 &&
-                discr == .bvar 0 &&
-                checkCtorAltsSpec env ind indInfo.ctors alts
+    checkCasesOnSpec env ind indInfo &&
+    match stripForallDomainsSpec n indInfo.type with
+    | some (doms, .sort u) =>
+      let discrTy := Lean.mkAppN (.const ind us) (bvarListSpec n 0).toArray
+      let expectedDoms := doms ++ [discrTy]
+      let motiveDiscrTy :=
+        Lean.mkAppN (.const ind us) ((bvarListSpec np (ni + 1 + ni) ++ bvarListSpec ni 0).toArray)
+      let motiveDoms := liftIdxDomainsSpec (ni + 1) 0 (doms.drop np) ++ [motiveDiscrTy]
+      let paramDoms := doms.take np
+      u.isNeverZero &&
+        stripForallsWithDomainsSpec expectedDoms d.type == some (.const `Nat []) &&
+        match stripLamsWithDomainsSpec expectedDoms d.value with
+        | some body =>
+          let args := body.getAppArgs.toList
+          body.getAppFn == .const (Name.str ind "casesOn") (.succ .zero :: us) &&
+            args.length == np + 1 + ni + 1 + indInfo.ctors.length &&
+            match args.drop np with
+            | motive :: rest2 =>
+              match rest2.drop ni with
+              | discr :: alts =>
+                args.take np == bvarListSpec np (ni + 1) &&
+                  stripLamsWithDomainsSpec motiveDoms motive == some (.const `Nat []) &&
+                  rest2.take ni == bvarListSpec ni 1 &&
+                  discr == .bvar 0 &&
+                  checkCtorAltsSpec env ind np ni paramDoms indInfo.ctors alts
+              | [] => false
             | [] => false
-          | [] => false
-    | _, _ => false
+        | none => false
+    | _ => false
 
 /-- Independent specification of the structural shape of Lean's unsafe {lit}`ind.ctorIdx._impl`
 implementation ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-69` at v4.36.0), stated apart from
@@ -297,10 +390,15 @@ def ctorIdxImplShape (ind : Name) (indInfo : Lean.InductiveVal)
     d.safety == .unsafe &&
     d.levelParams == indInfo.levelParams && d.levelParams == dDef.levelParams &&
     d.type == dDef.type &&
-    stripForallsSpec n indInfo.type != some (.sort .zero) &&
-    match stripLamMatchingForallSpec (n + 1) d.value d.type with
-    | some (.app (.app (.const `getObjTagNat [u]) tyArg) (.bvar 0), .const `Nat []) =>
-      u.isNeverZero && tyArg == mkBVarAppsSpec (.const ind us) n 1
+    match stripForallDomainsSpec n indInfo.type with
+    | some (doms, .sort u) =>
+      let expectedDoms := doms ++ [Lean.mkAppN (.const ind us) (bvarListSpec n 0).toArray]
+      u.isNeverZero &&
+        stripForallsWithDomainsSpec expectedDoms d.type == some (.const `Nat []) &&
+        match stripLamsWithDomainsSpec expectedDoms d.value with
+        | some (.app (.app (.const `getObjTagNat [uTag]) tyArg) (.bvar 0)) =>
+          uTag == u && tyArg == Lean.mkAppN (.const ind us) (bvarListSpec n 1).toArray
+        | _ => false
     | _ => false
 
 /-- Independent classification of a constant {name}`n` with {name}`info` in {name}`env` as
@@ -320,7 +418,14 @@ def ctorIdxShape (env : Lean.Environment) (n : Name) (info : ConstantInfo) : Cto
     | _ => .none
   | _, _ => .none
 
-theorem runtimeBuiltinTypes_eq : Regula.Load.runtimeBuiltinTypes = RuntimeBuiltinTypes := by rfl
+/-- Lean's own runtime-builtin predicate agrees with the specification's literal list
+{name}`RuntimeBuiltinTypes`. A toolchain that changes {lit}`Lean.Compiler.LCNF.builtinRuntimeTypes`
+fails this proof. -/
+theorem isRuntimeBuiltinType_eq (n : Name) :
+    Lean.Compiler.LCNF.isRuntimeBuiltinType n = RuntimeBuiltinTypes.contains n := by
+  rw [Bool.eq_iff_iff]
+  simp [Lean.Compiler.LCNF.isRuntimeBuiltinType, Lean.Compiler.LCNF.builtinRuntimeTypes,
+    RuntimeBuiltinTypes]
 
 theorem stripLams_eq (k : Nat) (e : Lean.Expr) :
     Regula.Load.stripLams k e = stripLamsSpec k e := by
@@ -328,11 +433,32 @@ theorem stripLams_eq (k : Nat) (e : Lean.Expr) :
   | zero => rfl
   | succ k ih => cases e <;> first | rfl | exact ih _
 
-theorem stripForalls_eq (k : Nat) (e : Lean.Expr) :
-    Regula.Load.stripForalls k e = stripForallsSpec k e := by
+theorem stripForallDomains_eq (k : Nat) (e : Lean.Expr) :
+    Regula.Load.stripForallDomains k e = stripForallDomainsSpec k e := by
   induction k generalizing e with
   | zero => rfl
-  | succ k ih => cases e <;> first | rfl | exact ih _
+  | succ k ih =>
+    cases e <;> first | rfl | (
+      simp only [Regula.Load.stripForallDomains, stripForallDomainsSpec, ih]
+      rfl)
+
+theorem stripForallsWithDomains_eq (doms : List Lean.Expr) (e : Lean.Expr) :
+    Regula.Load.stripForallsWithDomains doms e = stripForallsWithDomainsSpec doms e := by
+  induction doms generalizing e with
+  | nil => rfl
+  | cons d ds ih =>
+    cases e <;> first | rfl | (
+      simp only [Regula.Load.stripForallsWithDomains, stripForallsWithDomainsSpec]
+      split <;> first | rfl | exact ih _)
+
+theorem stripLamsWithDomains_eq (doms : List Lean.Expr) (e : Lean.Expr) :
+    Regula.Load.stripLamsWithDomains doms e = stripLamsWithDomainsSpec doms e := by
+  induction doms generalizing e with
+  | nil => rfl
+  | cons d ds ih =>
+    cases e <;> first | rfl | (
+      simp only [Regula.Load.stripLamsWithDomains, stripLamsWithDomainsSpec]
+      split <;> first | rfl | exact ih _)
 
 theorem stripLamMatchingForall_eq (k : Nat) (v t : Lean.Expr) :
     Regula.Load.stripLamMatchingForall k v t = stripLamMatchingForallSpec k v t := by
@@ -343,49 +469,65 @@ theorem stripLamMatchingForall_eq (k : Nat) (v t : Lean.Expr) :
       simp only [Regula.Load.stripLamMatchingForall, stripLamMatchingForallSpec]
       split <;> first | rfl | exact ih _ _)
 
-theorem mkBVarApps_eq (fn : Lean.Expr) (n offset : Nat) :
-    Regula.Load.mkBVarApps fn n offset = mkBVarAppsSpec fn n offset := by
-  induction n generalizing fn with
-  | zero => rfl
-  | succ n ih => exact ih _
-
-theorem unappGo_eq (e : Lean.Expr) (acc : List Lean.Expr) :
-    Regula.Load.unappGo e acc = unappGoSpec e acc := by
-  induction e generalizing acc with
-  | app f a ihf _ => exact ihf _
-  | _ => rfl
-
 theorem bvarList_eq (n offset : Nat) :
     Regula.Load.bvarList n offset = bvarListSpec n offset := by
   induction n with
   | zero => rfl
   | succ n ih => simp [Regula.Load.bvarList, bvarListSpec, ih]
 
-theorem checkCtorAlts_eq (env : Lean.Environment) (ind : Name) (cs : List Name)
-    (alts : List Lean.Expr) :
-    Regula.Load.checkCtorAlts env ind cs alts = checkCtorAltsSpec env ind cs alts := by
+theorem liftIdxDomains_eq (shift depth : Nat) (ds : List Lean.Expr) :
+    Regula.Load.liftIdxDomains shift depth ds = liftIdxDomainsSpec shift depth ds := by
+  induction ds generalizing depth with
+  | nil => rfl
+  | cons d ds ih => simp [Regula.Load.liftIdxDomains, liftIdxDomainsSpec, ih]
+
+theorem checkCasesOnMinors_eq (env : Lean.Environment) (ind : Name) (np nm nmin k j : Nat)
+    (cs : List Name) (rules : List Lean.RecursorRule) (coMinors : List Lean.Expr) :
+    Regula.Load.checkCasesOnMinors env ind np nm nmin k j cs rules coMinors =
+      checkCasesOnMinorsSpec env ind np nm nmin k j cs rules coMinors := by
+  induction cs generalizing j rules with
+  | nil => cases rules <;> rfl
+  | cons c cs ih =>
+    cases rules with
+    | nil => rfl
+    | cons rule rules =>
+      simp only [Regula.Load.checkCasesOnMinors, checkCasesOnMinorsSpec, stripLams_eq,
+        bvarList_eq, ih]
+      rfl
+
+theorem checkCasesOn_eq (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal) :
+    Regula.Load.checkCasesOn env ind indInfo = checkCasesOnSpec env ind indInfo := by
+  simp only [Regula.Load.checkCasesOn, checkCasesOnSpec, stripLams_eq, bvarList_eq,
+    checkCasesOnMinors_eq]
+  rfl
+
+theorem checkCtorAlts_eq (env : Lean.Environment) (ind : Name) (np ni : Nat)
+    (paramDoms : List Lean.Expr) (cs : List Name) (alts : List Lean.Expr) :
+    Regula.Load.checkCtorAlts env ind np ni paramDoms cs alts =
+      checkCtorAltsSpec env ind np ni paramDoms cs alts := by
   induction cs generalizing alts with
   | nil => cases alts <;> rfl
   | cons c cs ih =>
     cases alts with
     | nil => rfl
     | cons a alts =>
-      simp only [Regula.Load.checkCtorAlts, checkCtorAltsSpec, stripLams_eq, ih]
+      simp only [Regula.Load.checkCtorAlts, checkCtorAltsSpec, stripForallsWithDomains_eq,
+        bvarList_eq, stripLamMatchingForall_eq, ih]
       rfl
 
 theorem isCtorIdxDef_eq (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal)
     (d : Lean.DefinitionVal) :
     Regula.Load.isCtorIdxDef env ind indInfo d = ctorIdxDefShape env ind indInfo d := by
-  simp only [Regula.Load.isCtorIdxDef, ctorIdxDefShape, runtimeBuiltinTypes_eq,
-    stripForalls_eq, stripLamMatchingForall_eq, mkBVarApps_eq, unappGo_eq, bvarList_eq,
-    stripLams_eq, checkCtorAlts_eq]
+  simp only [Regula.Load.isCtorIdxDef, ctorIdxDefShape, isRuntimeBuiltinType_eq,
+    checkCasesOn_eq, stripForallDomains_eq, bvarList_eq, liftIdxDomains_eq,
+    stripForallsWithDomains_eq, stripLamsWithDomains_eq, checkCtorAlts_eq]
   rfl
 
 theorem isCtorIdxImpl_eq (ind : Name) (indInfo : Lean.InductiveVal)
     (dDef d : Lean.DefinitionVal) :
     Regula.Load.isCtorIdxImpl ind indInfo dDef d = ctorIdxImplShape ind indInfo dDef d := by
-  simp only [Regula.Load.isCtorIdxImpl, ctorIdxImplShape, runtimeBuiltinTypes_eq,
-    stripForalls_eq, stripLamMatchingForall_eq, mkBVarApps_eq]
+  simp only [Regula.Load.isCtorIdxImpl, ctorIdxImplShape, isRuntimeBuiltinType_eq,
+    stripForallDomains_eq, bvarList_eq, stripForallsWithDomains_eq, stripLamsWithDomains_eq]
   rfl
 
 theorem ctorIdxFormOf_eq_shape (env : Lean.Environment) (n : Name) (info : ConstantInfo) :

@@ -242,43 +242,19 @@ theorem rg1011_admits_dep_csimp : ¬ Violates1011 withDepCSimp `Dep.bad := by
     rw [hcs.1] at hcm
     simp [withDepCSimp, withDecls, base, Input.ClaimedModule] at hcm
 
-/-- A safe inductive type `Good.T` of a claimed module. -/
-def ctorIdxInd11 : Decl := plain `Good.T `Good .inductive []
-
-/-- The safe half `Good.T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair. -/
-def ctorIdxDef11 : Decl :=
-  { plain `Good.T.ctorIdx `Good .definition [`Good.T] with
-    implementedBy := some `Good.T.ctorIdx._impl, ctorIdxForm := .defn `Good.T }
-
-/-- The unsafe half `Good.T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair. -/
-def ctorIdxImpl11 : Decl :=
-  { plain `Good.T.ctorIdx._impl `Good .definition [`Good.T, `getObjTagNat] with
-    safety := .unsafe, ctorIdxForm := .impl `Good.T }
-
-/-- {name}`base`, with a verified compiler-generated {lit}`ctorIdx` pair for `Good.T`. -/
-def withCtorIdx11 : Input :=
-  withDecls [toolchain `getObjTagNat .opaque, ctorIdxInd11, ctorIdxDef11, ctorIdxImpl11]
-    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd11, ctorIdxDef11,
-      ctorIdxImpl11])
-
-theorem wf_withCtorIdx11 : withCtorIdx11.WellFormed :=
-  wf_withDecls _ _
-    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd11,
-      ctorIdxDef11, ctorIdxImpl11]))
-
 /-- The safe half `Good.T.ctorIdx` of a verified {lit}`ctorIdx` pair is admitted by RG1011. -/
-theorem rg1011_admits_ctorIdx : ¬ Violates1011 withCtorIdx11 `Good.T.ctorIdx := by
+theorem rg1011_admits_ctorIdx : ¬ Violates1011 withCtorIdx `Good.T.ctorIdx := by
   rintro (⟨d, hd, hn, -, hr⟩ | ⟨m, -, hcs, -⟩)
-  · have hmem : ctorIdxDef11 ∈ withCtorIdx11.decls := by simp [withCtorIdx11, withDecls]
-    rw [eq_of_name hd hmem (by simp [hn, ctorIdxDef11, plain])] at hr
+  · have hmem : ctorIdxDefDecl ∈ withCtorIdx.decls := by simp [withCtorIdx, withDecls]
+    rw [eq_of_name hd hmem (by simp [hn, ctorIdxDefDecl, plain])] at hr
     rcases hr with ⟨-, hnc⟩ | hext | hinit
-    · refine hnc ⟨`Good.T, ctorIdxImpl11, by simp [withCtorIdx11, withDecls], ?_⟩
-      exact ⟨⟨toolchain `getObjTagNat .opaque, by simp [withCtorIdx11, withDecls], rfl, rfl⟩,
-        ⟨ctorIdxInd11, by simp [withCtorIdx11, withDecls], rfl, rfl, rfl, rfl⟩,
+    · refine hnc ⟨`Good.T, ctorIdxImplDecl, by simp [withCtorIdx, withDecls], ?_⟩
+      exact ⟨⟨toolchain `getObjTagNat .opaque, by simp [withCtorIdx, withDecls], rfl, rfl⟩,
+        ⟨ctorIdxInd, by simp [withCtorIdx, withDecls], rfl, rfl, rfl, rfl⟩,
         rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
-    · simp [ctorIdxDef11, plain] at hext
-    · simp [Initialized, ctorIdxDef11, plain] at hinit
-  · simp [Input.HasCSimp, withCtorIdx11, withDecls, base] at hcs
+    · simp [ctorIdxDefDecl, plain] at hext
+    · simp [Initialized, ctorIdxDefDecl, plain] at hinit
+  · simp [Input.HasCSimp, withCtorIdx, withDecls, base] at hcs
 
 /-- A forged `Good.T.ctorIdx` carrying {attr}`@[implemented_by]` without the structural
 {lit}`ctorIdx` form. -/
@@ -288,14 +264,14 @@ def forgedCtorIdxDef11 : Decl :=
 
 /-- {name}`base`, with a forged `Good.T.ctorIdx` lacking the structural {lit}`ctorIdx` form. -/
 def withForgedCtorIdx11 : Input :=
-  withDecls [toolchain `getObjTagNat .opaque, ctorIdxInd11, forgedCtorIdxDef11, ctorIdxImpl11]
-    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd11,
-      forgedCtorIdxDef11, ctorIdxImpl11])
+  withDecls [toolchain `getObjTagNat .opaque, ctorIdxInd, forgedCtorIdxDef11, ctorIdxImplDecl]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd,
+      forgedCtorIdxDef11, ctorIdxImplDecl])
 
 theorem wf_withForgedCtorIdx11 : withForgedCtorIdx11.WellFormed :=
   wf_withDecls _ _
-    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd11,
-      forgedCtorIdxDef11, ctorIdxImpl11]))
+    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd,
+      forgedCtorIdxDef11, ctorIdxImplDecl]))
 
 /-- A forged `Good.T.ctorIdx` without the structural {lit}`ctorIdx` form is refused by RG1011. -/
 theorem rg1011_refuses_forged_ctorIdx : Violates1011 withForgedCtorIdx11 `Good.T.ctorIdx :=
@@ -548,7 +524,7 @@ theorem rg1011_checker_admits_claimed_csimp :
 
 /-- The checker's function admits a verified {lit}`T.ctorIdx` and refuses a forged one. -/
 theorem rg1011_checker_ctorIdx :
-    `Good.T.ctorIdx ∉ rg1011Checker ⟨Witnesses.withCtorIdx11, Witnesses.wf_withCtorIdx11⟩ ∧
+    `Good.T.ctorIdx ∉ rg1011Checker ⟨Witnesses.withCtorIdx, Witnesses.wf_withCtorIdx⟩ ∧
       `Good.T.ctorIdx ∈ rg1011Checker ⟨Witnesses.withForgedCtorIdx11, Witnesses.wf_withForgedCtorIdx11⟩ :=
   ⟨fun h => Witnesses.rg1011_admits_ctorIdx (((meets_iff _).mp rg1011_meets _ _).mp h),
     ((meets_iff _).mp rg1011_meets _ _).mpr Witnesses.rg1011_refuses_forged_ctorIdx⟩
