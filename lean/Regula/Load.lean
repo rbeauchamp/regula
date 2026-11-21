@@ -30,8 +30,9 @@ What it reads, and through what:
   two modules state cannot hide an attribute, and `Facts.csimps` reads each claimed module's exported
   (`global` and `scoped`) `@[csimp]` entries through `Lean.Compiler.CSimp.ext.ext.getModuleEntries`
   (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0), refusing a claimed module with no module index.
-  `Facts.declared` reads which of the names of those entries a claimed module's own data declares, and
-  reads no module's data when there is no entry.
+  `Facts.statedIndex` records, in the single existing pass over `header.moduleData`, whether any
+  claimed module's own data declares each constant name, so checking claimed ownership of exported
+  `@[csimp]` entries adds only O(1) map lookups per entry (and zero lookups when there are no entries).
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
@@ -199,6 +200,18 @@ def Facts.stated (f : Facts) : Std.HashMap Name (List ConstantInfo) :=
   f.env.header.moduleData.foldl (init := {}) fun acc data =>
     (data.constNames.zip data.constants).foldl (init := acc) fun acc x =>
       acc.insert x.1 (x.2 :: acc.getD x.1 [])
+
+/-- Each constant of each name, as the own data of each loaded module states it, claimed or not,
+paired with whether any claimed module's own data states a constant of that name.
+Built in the single pass over `f.env.header.moduleData` so checking claimed ownership of
+`@[csimp]` entries adds only O(1) lookups per entry. -/
+def Facts.statedIndex (f : Facts) : Std.HashMap Name (List ConstantInfo × Bool) :=
+  (f.env.header.moduleData.foldl (init := (0, {})) fun (k, acc) data =>
+    let claimed := (f.modules[k]?.map (·.claimed)).getD false
+    let acc' := (data.constNames.zip data.constants).foldl (init := acc) fun acc x =>
+      let prev := acc.getD x.1 ([], false)
+      acc.insert x.1 (x.2 :: prev.1, prev.2 || claimed)
+    (k + 1, acc')).2
 
 /-- The constant `n` of the module `m`, as the closed input states it: `info` is the constant that
 the environment keeps, and `stated` those of its name that the loaded modules state. -/
@@ -368,14 +381,6 @@ of them has no index in the loaded environment. -/
 def Facts.csimps (f : Facts) (claimed : List Name) : Except String (List CSimpEntry) :=
   (claimed.mapM f.moduleCSimps).map List.flatten
 
-/-- Of `names`, those that a claimed module's own `.olean` data declares. With no name it reads no
-module's data; otherwise it reads the claimed modules' own constants once (`Facts.claimedConstants`). -/
-def Facts.declared (f : Facts) (names : List Name) : List Name :=
-  if names.isEmpty then []
-  else
-    let named := setOf names
-    (f.claimedConstants.filter (named.contains ·.2.1)).map (·.2.1)
-
 /-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
 def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
   let claimed := f.claimed
@@ -386,14 +391,19 @@ def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Excep
     match f.csimps claimed with
     | .error why => .error why
     | .ok csimps =>
-      let stated := f.stated
-      match h : f.env.constants.map₁.toList.mapM (fun x => f.decl x.1 x.2 (stated.getD x.1 [])) with
+      let stated := f.statedIndex
+      match h : f.env.constants.map₁.toList.mapM
+          (fun x => f.decl x.1 x.2 (stated.getD x.1 ([], false)).1) with
       | .error why => .error why
       | .ok decls =>
+        let claimedConstants :=
+          if csimps.isEmpty then []
+          else csimps.filterMap fun e =>
+            if (stated.getD e.thm ([], false)).2 then some e.thm else none
         let draft : Draft :=
           { profile, modules := claimed, moduleFiles := f.moduleFiles,
-            claimedConstants := f.declared (csimps.map (·.thm)), csimps, decls,
-            unique := f.decls_nodup (stated := (stated.getD · [])) h }
+            claimedConstants, csimps, decls,
+            unique := f.decls_nodup (stated := fun n => (stated.getD n ([], false)).1) h }
         draft.admit
 
 /-- Refuses `t` when `Facts.unread?` finds an unshown constant of a claimed module that

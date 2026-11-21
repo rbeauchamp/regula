@@ -28,8 +28,8 @@ For {attr}`@[csimp]`, Lean's compiler replaces {lit}`f` by {lit}`g` only through
 type {lit}`@f = @g` ({lit}`isConstantReplacement?`, {lit}`Lean/Compiler/CSimpAttr.lean:40-55` at v4.35.0),
 but none of the attribute's checks requires a safe theorem or excludes {name}`sorryAx`, custom axioms, or
 {lit}`unsafe def` ({lit}`:40-55, 68-80`), and Lean allows a claimed module to attach {attr}`@[csimp]`
-(global or {lit}`scoped`) to a declaration of another module, which would otherwise escape the claim's
-kernel replay cone and RG1001 to RG1006. RG1011 refuses every exported ({lit}`global` or {lit}`scoped`)
+(global or {lit}`scoped`) to a declaration of another module, which can otherwise escape the claim's
+kernel replay cone and RG1001 to RG1006 when no claimed constant mentions it. RG1011 refuses every exported ({lit}`global` or {lit}`scoped`)
 claimed-module {attr}`@[csimp]` entry whose theorem is not declared in any claimed module's own
 {lit}`.olean` data ({name (full := RegulaSpecification.Input.DeclaredInClaimed)}`Input.DeclaredInClaimed`), while admitting exported {attr}`@[csimp]` entries
 whose theorem is declared in a claimed module (including a merged theorem whose merged module index
@@ -312,10 +312,18 @@ theorem replaced_exact (s : Name) :
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, (replaced_iff d).mpr hc, rfl⟩
 
+theorem check_eq_append :
+    Regula.Rules.RG1011.check t = Regula.Rules.RG1011.foreignCSimps i ++ Regula.Rules.RG1011.replaced t := by
+  simp only [Regula.Rules.RG1011.check]
+  split
+  · rename_i h
+    rw [List.isEmpty_iff.mp h, List.nil_append]
+  · rfl
+
 theorem rg1011_exact (s : Name) :
     s ∈ (Regula.Rules.RG1011.check t).map (·.subject.name) ↔ Violates1011 (toSpec i) s := by
-  unfold Regula.Rules.RG1011.check Violates1011
-  rw [List.map_append, List.mem_append, replaced_exact, foreignCSimps_iff]
+  rw [check_eq_append, List.map_append, List.mem_append, foreignCSimps_iff, replaced_exact,
+    Violates1011, or_comm]
 
 /-- A violation that {name}`Regula.Rules.RG1011.replaced` reports carries the name and the module of a
 declaration of a claimed module. -/
@@ -333,10 +341,10 @@ theorem rg1011_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
     (∃ d ∈ i.decls, d.module ∈ i.modules ∧ v.subject = .constant d.name d.module) ∨
       ∃ e ∈ i.csimps, e.module ∈ i.modules ∧ e.thm ∉ i.claimedConstants ∧
         v.subject = .constant e.thm e.module := by
-  unfold Regula.Rules.RG1011.check at hv
+  rw [check_eq_append] at hv
   rcases List.mem_append.mp hv with hv | hv
-  · exact .inl (replaced_subject t hv)
   · exact .inr ((foreignCSimps_subject v.subject).mp (List.mem_map_of_mem (f := (·.subject)) hv))
+  · exact .inl (replaced_subject t hv)
 
 /-- The check reports the constant {name}`c` with the module {name}`m` exactly when {name}`c` is a replaced
 constant of the claimed module {name}`m`, or {name}`m` is a claimed module whose exported {attr}`@[csimp]`
@@ -345,8 +353,7 @@ theorem rg1011_attributed (c m : Name) :
     .constant c m ∈ (Regula.Rules.RG1011.check t).map (·.subject) ↔
       (∃ d ∈ (toSpec i).decls, d.name = c ∧ d.module = m ∧ (toSpec i).ClaimedModule m ∧ Replaced d) ∨
         ForeignCSimpIn (toSpec i) m c := by
-  unfold Regula.Rules.RG1011.check
-  rw [List.map_append, List.mem_append, foreignCSimps_exact]
+  rw [check_eq_append, List.map_append, List.mem_append, foreignCSimps_exact, or_comm]
   refine or_congr ?_ Iff.rfl
   unfold Regula.Rules.RG1011.replaced
   constructor
@@ -362,8 +369,9 @@ theorem rg1011_attributed (c m : Name) :
     exact List.mem_map.mpr ⟨_, List.mem_filterMap.mpr
       ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, ite_eq_left ((replaced_iff d).mpr hc)⟩, rfl⟩
 
-/-- On an input with no exported {attr}`@[csimp]` entry of a claimed module, the check reports what it
-reported before that clause, in the same order. -/
+/-- On an input with {lit}`i.csimps = []` (no exported {attr}`@[csimp]` entry; for loader output, no
+claimed-module exported {attr}`@[csimp]` entry), the check reports what it reported before that clause,
+in the same order. -/
 theorem check_eq_replaced (h : i.csimps = []) :
     Regula.Rules.RG1011.check t = Regula.Rules.RG1011.replaced t := by
   simp [Regula.Rules.RG1011.check, Regula.Rules.RG1011.foreignCSimps, h]

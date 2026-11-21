@@ -61,10 +61,12 @@ def replaced {i : Input} (t : Tables i) : List Violation :=
       some (violation d s!"has {replacement d}, so compiled code runs in place of its definition")
     else none
 
-/-- What `replaced` reports, and then the exported `@[csimp]` entries of claimed modules whose theorem
-is not declared in any claimed module. -/
+/-- The exported `@[csimp]` entries of claimed modules whose theorem is not declared in any claimed
+module, together with what `replaced` reports. Returns `replaced t` directly without traversing it
+when no foreign `@[csimp]` entry is reported, and prepends `extra` otherwise. -/
 def check {i : Input} (t : Tables i) : List Violation :=
-  replaced t ++ foreignCSimps i
+  let extra := foreignCSimps i
+  if extra.isEmpty then replaced t else extra ++ replaced t
 
 /-- RG1011, for the registry. Its body is exposed so that the registry reads its spelling (`Regula.Closed.spellings_nodup`). -/
 @[expose] def rule : Rule := { spelling := "RG1011", check := check }
