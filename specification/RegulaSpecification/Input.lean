@@ -115,10 +115,10 @@ structure Input where
   /-- The loaded modules whose {lit}`.olean` states that Lean read the file as a {lit}`module` file
   (`ModuleData.isModule`). RG1013 reads it. -/
   moduleFiles : List Name
-  /-- The constant names declared in claimed modules' own {lit}`.olean` data (`ModuleData.constNames`).
-  On merged theorems, `Environment.getModuleIdxFor?` keeps the first module ({lit}`Lean/Environment.lean:2345` at
-  v4.35.0), which can be unclaimed even when a claimed module declared the theorem; RG1011 reads this list so
-  merged claimed theorems count as claimed. -/
+  /-- Of the names that the entries of {lit}`csimps` give, those that a claimed module's own {lit}`.olean`
+  data declares (`ModuleData.constNames`). On merged theorems, `Environment.getModuleIdxFor?` keeps the first
+  module ({lit}`Lean/Environment.lean:2345` at v4.35.0), which can be unclaimed even when a claimed module
+  declared the theorem; RG1011 reads this list so merged claimed theorems count as claimed. -/
   claimedConstants : List Name
   /-- Exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entries of claimed modules
   (`Lean.Compiler.CSimp.ext.ext.getModuleEntries`). RG1011 reads them. -/
@@ -139,7 +139,8 @@ def ClaimedModule (m : Name) : Prop := m ∈ i.modules
 /-- Lean read the file of the module {name}`m` as a {lit}`module` file. -/
 def ModuleFile (m : Name) : Prop := m ∈ i.moduleFiles
 
-/-- {name}`c` is declared in a claimed module's own {lit}`.olean` data. -/
+/-- {name}`c`, which an exported {attr}`@[csimp]` entry of a claimed module names, is declared in a claimed
+module's own {lit}`.olean` data. -/
 def DeclaredInClaimed (c : Name) : Prop := c ∈ i.claimedConstants
 
 /-- Module {name}`m` has an exported {attr}`@[csimp]` entry naming {name}`thm`. -/

@@ -149,10 +149,10 @@ structure Draft where
   /-- The loaded modules whose `.olean` states that Lean read the file as a `module` file
   (`ModuleData.isModule`). -/
   moduleFiles : List Name
-  /-- The constant names declared in claimed modules' own `.olean` data (`ModuleData.constNames`).
-  On merged theorems, `Environment.getModuleIdxFor?` keeps the first module (`Lean/Environment.lean:2345` at
-  v4.35.0), which can be unclaimed even when a claimed module declared the theorem; RG1011 reads this list so
-  merged claimed theorems count as claimed. -/
+  /-- Of the names that the entries of `csimps` give, those that a claimed module's own `.olean` data
+  declares (`ModuleData.constNames`). On merged theorems, `Environment.getModuleIdxFor?` keeps the first
+  module (`Lean/Environment.lean:2345` at v4.35.0), which can be unclaimed even when a claimed module
+  declared the theorem; RG1011 reads this list so merged claimed theorems count as claimed. -/
   claimedConstants : List Name
   /-- Exported (`global` or `scoped`) `@[csimp]` entries of claimed modules
   (`Lean.Compiler.CSimp.ext.ext.getModuleEntries`). -/

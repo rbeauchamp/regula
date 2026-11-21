@@ -30,6 +30,8 @@ What it reads, and through what:
   two modules state cannot hide an attribute, and `Facts.csimps` reads each claimed module's exported
   (`global` and `scoped`) `@[csimp]` entries through `Lean.Compiler.CSimp.ext.ext.getModuleEntries`
   (`Lean/Environment.lean:1672-1678`, `:2377` at v4.35.0), refusing a claimed module with no module index.
+  `Facts.declared` reads which of the names of those entries a claimed module's own data declares, and
+  reads no module's data when there is no entry.
 - Each loaded module's own constants: `header.moduleData`, which Lean keeps as each `.olean` holds them, so
   that a constant that Lean's import replaced is read too. What any of them mentions, and whether it is an
   axiom, counts for its name (`Facts.stated`), in a dependency as in a claimed module. A claimed module's own
@@ -361,10 +363,18 @@ def Facts.moduleCSimps (f : Facts) (m : Name) : Except String (List CSimpEntry) 
     .ok ((Lean.Compiler.CSimp.ext.ext.getModuleEntries f.env idx).toList.map fun e =>
       { module := m, thm := match e with | .global ce => ce.thmName | .scoped _ ce => ce.thmName })
 
-/-- The exported (`global` or `scoped`) `@[csimp]` entries of all claimed modules, or an error if any
-claimed module has no index in the loaded environment. -/
-def Facts.csimps (f : Facts) : Except String (List CSimpEntry) :=
-  (f.claimed.mapM f.moduleCSimps).map List.flatten
+/-- The exported (`global` or `scoped`) `@[csimp]` entries of the modules `claimed`, or an error if any
+of them has no index in the loaded environment. -/
+def Facts.csimps (f : Facts) (claimed : List Name) : Except String (List CSimpEntry) :=
+  (claimed.mapM f.moduleCSimps).map List.flatten
+
+/-- Of `names`, those that a claimed module's own `.olean` data declares. With no name it reads no
+module's data; otherwise it reads the claimed modules' own constants once (`Facts.claimedConstants`). -/
+def Facts.declared (f : Facts) (names : List Name) : List Name :=
+  if names.isEmpty then []
+  else
+    let named := setOf names
+    (f.claimedConstants.filter (named.contains ·.2.1)).map (·.2.1)
 
 /-- The closed input admitted from the draft that `f` builds, before checking unshown constants. -/
 def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Except String Input :=
@@ -373,7 +383,7 @@ def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Excep
   | some m => .error s!"the module {m} of a default target has its .olean outside the root \
       package's build"
   | none =>
-    match f.csimps with
+    match f.csimps claimed with
     | .error why => .error why
     | .ok csimps =>
       let stated := f.stated
@@ -382,7 +392,7 @@ def Facts.admitDraft (f : Facts) (roots : List Name) (profile : Profile) : Excep
       | .ok decls =>
         let draft : Draft :=
           { profile, modules := claimed, moduleFiles := f.moduleFiles,
-            claimedConstants := f.claimedConstants.map (·.2.1), csimps, decls,
+            claimedConstants := f.declared (csimps.map (·.thm)), csimps, decls,
             unique := f.decls_nodup (stated := (stated.getD · [])) h }
         draft.admit
 

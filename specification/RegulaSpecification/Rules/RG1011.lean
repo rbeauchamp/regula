@@ -59,10 +59,15 @@ function. -/
 def Replaced (d : Decl) : Prop :=
   (∃ impl, d.implementedBy = some impl) ∨ d.isExtern = true ∨ Initialized d
 
+/-- The claimed module {name}`m` has an exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entry
+naming {name}`c`, and no claimed module's own {lit}`.olean` data declares {name}`c`. A finding of it names
+{name}`c` with {name}`m`, the module that registered the entry. -/
+def ForeignCSimpIn (i : Input) (m c : Name) : Prop :=
+  i.ClaimedModule m ∧ i.HasCSimp m c ∧ ¬ i.DeclaredInClaimed c
+
 /-- A claimed module has an exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entry naming
 {name}`c`, and no claimed module's own {lit}`.olean` data declares {name}`c`. -/
-def ForeignCSimp (i : Input) (c : Name) : Prop :=
-  ∃ m, i.ClaimedModule m ∧ i.HasCSimp m c ∧ ¬ i.DeclaredInClaimed c
+def ForeignCSimp (i : Input) (c : Name) : Prop := ∃ m, ForeignCSimpIn i m c
 
 /-- RG1011: a constant of a claimed module has {attr}`@[implemented_by]` or {attr}`@[extern]`, or is a
 definition with an initialization function, or a claimed module has an exported {attr}`@[csimp]` entry
@@ -173,7 +178,7 @@ theorem rg1011_refuses_foreign_csimp : Violates1011 withForeignCSimp `Dep.bad :=
 
 /-- {name}`base`, with a claimed theorem `Good.t` registered as {attr}`@[csimp]` by {lit}`Good`. -/
 def withClaimedCSimp : Input :=
-  { base with csimps := [⟨`Good, `Good.t⟩] }
+  { base with claimedConstants := [`Good.t], csimps := [⟨`Good, `Good.t⟩] }
 
 theorem wf_withClaimedCSimp : withClaimedCSimp.WellFormed := ⟨wf_base.closed, wf_base.claims⟩
 
@@ -188,7 +193,7 @@ theorem rg1011_admits_claimed_csimp : ¬ Violates1011 withClaimedCSimp `Good.t :
 a claimed module also declares it in its own {lit}`.olean` data and registers {attr}`@[csimp]` on it. -/
 def withMergedCSimp : Input :=
   { withDecls [mergedThm] (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, mergedThm]) with
-    claimedConstants := `Dep.shared :: base.claimedConstants
+    claimedConstants := [`Dep.shared]
     csimps := [⟨`Good, `Dep.shared⟩] }
 
 theorem wf_withMergedCSimp : withMergedCSimp.WellFormed :=
@@ -238,31 +243,66 @@ theorem replaced_iff (d : Regula.Closed.Decl) :
   simp only [Bool.or_eq_true, initialized_iff, Replaced, or_assoc, Option.isSome_iff_exists]
   rfl
 
+theorem foreignCSimps_subject (s : Regula.Closed.Subject) :
+    s ∈ (Regula.Rules.RG1011.foreignCSimps i).map (·.subject) ↔
+      ∃ e ∈ i.csimps, e.module ∈ i.modules ∧ e.thm ∉ i.claimedConstants ∧
+        s = .constant e.thm e.module := by
+  unfold Regula.Rules.RG1011.foreignCSimps
+  split
+  · rename_i h
+    simp [List.isEmpty_iff.mp h]
+  · constructor
+    · intro h
+      obtain ⟨v, hv, rfl⟩ := List.mem_map.mp h
+      obtain ⟨e, he, hc, rfl⟩ := mem_report_violation hv
+      simp only [Bool.and_eq_true, Bool.not_eq_true', Bool.eq_false_iff, ne_eq,
+        Regula.Closed.mem_setOf] at hc
+      exact ⟨e, he, hc.1, hc.2, rfl⟩
+    · rintro ⟨e, he, hm, hn, rfl⟩
+      have h1 := (Regula.Closed.mem_setOf i.modules e.module).mpr hm
+      have h2 : (Regula.Closed.setOf i.claimedConstants).contains e.thm = false :=
+        Bool.eq_false_iff.mpr fun h => hn ((Regula.Closed.mem_setOf _ _).mp h)
+      refine List.mem_map.mpr ⟨_, List.mem_filterMap.mpr ⟨e, he, ite_eq_left ?_⟩, rfl⟩
+      simp only [h1, h2, Bool.not_false, Bool.and_self]
+
+/-- The check's {attr}`@[csimp]` clause reports the constant {name}`c` with the module {name}`m` exactly when
+{name}`m` is a claimed module whose exported entry names {name}`c` and no claimed module declares {name}`c`.
+So each claimed module that registers a foreign theorem is reported with it, and no other module is. -/
+theorem foreignCSimps_exact (c m : Name) :
+    .constant c m ∈ (Regula.Rules.RG1011.foreignCSimps i).map (·.subject) ↔
+      ForeignCSimpIn (toSpec i) m c := by
+  rw [foreignCSimps_subject]
+  simp only [ForeignCSimpIn, Input.ClaimedModule, Input.HasCSimp, Input.DeclaredInClaimed, toSpec,
+    toSpecDraft, List.mem_map]
+  constructor
+  · rintro ⟨e, he, hm, hn, hs⟩
+    cases hs
+    exact ⟨hm, ⟨e, he, rfl⟩, hn⟩
+  · rintro ⟨hm, ⟨e, he, hmk⟩, hn⟩
+    have hmod : e.module = m := congrArg CSimpEntry.module hmk
+    have hthm : e.thm = c := congrArg CSimpEntry.thm hmk
+    exact ⟨e, he, hmod ▸ hm, hthm ▸ hn, by rw [hmod, hthm]⟩
+
 theorem foreignCSimps_iff (s : Name) :
     s ∈ (Regula.Rules.RG1011.foreignCSimps i).map (·.subject.name) ↔ ForeignCSimp (toSpec i) s := by
-  unfold Regula.Rules.RG1011.foreignCSimps ForeignCSimp
-  cases hcs : i.csimps with
-  | nil =>
-    simp [Input.HasCSimp, toSpec, toSpecDraft, hcs]
-  | cons e es =>
-    simp only [List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte]
-    rw [mem_report (sub := (·.thm)) (fun _ => rfl)]
-    simp only [Bool.and_eq_true, Bool.not_eq_true', Bool.eq_false_iff, ne_eq,
-      Regula.Closed.mem_setOf, Input.ClaimedModule, Input.HasCSimp, Input.DeclaredInClaimed,
-      toSpec, toSpecDraft, hcs, List.mem_map]
-    constructor
-    · rintro ⟨x, hx, ⟨hm, hnot⟩, rfl⟩
-      exact ⟨x.module, hm, ⟨x, hx, rfl⟩, hnot⟩
-    · rintro ⟨m, hm, ⟨x, hx, hxe⟩, hnot⟩
-      have hmod : x.module = m := congrArg CSimpEntry.module hxe
-      have hthm : x.thm = s := congrArg CSimpEntry.thm hxe
-      exact ⟨x, hx, ⟨hmod ▸ hm, hthm ▸ hnot⟩, hthm⟩
+  constructor
+  · intro h
+    obtain ⟨v, hv, rfl⟩ := List.mem_map.mp h
+    have hmem := List.mem_map_of_mem (f := (·.subject)) hv
+    obtain ⟨e, -, -, -, hs⟩ := (foreignCSimps_subject v.subject).mp hmem
+    rw [hs] at hmem ⊢
+    exact ⟨e.module, (foreignCSimps_exact e.thm e.module).mp hmem⟩
+  · rintro ⟨m, h⟩
+    obtain ⟨v, hv, hs⟩ := List.mem_map.mp ((foreignCSimps_exact s m).mpr h)
+    exact List.mem_map.mpr ⟨v, hv, congrArg Regula.Closed.Subject.name hs⟩
 
-theorem rg1011_exact (s : Name) :
-    s ∈ (Regula.Rules.RG1011.check t).map (·.subject.name) ↔ Violates1011 (toSpec i) s := by
-  unfold Regula.Rules.RG1011.check Violates1011
-  rw [List.map_append, List.mem_append, mem_report (sub := (·.name)) (fun _ => rfl), foreignCSimps_iff]
-  refine or_congr ?_ Iff.rfl
+/-- What the check reported before the {attr}`@[csimp]` clause, which {name}`Regula.Rules.RG1011.replaced`
+still reports, is exactly the replaced constants of claimed modules. -/
+theorem replaced_exact (s : Name) :
+    s ∈ (Regula.Rules.RG1011.replaced t).map (·.subject.name) ↔
+      ∃ d ∈ (toSpec i).decls, d.name = s ∧ (toSpec i).ClaimedModule d.module ∧ Replaced d := by
+  unfold Regula.Rules.RG1011.replaced
+  rw [mem_report (sub := (·.name)) (fun _ => rfl)]
   constructor
   · rintro ⟨d, hd, hc, rfl⟩
     obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
@@ -271,63 +311,95 @@ theorem rg1011_exact (s : Name) :
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, (replaced_iff d).mpr hc, rfl⟩
 
+theorem rg1011_exact (s : Name) :
+    s ∈ (Regula.Rules.RG1011.check t).map (·.subject.name) ↔ Violates1011 (toSpec i) s := by
+  unfold Regula.Rules.RG1011.check Violates1011
+  rw [List.map_append, List.mem_append, replaced_exact, foreignCSimps_iff]
+
+/-- A violation that {name}`Regula.Rules.RG1011.replaced` reports carries the name and the module of a
+declaration of a claimed module. -/
+theorem replaced_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1011.replaced t) :
+    ∃ d ∈ i.decls, d.module ∈ i.modules ∧ v.subject = .constant d.name d.module := by
+  unfold Regula.Rules.RG1011.replaced at hv
+  obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
+  obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
+  exact ⟨d, hd, hm, rfl⟩
+
+/-- A violation of the check carries the name and the module of a declaration of a claimed module, or the
+theorem of a claimed module's exported {attr}`@[csimp]` entry that no claimed module declares, with that
+claimed module. -/
 theorem rg1011_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG1011.check t) :
-    (∃ d ∈ i.decls, v.subject = .constant d.name d.module) ∨
-      ∃ e ∈ i.csimps, e.module ∈ i.modules ∧ v.subject = .constant e.thm e.module := by
+    (∃ d ∈ i.decls, d.module ∈ i.modules ∧ v.subject = .constant d.name d.module) ∨
+      ∃ e ∈ i.csimps, e.module ∈ i.modules ∧ e.thm ∉ i.claimedConstants ∧
+        v.subject = .constant e.thm e.module := by
   unfold Regula.Rules.RG1011.check at hv
   rcases List.mem_append.mp hv with hv | hv
-  · obtain ⟨d, hd, -, rfl⟩ := mem_report_violation hv
-    exact .inl ⟨d, ((mem_claimed t).mp hd).1, rfl⟩
-  · unfold Regula.Rules.RG1011.foreignCSimps at hv
-    split at hv
-    · cases hv
-    · obtain ⟨e, he, hc, rfl⟩ := mem_report_violation hv
-      simp only [Bool.and_eq_true, Regula.Closed.mem_setOf] at hc
-      exact .inr ⟨e, he, hc.1, rfl⟩
+  · exact .inl (replaced_subject t hv)
+  · exact .inr ((foreignCSimps_subject v.subject).mp (List.mem_map_of_mem (f := (·.subject)) hv))
+
+/-- The check reports the constant {name}`c` with the module {name}`m` exactly when {name}`c` is a replaced
+constant of the claimed module {name}`m`, or {name}`m` is a claimed module whose exported {attr}`@[csimp]`
+entry names {name}`c` and no claimed module declares {name}`c`. -/
+theorem rg1011_attributed (c m : Name) :
+    .constant c m ∈ (Regula.Rules.RG1011.check t).map (·.subject) ↔
+      (∃ d ∈ (toSpec i).decls, d.name = c ∧ d.module = m ∧ (toSpec i).ClaimedModule m ∧ Replaced d) ∨
+        ForeignCSimpIn (toSpec i) m c := by
+  unfold Regula.Rules.RG1011.check
+  rw [List.map_append, List.mem_append, foreignCSimps_exact]
+  refine or_congr ?_ Iff.rfl
+  unfold Regula.Rules.RG1011.replaced
+  constructor
+  · intro h
+    obtain ⟨v, hv, hs⟩ := List.mem_map.mp h
+    obtain ⟨d, hd, hc, rfl⟩ := mem_report_violation hv
+    have hs : Regula.Closed.Subject.constant d.name d.module = .constant c m := hs
+    cases hs
+    obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
+    exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, rfl, hm, (replaced_iff d).mp hc⟩
+  · rintro ⟨x, hx, rfl, rfl, hm, hc⟩
+    obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
+    exact List.mem_map.mpr ⟨_, List.mem_filterMap.mpr
+      ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, ite_eq_left ((replaced_iff d).mpr hc)⟩, rfl⟩
+
+/-- On an input with no exported {attr}`@[csimp]` entry of a claimed module, the check reports what it
+reported before that clause, in the same order. -/
+theorem check_eq_replaced (h : i.csimps = []) :
+    Regula.Rules.RG1011.check t = Regula.Rules.RG1011.replaced t := by
+  simp [Regula.Rules.RG1011.check, Regula.Rules.RG1011.foreignCSimps, h]
 
 /-- A constant with neither {attr}`@[implemented_by]` nor {attr}`@[extern]`, that has no initialization function
-or is no definition, and either is declared in a claimed module's own {lit}`.olean` data or has no claimed
-module's exported {attr}`@[csimp]` entry naming it, is not reported. In particular, an exported {attr}`@[csimp]`
-on a claimed constant (including a merged theorem) is admitted when none of the three replacement attributes
-is present. -/
+or is no definition, is not among what {name}`Regula.Rules.RG1011.replaced` reports, whatever else it has. So
+a rule that refuses every definition, every constant with an initialization function, or every constant that
+compiled code replaces by any means, does not meet this. The check reports such a constant only by its
+{attr}`@[csimp]` clause ({name}`rg1011_attributed`). -/
 theorem rg1011_admits_neither {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     (hi : d.implementedBy = none) (he : d.isExtern = false)
-    (hinit : d.initFn = none ∨ d.kind ≠ .definition)
-    (hcsimp : d.name ∈ i.claimedConstants ∨ ∀ e ∈ i.csimps, e.module ∈ i.modules → e.thm ≠ d.name) :
-    d.name ∉ (Regula.Rules.RG1011.check t).map (·.subject.name) := by
+    (hinit : d.initFn = none ∨ d.kind ≠ .definition) :
+    d.name ∉ (Regula.Rules.RG1011.replaced t).map (·.subject.name) := by
   intro h
-  rcases (rg1011_exact t d.name).mp h with ⟨x, hx, hxn, -, hr⟩ | ⟨m, hcm, hcs, hnot⟩
-  · obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
-    have hyd : y = d := by
-      have hn : y.name = d.name := hxn
-      have hg := get_of_mem t hy
-      rw [hn, get_of_mem t hd] at hg
-      exact (Option.some.inj hg).symm
-    subst hyd
-    rcases hr with ⟨impl, himpl⟩ | hext | hfn
-    · exact absurd (himpl.symm.trans hi) (by simp)
-    · exact absurd (hext.symm.trans he) (by simp)
-    · have hy := (initialized_iff y).mpr hfn
-      simp only [Regula.Rules.RG1011.initialized, Bool.and_eq_true, beq_iff_eq] at hy
-      rcases hinit with hnone | hkind
-      · simp [hnone] at hy
-      · exact hkind hy.1
-  · rcases hcsimp with hcl | hnone
-    · exact hnot hcl
-    · simp only [Input.HasCSimp, toSpec, toSpecDraft, List.mem_map] at hcs
-      obtain ⟨e, he', hmk⟩ := hcs
-      have hmod : e.module = m := congrArg CSimpEntry.module hmk
-      have hthm : e.thm = d.name := congrArg CSimpEntry.thm hmk
-      exact hnone e he' (hmod.symm ▸ hcm) hthm
+  obtain ⟨x, hx, hxn, -, hr⟩ := (replaced_exact t d.name).mp h
+  obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
+  have hyd : y = d := by
+    have hn : y.name = d.name := hxn
+    have hg := get_of_mem t hy
+    rw [hn, get_of_mem t hd] at hg
+    exact (Option.some.inj hg).symm
+  subst hyd
+  rcases hr with ⟨impl, himpl⟩ | hext | hfn
+  · exact absurd (himpl.symm.trans hi) (by simp)
+  · exact absurd (hext.symm.trans he) (by simp)
+  · have hy := (initialized_iff y).mpr hfn
+    simp only [Regula.Rules.RG1011.initialized, Bool.and_eq_true, beq_iff_eq] at hy
+    rcases hinit with hnone | hkind
+    · simp [hnone] at hy
+    · exact hkind hy.1
 
 end Link
 
 /-- RG1011 with its statement, its proofs and its cases, for the registry. -/
 def rg1011Proved : Proved :=
   ⟨Regula.Rules.RG1011.rule, Violates1011, Link.rg1011_exact, Witnesses.w1011,
-    fun t _ hv => (Link.rg1011_subject t hv).elim
-      (fun h => .inl ⟨by decide, h⟩)
-      (fun h => .inr (.inr ⟨rfl, h⟩))⟩
+    fun t _ hv => .inr (.inr ⟨rfl, Link.rg1011_subject t hv⟩)⟩
 
 /-- The function of RG1011 over the specification's input. -/
 def rg1011Checker : Checker Input Name := rg1011Proved.checker

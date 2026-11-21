@@ -40,8 +40,8 @@ def replacement (d : Decl) : String :=
       else []))
 
 /-- The exported (`global` or `scoped`) `@[csimp]` entries of claimed modules whose theorem is not
-declared in any claimed module's `.olean` data. Short-circuits when `i.csimps` is empty so builds
-with no claimed `@[csimp]` entries pay no hash-set construction. -/
+declared in any claimed module's `.olean` data. With no entry it builds no hash set, and with entries
+its two sets hold the claimed modules and at most one name for each entry (`Input.claimedConstants`). -/
 def foreignCSimps (i : Input) : List Violation :=
   if i.csimps.isEmpty then []
   else
@@ -53,15 +53,18 @@ def foreignCSimps (i : Input) : List Violation :=
                detail := "registered as @[csimp] in this module, but not declared in any claimed module" }
       else none
 
-/-- The constants of claimed modules that have `@[implemented_by]` or `@[extern]`, the definitions
-of claimed modules that have an initialization function, and the exported `@[csimp]` entries of claimed
-modules whose theorem is not declared in any claimed module. -/
-def check {i : Input} (t : Tables i) : List Violation :=
-  t.claimed.filterMap (fun d =>
+/-- The constants of claimed modules that have `@[implemented_by]` or `@[extern]`, and the definitions
+of claimed modules that have an initialization function. -/
+def replaced {i : Input} (t : Tables i) : List Violation :=
+  t.claimed.filterMap fun d =>
     if d.implementedBy.isSome || d.isExtern || initialized d then
       some (violation d s!"has {replacement d}, so compiled code runs in place of its definition")
-    else none) ++
-  foreignCSimps i
+    else none
+
+/-- What `replaced` reports, and then the exported `@[csimp]` entries of claimed modules whose theorem
+is not declared in any claimed module. -/
+def check {i : Input} (t : Tables i) : List Violation :=
+  replaced t ++ foreignCSimps i
 
 /-- RG1011, for the registry. Its body is exposed so that the registry reads its spelling (`Regula.Closed.spellings_nodup`). -/
 @[expose] def rule : Rule := { spelling := "RG1011", check := check }
