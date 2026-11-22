@@ -18,7 +18,7 @@
 # GitHub, and the step fails unless that archive has the SHA-256 written in it. So a change of the
 # release that `lean-toolchain` names fails the step until the digest is that of the new release's
 # archive. No elan is installed: `lean-toolchain` gives only the version in the archive's address.
-# The digest is that of the archive as downloaded on 2026-11-17, whose Lean reports the release and
+# The digest is that of the archive as downloaded on 2026-11-20, whose Lean reports the release and
 # the commit that the checker reads (`Regula.Closed.pinnedLean`).
 #
 # The job sets no time limit of its own, as the gate sets none, so GitHub's limit for a job applies.
@@ -48,7 +48,7 @@ jobs:
         run: |
           v="$(sed 's/^.*:v//' lean-toolchain)"
           curl -sSfL -o "$RUNNER_TEMP/lean.zip" "https://github.com/leanprover/lean4/releases/download/v$v/lean-$v-linux.zip"
-          echo "c8531faaa4a93d5a4dae0c742cbc1bd42a2993594d02f93a9d629ebf299fb2c8  $RUNNER_TEMP/lean.zip" | sha256sum --check
+          echo "92a996be487b48e1c2f2985be6b150490475c94d02f5a5e26665a9dab780902a  $RUNNER_TEMP/lean.zip" | sha256sum --check
           unzip -q "$RUNNER_TEMP/lean.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/lean-$v-linux/bin" >> "$GITHUB_PATH"
       - name: Run the local gate

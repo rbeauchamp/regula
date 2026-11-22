@@ -33,7 +33,7 @@ to {name}`Regula.Closed.pinnedLean`, the one release the checker reads, and the 
 this package under any other Lean. So a change of the pinned toolchain fails the build until each entry is read again and
 its record changed.
 
-A source is a path below the root of the tag `v4.35.0` of Lean with its lines, the source directory there of a component that
+A source is a path below the root of the tag `v4.36.0` of Lean with its lines, the source directory there of a component that
 the owner's account trusts whole, or a page of the platform's own documentation ({lit}`Source`).
 -/
 
@@ -94,13 +94,24 @@ inductive Assumption where
   order, through {name}`Regula.Effect.table`, each function with {attr}`@[extern]` or {attr}`@[implemented_by]` computes what its definition
   or its documentation says, and the exit code is the value that {lit}`main` returns. -/
   | compiler
+  /-- For every safe, non-single-constructor, non-builtin, non-{lit}`Prop` inductive type {lit}`T`
+  (outside the fifteen runtime builtin types of {lit}`Lean.Compiler.LCNF.builtinRuntimeTypes`),
+  Lean's runtime tag function {lit}`lean_obj_tag_nat` behind {lit}`getObjTagNat` returns the
+  constructor index {lit}`cInfo.cidx` of each value of {lit}`T`, agreeing with a safe
+  {lit}`T.casesOn`-based definition {lit}`T.ctorIdx` (whose {lit}`T.casesOn` the loader verifies
+  directly against {name}`Lean.mkCasesOnImp` on {name (full := Lean.Environment.toKernelEnv)}`toKernelEnv`,
+  reducing {lit}`T.type` via {name}`Lean.Kernel.whnf` and binder domains via {name}`Lean.Expr.headBeta`)
+  of the shape Lean's {lit}`mkCtorIdx` generates and replaces via {attr}`@[implemented_by]`
+  {lit}`T.ctorIdx._impl`. -/
+  | ctorIdxTag
   /-- H1: the trees that the check read of a file of an admitted reading are the trees that Lean's frontend elaborates
   ({name (full := RegulaSpecification.Language.LeanBehaviour.h1)}`LeanBehaviour.h1`). The parser reads of the elaborator's state only scoped parser entries and tokens, namespace and open
   declarations, and the options {option}`internal.parseQuotWithCurrentStage`, {option}`doc.verso` and {option}`doc.verso.module`; none of these
   options is in the admitted {name (full := Regula.Language.options)}`options`, so an admitted file is parsed with each of them unset, as the reader parses it. -/
   | h1
   /-- H2: elaborating trees that the closed set admits runs no code that the project wrote and installs nothing that replaces
-  what the compiler runs for a definition ({name (full := RegulaSpecification.Language.LeanBehaviour.h2)}`LeanBehaviour.h2`). -/
+  what the compiler runs for a definition ({name (full := RegulaSpecification.Language.LeanBehaviour.h2)}`LeanBehaviour.h2`), apart from Lean's own compiler-generated {lit}`T.ctorIdx`
+  replacement ({lit}`ctorIdxTag`). -/
   | h2
   /-- {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each constant that occurs in an expression ({name (full := RegulaSpecification.Loader.UsedConstantsComplete)}`UsedConstantsComplete`). Its body is an
   {kw (of := Lean.Parser.Command.declaration)}`opaque` that {attr}`@[implemented_by]` replaces. -/
@@ -223,7 +234,7 @@ namespace Assumption
 
 /-- Who holds each entry. -/
 def owner : Assumption → Owner
-  | kernel | h6 | replay | compiler | h1 | h2 | usedConstants | leanImport | leanVersion | platform => .lean
+  | kernel | h6 | replay | compiler | ctorIdxTag | h1 | h2 | usedConstants | leanImport | leanVersion | platform => .lean
   | lakeLoad | h3 | h5 | lakeCommands | lakeStart => .lake
   | h4 | files | processes => .os
 
@@ -237,7 +248,7 @@ theorem os_on_platform (a : Assumption) (h : a.owner = .os) : a.platforms ≠ []
   cases a <;> simp_all [owner, platforms]
 
 /-- What {name}`leanImport` states of the facts of a load: the header of the environment holds the data of each of its modules.
-Lean builds both arrays from one ({lit}`Lean/Environment.lean:2313-2317`, {lit}`2367-2370`). It is the premise of
+Lean builds both arrays from one ({lit}`Lean/Environment.lean:2677-2681`, {lit}`2731-2739`). It is the premise of
 {name}`Loader.claimedConstants_complete`, by another name. -/
 def ModuleDataComplete (f : Regula.Load.Facts) : Prop :=
   f.env.header.moduleData.size = f.modules.size
@@ -245,22 +256,29 @@ def ModuleDataComplete (f : Regula.Load.Facts) : Prop :=
 /-- The pinned sources of each entry. -/
 def sources : Assumption → List Source
   | kernel => [.component "src/kernel/"]
-  | h6 => [.file "src/kernel/type_checker.cpp" "110-117", .file "src/kernel/type_checker.h" "127-128",
-      .file "src/kernel/environment.cpp" "156, 181, 196, 215"]
-  | replay => [.file "src/Lean/Replay.lean" "59-63, 74-140, 148-190", .file "src/Lean/Environment.lean" "1531-1543",
-      .file "src/Lean/Util/FoldConsts.lean" "16-56, 67-74", .file "src/kernel/type_checker.cpp" "416-430, 1104-1110, 1280-1304",
-      .file "src/kernel/inductive.cpp" "1359-1401", .file "src/kernel/quot.cpp" "19-56", .file "src/library/constants.cpp" "147-150",
-      .file "src/Lean/Expr.lean" "622-624, 804-812"]
+  | h6 => [.file "src/kernel/type_checker.cpp" "110-117", .file "src/kernel/type_checker.h" "124-125",
+      .file "src/kernel/environment.cpp" "155, 180, 195, 214"]
+  | replay => [.file "src/Lean/Replay.lean" "59-63, 74-140, 148-190", .file "src/Lean/Environment.lean" "1848-1863",
+      .file "src/Lean/Util/FoldConsts.lean" "16-56, 67-74", .file "src/kernel/type_checker.cpp" "412-426, 1100-1106, 1242-1266",
+      .file "src/kernel/inductive.cpp" "1347-1390", .file "src/kernel/quot.cpp" "19-56", .file "src/library/constants.cpp" "12-15",
+      .file "src/Lean/Expr.lean" "622-624, 803-811"]
   | compiler => [.component "src/Lean/Compiler/", .component "src/runtime/", .file "src/Init/System/IO.lean" "39"]
+  | ctorIdxTag => [.file "src/Lean/Meta/Constructions/CtorIdx.lean" "40-141",
+      .file "src/Lean/Meta/Constructions/CasesOn.lean" "17, 28-33, 71-81",
+      .file "src/Lean/MetavarContext.lean" "1351-1368",
+      .file "src/Lean/Expr.lean" "1591-1616, 1649-1658",
+      .file "src/Lean/Environment.lean" "730-732, 3175-3176",
+      .file "src/Lean/Compiler/LCNF/Util.lean" "40-53", .file "src/Init/Prelude.lean" "1381-1382",
+      .file "src/include/lean/lean.h" "757-763"]
   | h1 => [.file "src/Lean/Language/Lean.lean" "595-601", .file "src/Lean/Parser/Extension.lean" "607-612, 765",
       .file "src/Lean/Parser/Module.lean" "124, 135, 146", .file "src/Lean/Elab/Open.lean" "83, 89, 101",
-      .file "src/Lean/Elab/BuiltinCommand.lean" "60", .file "src/Lean/Environment.lean" "2108-2190",
-      .file "src/Lean/Elab/Frontend.lean" "287", .file "src/Lean/Shell.lean" "519", .file "src/Lean/Language/Lean.lean" "451",
-      .file "src/Lean/DocString/Parser.lean" "1375-1376, 1400-1407", .file "src/Lean/Parser/Term.lean" "92",
-      .file "src/Lean/Parser/Command.lean" "61", .file "src/Lean/DocString/Extension.lean" "115, 120"]
+      .file "src/Lean/Elab/BuiltinCommand.lean" "60", .file "src/Lean/Environment.lean" "2472-2554",
+      .file "src/Lean/Elab/Frontend.lean" "287", .file "src/Lean/Shell.lean" "509", .file "src/Lean/Language/Lean.lean" "451",
+      .file "src/Lean/DocString/Parser.lean" "2239-2240, 2264-2271", .file "src/Lean/Parser/Term.lean" "214-215",
+      .file "src/Lean/Parser/Command.lean" "60-61", .file "src/Lean/DocString/Extension.lean" "116, 121"]
   | h2 => [.file "src/Lean/Elab/BuiltinEvalCommand.lean" "194, 200, 225, 226",
       .file "src/Lean/Elab/BuiltinNotation.lean" "588, 594",
-      .file "src/Lean/Elab/BuiltinTerm.lean" "432", .file "src/Lean/Elab/Tactic/BuiltinTactic.lean" "683",
+      .file "src/Lean/Elab/BuiltinTerm.lean" "432", .file "src/Lean/Elab/Tactic/BuiltinTactic.lean" "685",
       .file "src/Lean/Elab/Tactic/Guard.lean" "163", .file "src/Lean/Meta/Native.lean" "57, 67",
       .file "src/Lean/Elab/Tactic/Config.lean" "24, 151", .file "src/Lean/Elab/ConfigEval.lean" "54",
       .file "src/Lean/Elab/ConfigEval/Basic.lean" "24, 27, 42, 48, 53", .file "src/Lean/Elab/ConfigEval/Commands.lean" "42",
@@ -271,43 +289,43 @@ def sources : Assumption → List Source
       .file "src/Lean/Elab/ConfigEval/Types.lean" "40, 46, 66, 73",
       .file "src/Lean/Elab/Tactic/Try.lean" "1033", .file "src/Lean/Elab/Util.lean" "108",
       .file "src/Lean/KeyedDeclsAttribute.lean" "66, 125, 166, 170", .file "src/Lean/Meta/Tactic/Simp/Simproc.lean" "130, 132",
-      .file "src/Lean/Attributes.lean" "450", .file "src/Lean/Elab/DocString.lean" "1193, 1200, 1250, 1273, 1292, 1310",
+      .file "src/Lean/Attributes.lean" "454", .file "src/Lean/Elab/DocString.lean" "1300, 1307, 1357, 1380, 1399, 1417",
       .file "src/Lean/Linter/MissingDocs.lean" "43, 46", .file "src/Lean/Linter/UnusedVariables.lean" "143",
-      .file "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean" "648", .file "src/Lean/Compiler/LCNF/PassManager.lean" "217",
-      .file "src/Lean/Compiler/IR/Meta.lean" "52, 56-59", .file "src/Lean/Environment.lean" "2537, 2618, 2620, 2627"]
+      .file "src/Lean/Compiler/LCNF/Simp/ConstantFold.lean" "792", .file "src/Lean/Compiler/LCNF/PassManager.lean" "217",
+      .file "src/Lean/Compiler/IR/Meta.lean" "52, 56-59", .file "src/Lean/Environment.lean" "2893, 2974, 2976, 2983"]
   | usedConstants => [.file "src/Lean/Util/FoldConsts.lean" "51-56"]
-  | leanImport => [.file "src/Lean/Environment.lean" "109-111, 155-167, 1211-1212, 1666-1678, 1871, 1883-1886, 1902-1918, 2017-2034, 2079-2080, 2094-2095, 2181-2183, 2308-2309, 2313-2317, 2333-2348, 2367-2370, 2377, 2404",
+  | leanImport => [.file "src/Lean/Environment.lean" "109-111, 155-167, 1384-1385, 1990-1996, 2213, 2224-2227, 2243-2259, 2381-2398, 2443-2444, 2458-2459, 2545-2547, 2672-2673, 2677-2681, 2697-2712, 2734-2737, 2742, 2773",
       .file "src/Lean/Compiler/CSimpAttr.lean" "18-55, 71-80",
       .file "src/Lean/Compiler/ImplementedByAttr.lean" "67-68", .file "src/Lean/Compiler/ExternAttr.lean" "75-76, 119-120",
       .file "src/Lean/Compiler/InitAttr.lean" "50-79, 101, 110, 112-127",
-      .file "src/Lean/Attributes.lean" "151-156, 257-261, 272-279, 289-292, 306-318",
-      .file "src/Lean/Util/Path.lean" "117-125", .file "src/Lean/Elab/Import.lean" "26-27, 141-160",
+      .file "src/Lean/Attributes.lean" "151-156, 262-266, 276-283, 293-296, 310-325",
+      .file "src/Lean/Util/Path.lean" "138-152", .file "src/Lean/Elab/Import.lean" "26-27, 141-160",
       .file "src/Lean/Elab/Frontend.lean" "294-313", .file "src/Lean/Language/Lean.lean" "502-505",
       .file "src/Lean/Parser/Extension.lean" "348",
-      .file "src/Lean/ScopedEnvExtension.lean" "17-19, 26-31, 96-112, 118-121, 171-203, 258-274"]
+      .file "src/Lean/ScopedEnvExtension.lean" "17-19, 40-47, 137-153, 159-162, 245-277, 333-360"]
   | leanVersion => [.file "src/Init/Meta/Defs.lean" "37, 57"]
   | platform => [.file "src/Init/System/Platform.lean" "39, 44", .file "src/Init/System/FilePath.lean" "127"]
   | lakeLoad => [.file "src/lake/Lake/Load/Workspace.lean" "31-47, 61", .file "src/lake/Lake/Load/Package.lean" "100-105",
-      .file "src/lake/Lake/Load/Config.lean" "31, 44", .file "src/lake/Lake/Config/Module.lean" "62-65, 87-90",
+      .file "src/lake/Lake/Load/Config.lean" "31, 44", .file "src/lake/Lake/Config/Module.lean" "63-66, 88-91",
       .file "src/lake/Lake/Config/LeanLib.lean" "24, 34-35", .file "src/lake/Lake/Config/LeanLibConfig.lean" "46, 140",
       .file "src/lake/Lake/Config/LeanExe.lean" "22-23, 30, 46, 49-51, 72", .file "src/lake/Lake/Config/Package.lean" "68, 356-357, 364-365",
       .file "src/lake/Lake/Config/Workspace.lean" "279-280, 356-357, 391-392", .file "src/lake/Lake/Config/Glob.lean" "53-59",
       .file "src/lake/Lake/Config/InstallPath.lean" "128, 196-200, 272", .file "src/lake/Lake/Config/Env.lean" "74-76, 165, 186-187, 255, 263",
       .file "src/lake/Lake/Toml/Load.lean" "20"]
-  | h3 => [.file "src/lake/Lake/Build/Package.lean" "45-61", .file "src/lake/Lake/Build/Module.lean" "30-38",
-      .file "src/lake/Lake/Config/Workspace.lean" "279-280", .file "src/lake/Lake/Config/Module.lean" "41-42"]
-  | h5 => [.file "src/lake/Lake/CLI/Main.lean" "48, 138", .file "src/lake/Lake/Load/Config.lean" "44",
+  | h3 => [.file "src/lake/Lake/Build/Package.lean" "45-61", .file "src/lake/Lake/Build/Module.lean" "50-58",
+      .file "src/lake/Lake/Config/Workspace.lean" "279-280", .file "src/lake/Lake/Config/Module.lean" "42-43"]
+  | h5 => [.file "src/lake/Lake/CLI/Main.lean" "49, 141", .file "src/lake/Lake/Load/Config.lean" "44",
       .file "src/lake/Lake/Load/Package.lean" "109-117", .file "src/lake/Lake/Util/IO.lean" "87-101"]
-  | lakeCommands => [.file "src/lake/Lake/CLI/Main.lean" "307, 962-985", .file "src/lake/Lake/Build/Run.lean" "114-118"]
+  | lakeCommands => [.file "src/lake/Lake/CLI/Main.lean" "317, 977-1000", .file "src/lake/Lake/Build/Run.lean" "114-118"]
   | lakeStart => [.file "src/lake/Lake/CLI/Actions.lean" "20-30, 88-100",
       .file "src/lake/Lake/Config/Workspace.lean" "372-373, 409-410, 417-431", .file "src/lake/Lake/Config/Env.lean" "188, 289-303",
       .file "src/lake/Lake/Config/InstallPath.lean" "160-164", .file "src/lake/Lake/Config/Package.lean" "228-229, 382-383",
-      .file "src/lake/Lake/Util/NativeLib.lean" "35-41", .file "src/lake/Lake/CLI/Main.lean" "47-48, 131-138"]
-  | h4 => [.file "src/Init/System/IO.lean" "874-879", .file "src/runtime/io.cpp" "1056", .manual "realpath(3)"]
+      .file "src/lake/Lake/Util/NativeLib.lean" "35-41", .file "src/lake/Lake/CLI/Main.lean" "48-49, 134-141"]
+  | h4 => [.file "src/Init/System/IO.lean" "874-879", .file "src/runtime/io.cpp" "1055", .manual "realpath(3)"]
   | files => [.file "src/Init/System/IO.lean" "943, 1058-1060, 1156, 1229-1233, 1316, 1335-1342",
-      .file "src/runtime/io.cpp" "417, 1169, 1189, 1310, 1339", .manual "open(2)", .manual "stat(2)", .manual "mkdir(2)",
+      .file "src/runtime/io.cpp" "422, 1168, 1188, 1309, 1338", .manual "open(2)", .manual "stat(2)", .manual "mkdir(2)",
       .manual "mktemp(3)", .manual "mkdtemp(3)"]
-  | processes => [.file "src/Init/System/IO.lean" "1434-1440, 1489, 1494", .file "src/runtime/io.cpp" "1005",
+  | processes => [.file "src/Init/System/IO.lean" "1434-1440, 1489, 1494", .file "src/runtime/io.cpp" "1004",
       .file "src/runtime/process.cpp" "358, 453, 475, 496, 510", .manual "env(1)", .manual "fork(2)", .manual "execvp(3)",
       .manual "waitpid(2)", .manual "getenv(3)", .manual "dyld(1)", .manual "ld.so(8)"]
 
@@ -323,18 +341,18 @@ theorem verso_options_not_admitted :
 
 /-- The files that an entry's stated search matches and that it does not cite, each with why no admitted input reaches it.
 Only {name}`h2` states a search: the whole words {lit}`evalConst`, {lit}`evalConstCheck`, {lit}`evalExpr`, {lit}`evalTerm` and {lit}`evalDecl` over the
-sources of Lean's repository at the tag `v4.35.0`. At that tag it matches 61 files. {name}`h2`'s sources cite the 26 whose sites
-are reached only through what the tables refuse, each with every line the search matches, and this list names the other 35.
-That the two together are those 61 files is **measured**, by running the search at the tag and comparing, and no theorem
+sources of Lean's repository at the tag `v4.36.0`. At that tag it matches 60 files. {name}`h2`'s sources cite the 26 whose sites
+are reached only through what the tables refuse, each with every line the search matches, and this list names the other 34.
+That the two together are those 60 files is **measured**, by running the search at the tag and comparing, and no theorem
 states it; it is read again at each upgrade with the entry. -/
 def excluded : Assumption → List Exclusion
   | h2 =>
     [⟨"src/Lean/Compiler/InitAttr.lean", "193", .refused,
         "the command `initialize` and the attribute `init`; on import it runs only the toolchain's own initializers"⟩,
-      ⟨"src/Lean/CoreM.lean", "726", .noEvaluation, "a comment"⟩,
+      ⟨"src/Lean/CoreM.lean", "893", .noEvaluation, "a comment"⟩,
       ⟨"src/Lean/DocString/Markdown.lean", "548, 558", .refused,
         "the attributes `doc_inline_md` and `doc_block_md`, for elements of a Verso doc comment"⟩,
-      ⟨"src/Lean/Elab/DocString/Builtin/Keywords.lean", "211, 294", .verso, "a role of a Verso doc comment"⟩,
+      ⟨"src/Lean/Elab/DocString/Builtin/Keywords.lean", "203, 286", .verso, "a role of a Verso doc comment"⟩,
       ⟨"src/Lean/Elab/DocString/Builtin/Postponed.lean", "87", .verso,
         "a deferred check of a Verso doc comment, whose handlers the attribute `deferred_doc_check` registers"⟩,
       ⟨"src/Lean/Elab/ErrorExplanation.lean", "107", .refused, "the command `register_error_explanation`"⟩,
@@ -355,12 +373,11 @@ def excluded : Assumption → List Exclusion
         "a local name for an expression"⟩,
       ⟨"src/Lean/Meta/Tactic/Cbv/CbvSimproc.lean", "162", .toolchainOnly,
         "simprocs of `cbv`; a project's needs the command `cbv_simproc`"⟩,
-      ⟨"src/Lean/Meta/Tactic/Grind/Arith/EvalNum.lean", "19, 20, 57", .noEvaluation, "a module docstring and a comment"⟩,
       ⟨"src/Lean/Meta/Tactic/Simp/Types.lean", "411", .noEvaluation, "a docstring"⟩,
       ⟨"src/Lean/MonadEnv.lean", "181, 185, 187, 190", .definition, "`Lean.evalConst` and `Lean.evalConstCheck`"⟩,
       ⟨"src/Lean/Parser/Extension.lean", "266, 269, 272, 276", .toolchainOnly,
         "parsers; a project's needs `syntax` or a parser attribute"⟩,
-      ⟨"src/Lean/Parser/Term.lean", "758, 759, 760", .noEvaluation, "a docstring"⟩,
+      ⟨"src/Lean/Parser/Term.lean", "881, 882, 883", .noEvaluation, "a docstring"⟩,
       ⟨"src/Lean/ParserCompiler.lean", "156, 157", .refused, "the parser attributes, which `syntax` applies"⟩,
       ⟨"src/Lean/ParserCompiler/Attribute.lean", "53", .refused,
         "the attributes `combinator_formatter` and `combinator_parenthesizer`"⟩,
@@ -396,24 +413,25 @@ def formal : Assumption → List Name
 
 /-- The Lean release, by version and commit, at which the sources of each entry were read. -/
 def readAt : Assumption → String × String
-  | kernel => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | h6 => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | replay => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | compiler => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | h1 => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | h2 => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | usedConstants => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | leanImport => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | leanVersion => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | platform => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | lakeLoad => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | h3 => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | h5 => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | lakeCommands => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | lakeStart => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | h4 => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | files => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
-  | processes => ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
+  | kernel => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | h6 => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | replay => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | compiler => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | ctorIdxTag => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | h1 => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | h2 => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | usedConstants => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | leanImport => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | leanVersion => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | platform => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | lakeLoad => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | h3 => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | h5 => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | lakeCommands => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | lakeStart => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | h4 => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | files => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
+  | processes => ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
 
 /-- Each entry was read at the one release that the checker reads, so a change of {name}`Regula.Closed.pinnedLean` fails this
 proof at each entry until that entry's sources are read again and its record changed. -/
@@ -468,14 +486,15 @@ namespace Route
 
 open Assumption
 
-/-- What each route relies on beyond its operations. Both rest on how Lake starts the checker, on the compiler and on the
-platform. A pass of the proof verdict also rests on the operator's {lit}`lake build --wfail` of the same build, and on the
+/-- What each route relies on beyond its operations. Both rest on how Lake starts the checker, on the compiler, on runtime tag
+agreement for compiler-generated {lit}`ctorIdx` pairs ({name}`ctorIdxTag`), and on the platform. A pass of the proof verdict also
+rests on the operator's {lit}`lake build --wfail` of the same build, and on the
 project, which is no behaviour of Lean, Lake or the operating system and so no entry: its route starts the checker from the
 project's own Lake, so it holds only for a project that places no file or code aimed at the checker or the toolchain, as
 `README.md` in this directory states under "A project aimed at the checker". -/
 def relies : Route → List Assumption
-  | proof => [lakeStart, compiler, platform, lakeCommands]
-  | full => [lakeStart, compiler, platform]
+  | proof => [lakeStart, compiler, ctorIdxTag, platform, lakeCommands]
+  | full => [lakeStart, compiler, ctorIdxTag, platform]
 
 /-- Each route relies on an entry. -/
 theorem relies_ne_nil (r : Route) : r.relies ≠ [] := by
@@ -490,6 +509,7 @@ theorem each_relied_on (a : Assumption) :
   · exact .inl ⟨.kernelReplay {}, by decide⟩
   · exact .inl ⟨.kernelReplay {}, by decide⟩
   · exact .inl ⟨.kernelReplay {}, by decide⟩
+  · exact .inr (.inl ⟨.full, by decide⟩)
   · exact .inr (.inl ⟨.full, by decide⟩)
   · exact .inl ⟨.parseHeader (Lean.Parser.mkInputContext "" ""), by decide⟩
   · exact .inl ⟨.parseCommand (Lean.Parser.mkInputContext "" "") () {} {}, by decide⟩

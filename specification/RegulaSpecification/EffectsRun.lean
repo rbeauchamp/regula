@@ -68,7 +68,7 @@ def Apart (a b : FilePath) : Prop :=
   ¬ (parts a <+: parts b) ∧ ¬ (parts b <+: parts a)
 
 /-- {lit}`Sees headers held m n`: an import of {lit}`m` lets a file see the toolchain's module {lit}`n`, by the rule of
-{name (full := Lean.importModulesCore)}`importModulesCore` for a {lit}`module` file ({lit}`Lean/Environment.lean:2108-2190` at v4.35.0): a module of the
+{name (full := Lean.importModulesCore)}`importModulesCore` for a {lit}`module` file ({lit}`Lean/Environment.lean:2472-2554` at v4.36.0): a module of the
 toolchain's own closes it there, whose own closure Lean follows, and a project's module passes on each of its
 `public` imports, as {name}`headers` gives them. -/
 inductive Sees (headers : List (Name × Array Import)) (held : List Name) : Name → Name → Prop where

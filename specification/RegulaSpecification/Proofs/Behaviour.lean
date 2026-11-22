@@ -81,10 +81,10 @@ theorem full_exit_zero {t : List (Event L E)} {dir : FilePath} {p : Regula.Close
           roots, hg, hbr, h1, h2, hrep'⟩
       · cases hrep
 
-/-- H3: what Lake's build compiles for the default targets. A hypothesis about what a function of Lake does, at v4.35.0:
+/-- H3: what Lake's build compiles for the default targets. A hypothesis about what a function of Lake does, at v4.36.0:
 the modules of the default targets are those of each default library, and an admitted reading has no other default target
 (`Package.recCollectDefaultModules`, {lit}`Lake/Build/Package.lean:45-61`), and each other module is one that an import of what
-it compiles reaches, through {lit}`findModule?` (`Module.recFetchInput`, {lit}`Lake/Build/Module.lean:30-38`,
+it compiles reaches, through {lit}`findModule?` (`Module.recFetchInput`, {lit}`Lake/Build/Module.lean:50-58`,
 {lit}`Lake/Config/Workspace.lean:279-280`), with the file `Module.leanFile`. A module of a default target may also have the file
 that {lit}`findModule?` gives for its name ({name}`Compiled.resolved`). No proof reaches it, because Lake's build is Lake's. -/
 structure LakeBehaviour (headers : List (Name × Array Import)) (root : Root L)
@@ -113,7 +113,7 @@ theorem read_what_lake_compiles {t : List (Event L E)} {dir tree : FilePath} {he
   exact ⟨f, hf, hm, i, md, tx, hra, hst⟩
 
 /-- H5: what Lake takes as the configuration of a directory, when its command line loads it. Lake's command line asks for a configuration with
-no extension ({lit}`defaultConfigFile`, {lit}`Lake/CLI/Main.lean:48`, {lit}`Lake/Load/Config.lean:44`), and takes `lakefile.lean` when that name resolves, and
+no extension ({lit}`defaultConfigFile`, {lit}`Lake/CLI/Main.lean:49`, {lit}`Lake/Load/Config.lean:44`), and takes `lakefile.lean` when that name resolves, and
 otherwise `lakefile.toml` when that name resolves ({lit}`resolveConfigFile`, {lit}`Lake/Load/Package.lean:109-117`). No proof reaches it, because Lake's
 load is Lake's. {lit}`Takes` is the file it reads as the configuration, as a name in the tree. -/
 structure LakeSelection (t : List (Event L E)) (real : FilePath) where
@@ -152,7 +152,7 @@ theorem lake_takes_judged {t pre post : List (Event L E)} {dir : FilePath} {p : 
 
 
 /-- H4: what successful {name}`IO.FS.realPath` responses in this trace mean. Lean documents that the result contains
-no symbolic links and coincides with POSIX {lit}`realpath` ({lit}`Init/System/IO.lean:874-881` at v4.35.0). The
+no symbolic links and coincides with POSIX {lit}`realpath` ({lit}`Init/System/IO.lean:874-881` at v4.36.0). The
 hypothesis relates crossings to those responses alone, and says nothing about the filesystem after the
 observation. -/
 structure RealPathBehaviour (t : List (Event L E)) where

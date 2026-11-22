@@ -11,7 +11,7 @@ states it over these tables, independently of that decision, and `specification/
 examples apart from them, so a table replaced by a constant fails that build.
 
 Each table is closed: a name that it does not hold is refused, so a construct that a later Lean adds is
-refused until someone reads it and adds it. The criterion each entry was read against, at Lean v4.35.0,
+refused until someone reads it and adds it. The criterion each entry was read against, at Lean v4.36.0,
 is in the specification's section "The language check", which states it as the hypothesis H2.
 -/
 
@@ -181,7 +181,7 @@ def configKeys : List Name :=
 
 /-- What `lean-toolchain` must say: the one Lean this revision reads, which the checker also uses to
 build, whatever a project's own file names. -/
-def leanToolchain : String := "leanprover/lean4:v4.35.0"
+def leanToolchain : String := "leanprover/lean4:v4.36.0"
 
 /-- One Lean file as the reader got it from Lean's parser. -/
 structure FileRead where

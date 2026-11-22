@@ -5,7 +5,8 @@ public import Regula.Rule
 /-!
 # RG1011: replaced compiled code
 
-A constant of a claimed module has `@[implemented_by]` or `@[extern]`, or is a definition for which
+A constant of a claimed module has `@[implemented_by]` (other than the compiler-generated
+`T.ctorIdx` half of a verified `ctorIdx` pair) or `@[extern]`, or is a definition for which
 `@[init]` or `@[builtin_init]` names an initialization function, so a compiled program runs other code
 in its place than the definition that its proofs are about; or a claimed module has an exported
 (`global` or `scoped`) `@[csimp]` entry whose theorem is not declared in any claimed module's
@@ -13,9 +14,9 @@ in its place than the definition that its proofs are about; or a claimed module 
 The loader reads the first three with `Lean.Compiler.getImplementedBy?`, `Lean.isExtern` and
 `Lean.getInitFnNameFor?`, the queries by which Lean's compiler decides what it compiles for a constant
 (`shouldGenerateCode`, `Lean/Compiler/LCNF/Main.lean:34` and `:40`, and `toDecl`,
-`Lean/Compiler/LCNF/ToDecl.lean:72`, at v4.35.0), and reads claimed modules' exported `@[csimp]` entries
+`Lean/Compiler/LCNF/ToDecl.lean:72`, at v4.36.0), and reads claimed modules' exported `@[csimp]` entries
 with `Lean.Compiler.CSimp.ext.ext.getModuleEntries` (`Lean/Compiler/CSimpAttr.lean:18-38`,
-`Lean/ScopedEnvExtension.lean:17-19,96-112`, `Lean/Environment.lean:1672-1678,2377` at v4.35.0).
+`Lean/ScopedEnvExtension.lean:17-19,137-153`, `Lean/Environment.lean:1990-1996,2742` at v4.36.0).
 `specification/RegulaSpecification/Rules/RG1011.lean` states the rule and proves this check against it.
 -/
 
@@ -99,11 +100,11 @@ def foreignCSimps (i : Input) : List Violation :=
                guidance := foreignCSimpGuidance }
       else none
 
-/-- The constants of claimed modules that have `@[implemented_by]` or `@[extern]`, and the definitions
-of claimed modules that have an initialization function. -/
+/-- The constants of claimed modules that have an unexempted `@[implemented_by]` or `@[extern]`, and
+the definitions of claimed modules that have an initialization function. -/
 def replaced {i : Input} (t : Tables i) : List Violation :=
   t.claimed.filterMap fun d =>
-    if d.implementedBy.isSome || d.isExtern || initialized d then
+    if (d.implementedBy.isSome && !t.ctorIdxDef d) || d.isExtern || initialized d then
       some (violation d s!"has {replacement d}, so compiled code runs in place of its definition"
         (replacementGuidance d))
     else none

@@ -113,11 +113,12 @@ structure Meaning : Prop where
   loaderHeld : ∀ {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile},
     (Regula.Closed.decision (f.input roots p)).verdict = .pass → ∀ {m n : Name} {info : ConstantInfo},
       (m, n, info) ∈ f.claimedConstants →
-      ModuleUnreplaced f.env m n ∧
+      (ModuleUnreplaced f.env m n ∨ ModuleCtorIdxEntryOnly f.env m n info) ∧
       ((∃ v, info = .defnInfo v) → ModuleUninitialized f.env m n) ∧
       (∀ v, info ≠ .axiomInfo v) ∧
       ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
-        info.isPartial = true ∧ info.isUnsafe = false) ∧
+        (info.isPartial = true ∧ info.isUnsafe = false) ∨
+          (info.isUnsafe = true ∧ ∃ ind, ctorIdxShape f.env n info = .impl ind)) ∧
       (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ¬ ValueMentions info ``Lean.Order.fix) ∧
       ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u) ∧
@@ -183,9 +184,12 @@ structure Meaning : Prop where
   /-- {name}`admitted_runs_no_project_code`, under H1 and H2 ({name}`LeanBehaviour`): an admitted reading runs no project code. -/
   noProjectCode : ∀ (B : LeanBehaviour) {d : Reading → Outcome}, languageRecord.Meets d → ∀ (r : Reading),
     d r = .admitted → ∀ f ∈ r.files, ∃ ts, B.Elaborates f ts ∧ B.NoProjectCode ts
-  /-- {name}`helperForm_unreached`, under H6 ({name}`SafeMentionsSafe`): no safe constant reaches one of the exempted form. -/
+  /-- {name}`helperForm_unreached`, under H6 ({name}`SafeMentionsSafe`): no safe constant reaches one of the exempted recursion-helper form. -/
   helper : ∀ {i : RegulaSpecification.Input}, SafeMentionsSafe i → ∀ {d p : RegulaSpecification.Decl}, d ∈ i.decls →
     d.safety = .safe → p ∈ i.decls → i.HelperForm p → ¬ i.Reaches d.name p.name
+  /-- {name}`ctorIdxImpl_unreached`, under H6 ({name}`SafeMentionsSafe`): no safe constant reaches the unsafe half of a compiler-generated {lit}`ctorIdx` pair. -/
+  ctorIdx : ∀ {i : RegulaSpecification.Input}, SafeMentionsSafe i → ∀ {d p : RegulaSpecification.Decl}, d ∈ i.decls →
+    d.safety = .safe → p ∈ i.decls → i.CtorIdxImpl p → ¬ i.Reaches d.name p.name
 
 /-- **What a verdict means, from the theorems that state it.** -/
 theorem meaning : Meaning where
@@ -209,5 +213,6 @@ theorem meaning : Meaning where
   noLink := read_no_link
   noProjectCode := admitted_runs_no_project_code
   helper := helperForm_unreached
+  ctorIdx := ctorIdxImpl_unreached
 
 end RegulaSpecification.Meaning

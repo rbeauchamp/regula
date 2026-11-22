@@ -23,7 +23,7 @@ status 0 means that Lake loaded the package and reported no test driver.
 
 The program needs Lake's own compiled library, which `--load-dynlib` loads before the program runs.
 `lake env` puts the toolchain's library directory first on the search path of shared libraries
-(`Lake.Workspace.augmentedEnvVars`, `Lake/Config/Workspace.lean:409-431`, `Lake/CLI/Main.lean:1260-1269`).
+(`Lake.Workspace.augmentedEnvVars`, `Lake/Config/Workspace.lean:409-431`, `Lake/CLI/Main.lean:1275-1284`).
 Without that library, `lean --run` stopped in the load of every `lakefile.lean` tried, at code that Lean's
 interpreter could not run, and exited with status 1 (observed with Lean v4.34.1 and v4.35.0). A
 `lakefile.toml`, which this repository has, loaded without it. The file name of the library is macOS's. On
@@ -31,22 +31,22 @@ another system the command fails, so its listing blocks.
 
 ## What Lake knows as a test
 
-Lake v4.35.0 knows one test of a package: its test driver, `Lake.Package.testDriver`, which `lake test` runs
+Lake v4.36.0 knows one test of a package: its test driver, `Lake.Package.testDriver`, which `lake test` runs
 when the package is the root of the workspace (`Lake/CLI/Actions.lean:71-85`). The driver is the package's
 `testDriver` setting, or the one script, executable or library tagged `@[test_driver]`. A package with both,
 or with two tagged, does not load (`Lake/Load/Lean/Eval.lean:145-161`). `lake check-test` reports the driver
 only by its exit status. That status is 1 for an empty driver and also for a package that does not load
-(`Lake/CLI/Main.lean:178-181`, `:1094-1097`, `Lake/Util/MainM.lean:72-75`, `:80-82`), so this program reads
+(`Lake/CLI/Main.lean:181-184`, `:1109-1112`, `Lake/Util/MainM.lean:72-75`, `:80-82`), so this program reads
 the driver itself.
 
 ## How it reads the package
 
-It makes the calls that `lake check-test` makes when no option is given (`Lake/CLI/Main.lean:172-181`,
-`:1094-1097`):
+It makes the calls that `lake check-test` makes when no option is given (`Lake/CLI/Main.lean:175-184`,
+`:1109-1112`):
 - Lake's search for the Lean and Lake installations (`Lake.findInstall?`);
 - the load configuration of the working directory, which `loadConfig` makes as
   `Lake.LakeOptions.mkLoadConfig` makes it from the options that hold only those installations
-  (`Main.lean:131-145`), as `Regula.ProgramCheck.TestListing.loadConfig_eq` proves;
+  (`Main.lean:134-148`), as `Regula.ProgramCheck.TestListing.loadConfig_eq` proves;
 - the load of the package alone (`Lake.loadPackage`, `Lake/Load/Package.lean:135-139`).
 
 The program does not call `mkLoadConfig`. The module that declares it, `Lake.CLI.Main`, imports the code of
@@ -59,12 +59,12 @@ elaborates it: in a `module` file, only a module imported with `meta` has its ru
 ended with signal 11.)
 
 It runs the load with Lake's default log configuration, which is the command's when no option is given
-(`Lake/CLI/Main.lean:100-107`, `:178-179`, `Lake/Util/Log.lean:125-128`, `:597-612`). Lake's messages go to
+(`Lake/CLI/Main.lean:103-110`, `:181-182`, `Lake/Util/Log.lean:125-128`, `:597-612`). Lake's messages go to
 standard error, and an error, or an entry of the error level in the log, fails the load
 (`Lake.LogIO.toBaseIO`, `Lake/Util/Log.lean:630-638`). The command passes its arguments to the load
 configuration (`lakeArgs?`), which only the load of a workspace reads (`Lake/Load/Workspace.lean:44`), not
 `Lake.loadPackage`. It builds no target. When the configuration file is there, `lake env` first loads the
-workspace itself and fails when Lake cannot load it (`Lake/CLI/Main.lean:1260-1269`).
+workspace itself and fails when Lake cannot load it (`Lake/CLI/Main.lean:1275-1284`).
 
 ## Boundaries
 

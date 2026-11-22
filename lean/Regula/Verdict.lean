@@ -34,9 +34,9 @@ theorem Verdict.exitCode_eq_zero_iff (v : Verdict) : v.exitCode = 0 ↔ v = .pas
   cases v <;> decide
 
 /-- The one Lean release that this revision of Regula reads, by its version and commit. The rules read a name
-form and a recursion helper's form that this release gives. -/
+form, a recursion helper's form and a `ctorIdx` pair's form that this release gives. -/
 def pinnedLean : String × String :=
-  ("4.35.0", "eb6cafb7290e8bd5f2937522d8d804f58f02bafc")
+  ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
 
 /-- The word of each verdict, which the last line of a run prints. -/
 def Verdict.label : Verdict → String

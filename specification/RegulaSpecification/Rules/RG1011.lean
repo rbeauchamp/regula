@@ -8,7 +8,8 @@ import all Regula.Rules.RG1011
 /-!
 # RG1011: replaced compiled code
 
-A constant of a claimed module has {attr}`@[implemented_by]` or {attr}`@[extern]`, or is a definition for
+A constant of a claimed module has {attr}`@[implemented_by]` (other than the compiler-generated
+{lit}`T.ctorIdx` half of a verified {lit}`ctorIdx` pair, {name (full := RegulaSpecification.Input.CtorIdxDef)}`Input.CtorIdxDef`) or {attr}`@[extern]`, or is a definition for
 which {attr}`@[init]` or {attr}`@[builtin_init]` names an initialization function; or a claimed module has
 an exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entry whose theorem is not declared in any
 claimed module's own {lit}`.olean` data. For the first three, Lean's compiler compiles no code from the
@@ -18,6 +19,17 @@ has no parameter, and nothing proves any of them equal to the definition that th
 about. The input reads those three through the queries that the compiler reads
 ({lit}`Lean.Compiler.getImplementedBy?`, {lit}`Lean.isExtern` and {lit}`Lean.getInitFnNameFor?`).
 
+When {lit}`genCtorIdx` is enabled, {lit}`T.ctorIdx` is not already declared, and {lit}`Nat` is in
+the environment, for a safe, non-single-constructor, non-builtin, non-{lit}`Prop` inductive type
+{lit}`T` whose {lit}`T.casesOn` eliminates into an extra universe parameter, Lean v4.36.0's
+{lit}`mkCtorIdx` generates a safe {lit}`T.casesOn`-based definition {lit}`T.ctorIdx` and attaches
+{attr}`@[implemented_by]` {lit}`T.ctorIdx._impl`, where the unsafe {lit}`T.ctorIdx._impl` reads the
+runtime tag via {lit}`getObjTagNat` ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-141`,
+{lit}`Lean/Elab/MutualInductive.lean:1552-1557` at v4.36.0). RG1011 exempts {lit}`T.ctorIdx`'s
+{attr}`@[implemented_by]` when the pair meets
+{name (full := RegulaSpecification.Input.CtorIdxDef)}`Input.CtorIdxDef` (and refuses it if it also carries {attr}`@[extern]` or an initialization
+function, or fails any structural or pairing check).
+
 An initialization function is read of a definition alone. An opaque constant that has one, which the
 command {lit}`initialize` declares, is not reported for it: Lean's logic states nothing of an opaque
 constant's value, so no proof is about a value that the function replaces. The form of either
@@ -25,7 +37,7 @@ attribute that names no function runs a constant of the type {lit}`IO Unit` when
 replaces nothing, and the input does not hold it.
 
 For {attr}`@[csimp]`, Lean's compiler replaces {lit}`f` by {lit}`g` only through a declaration of equality
-type {lit}`@f = @g` ({lit}`isConstantReplacement?`, {lit}`Lean/Compiler/CSimpAttr.lean:40-55` at v4.35.0),
+type {lit}`@f = @g` ({lit}`isConstantReplacement?`, {lit}`Lean/Compiler/CSimpAttr.lean:40-55` at v4.36.0),
 but none of the attribute's checks requires a safe theorem or excludes {name}`sorryAx`, custom axioms, or
 {lit}`unsafe def` ({lit}`:40-55, 68-80`), and Lean allows a claimed module to attach {attr}`@[csimp]`
 (global or {lit}`scoped`) to a declaration of another module, which can otherwise escape the claim's
@@ -36,7 +48,7 @@ whose theorem is declared in a claimed module (including a merged theorem whose 
 points to an unclaimed dependency), because every such theorem enters the claim's kernel replay cone and
 is checked by RG1001 to RG1006 when the environment shows it under a claimed module, and otherwise by the
 loader's unshown-constant check ({lit}`fitsUnshown`), which refuses the build as {lit}`incomplete`. {lit}`attribute [local csimp]` is
-never persisted to {lit}`.olean` ({lit}`Lean/ScopedEnvExtension.lean:17-19, 96-112, 191-193`) and
+never persisted to {lit}`.olean` ({lit}`Lean/ScopedEnvExtension.lean:17-19, 137-153, 265-267`) and
 dependency-registered {attr}`@[csimp]` entries are not read under the proof verdict. Under the full verdict
 RG1010 refuses {lit}`csimp` in each file it reads, a project with a {lit}`require` has only the proof
 verdict, and the toolchain's own {attr}`@[csimp]` registrations stay trusted. {name (full := Regula.Rules.RG1011.check)}`Regula.Rules.RG1011.check`
@@ -56,10 +68,11 @@ place when the definition has no parameter. -/
 def Initialized (d : Decl) : Prop := d.kind = .definition ∧ ∃ fn, d.initFn = some fn
 
 /-- The definition of {name}`d` is not what compiled code runs for it: it names a constant that
-{attr}`@[implemented_by]` gives, it is {attr}`@[extern]`, or it is a definition with an initialization
-function. -/
-def Replaced (d : Decl) : Prop :=
-  (∃ impl, d.implementedBy = some impl) ∨ d.isExtern = true ∨ Initialized d
+{attr}`@[implemented_by]` gives (other than the safe {lit}`T.ctorIdx` half of a verified
+{lit}`ctorIdx` pair, {name}`Input.CtorIdxDef`), it is {attr}`@[extern]`, or it is a definition with
+an initialization function. -/
+def Replaced (i : Input) (d : Decl) : Prop :=
+  ((∃ impl, d.implementedBy = some impl) ∧ ¬ i.CtorIdxDef d) ∨ d.isExtern = true ∨ Initialized d
 
 /-- The claimed module {name}`m` has an exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entry
 naming {name}`c`, and no claimed module's own {lit}`.olean` data declares {name}`c`. A finding of it names
@@ -71,11 +84,11 @@ def ForeignCSimpIn (i : Input) (m c : Name) : Prop :=
 {name}`c`, and no claimed module's own {lit}`.olean` data declares {name}`c`. -/
 def ForeignCSimp (i : Input) (c : Name) : Prop := ∃ m, ForeignCSimpIn i m c
 
-/-- RG1011: a constant of a claimed module has {attr}`@[implemented_by]` or {attr}`@[extern]`, or is a
-definition with an initialization function, or a claimed module has an exported {attr}`@[csimp]` entry
-whose theorem is not declared in any claimed module. -/
+/-- RG1011: a constant of a claimed module has an unexempted {attr}`@[implemented_by]` or
+{attr}`@[extern]`, or is a definition with an initialization function, or a claimed module has an
+exported {attr}`@[csimp]` entry whose theorem is not declared in any claimed module. -/
 def Violates1011 (i : Input) (c : Name) : Prop :=
-  (∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧ Replaced d) ∨ ForeignCSimp i c
+  (∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧ Replaced i d) ∨ ForeignCSimp i c
 
 /-- The intent record of RG1011. -/
 def rg1011 := ruleRecord "RG1011" Violates1011
@@ -113,7 +126,11 @@ def w1011 : Witnessed Violates1011 where
   refused_wf := wf_withDecls _ _
     (uses_resolve (by simp [implemented, plain]))
   bad := `Good.r
-  bad_violates := .inl ⟨implemented, by simp [withDecls], rfl, claimed_withDecls, .inl ⟨`Good.f, rfl⟩⟩
+  bad_violates := .inl ⟨implemented, by simp [withDecls], rfl, claimed_withDecls,
+    .inl ⟨⟨`Good.f, rfl⟩, fun h => by
+      obtain ⟨_, _, _, hp⟩ := h
+      obtain ⟨_, _, _, _, _, hcf, _⟩ := hp
+      simp [implemented, plain] at hcf⟩⟩
   admitted := base
   admitted_wf := wf_base
   fine := `Good.t
@@ -228,6 +245,45 @@ theorem rg1011_admits_dep_csimp : ¬ Violates1011 withDepCSimp `Dep.bad := by
     rw [hcs.1] at hcm
     simp [withDepCSimp, withDecls, base, Input.ClaimedModule] at hcm
 
+/-- The safe half `Good.T.ctorIdx` of a verified {lit}`ctorIdx` pair is admitted by RG1011. -/
+theorem rg1011_admits_ctorIdx : ¬ Violates1011 withCtorIdx `Good.T.ctorIdx := by
+  rintro (⟨d, hd, hn, -, hr⟩ | ⟨m, -, hcs, -⟩)
+  · have hmem : ctorIdxDefDecl ∈ withCtorIdx.decls := by simp [withCtorIdx, withDecls]
+    rw [eq_of_name hd hmem (by simp [hn, ctorIdxDefDecl, plain])] at hr
+    rcases hr with ⟨-, hnc⟩ | hext | hinit
+    · refine hnc ⟨`Good.T, ctorIdxImplDecl, by simp [withCtorIdx, withDecls], ?_⟩
+      exact ⟨⟨toolchain `getObjTagNat .opaque, by simp [withCtorIdx, withDecls], rfl, rfl⟩,
+        ⟨ctorIdxInd, by simp [withCtorIdx, withDecls], rfl, rfl, rfl, rfl⟩,
+        rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+    · simp [ctorIdxDefDecl, plain] at hext
+    · simp [Initialized, ctorIdxDefDecl, plain] at hinit
+  · simp [Input.HasCSimp, withCtorIdx, withDecls, base] at hcs
+
+/-- A forged `Good.T.ctorIdx` carrying {attr}`@[implemented_by]` without the structural
+{lit}`ctorIdx` form. -/
+def forgedCtorIdxDef11 : Decl :=
+  { plain `Good.T.ctorIdx `Good .definition [`Good.T] with
+    implementedBy := some `Good.T.ctorIdx._impl, ctorIdxForm := .none }
+
+/-- {name}`base`, with a forged `Good.T.ctorIdx` lacking the structural {lit}`ctorIdx` form. -/
+def withForgedCtorIdx11 : Input :=
+  withDecls [toolchain `getObjTagNat .opaque, ctorIdxInd, forgedCtorIdxDef11, ctorIdxImplDecl]
+    (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd,
+      forgedCtorIdxDef11, ctorIdxImplDecl])
+
+theorem wf_withForgedCtorIdx11 : withForgedCtorIdx11.WellFormed :=
+  wf_withDecls _ _
+    (uses_resolve (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd,
+      forgedCtorIdxDef11, ctorIdxImplDecl]))
+
+/-- A forged `Good.T.ctorIdx` without the structural {lit}`ctorIdx` form is refused by RG1011. -/
+theorem rg1011_refuses_forged_ctorIdx : Violates1011 withForgedCtorIdx11 `Good.T.ctorIdx :=
+  .inl ⟨forgedCtorIdxDef11, by simp [withForgedCtorIdx11, withDecls], rfl, claimed_withDecls,
+    .inl ⟨⟨`Good.T.ctorIdx._impl, rfl⟩, fun h => by
+      obtain ⟨_, _, _, hp⟩ := h
+      obtain ⟨_, _, _, _, _, hcf, _⟩ := hp
+      simp [forgedCtorIdxDef11, plain] at hcf⟩⟩
+
 end Witnesses
 
 namespace Link
@@ -241,8 +297,10 @@ theorem initialized_iff (d : Regula.Closed.Decl) :
   cases d.kind <;> simp [constKind]
 
 theorem replaced_iff (d : Regula.Closed.Decl) :
-    (d.implementedBy.isSome || d.isExtern || Regula.Rules.RG1011.initialized d) = true ↔ Replaced (decl d) := by
-  simp only [Bool.or_eq_true, initialized_iff, Replaced, or_assoc, Option.isSome_iff_exists]
+    ((d.implementedBy.isSome && !t.ctorIdxDef d) || d.isExtern || Regula.Rules.RG1011.initialized d) = true ↔
+      Replaced (toSpec i) (decl d) := by
+  simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true', Bool.eq_false_iff, ne_eq,
+    ctorIdxDef_iff t d, initialized_iff, Replaced, or_assoc, Option.isSome_iff_exists]
   rfl
 
 theorem foreignCSimps_subject (s : Regula.Closed.Subject) :
@@ -302,16 +360,16 @@ theorem foreignCSimps_iff (s : Name) :
 still reports, is exactly the replaced constants of claimed modules. -/
 theorem replaced_exact (s : Name) :
     s ∈ (Regula.Rules.RG1011.replaced t).map (·.subject.name) ↔
-      ∃ d ∈ (toSpec i).decls, d.name = s ∧ (toSpec i).ClaimedModule d.module ∧ Replaced d := by
+      ∃ d ∈ (toSpec i).decls, d.name = s ∧ (toSpec i).ClaimedModule d.module ∧ Replaced (toSpec i) d := by
   unfold Regula.Rules.RG1011.replaced
   rw [mem_report (sub := (·.name)) (fun _ => rfl)]
   constructor
   · rintro ⟨d, hd, hc, rfl⟩
     obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
-    exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, (replaced_iff d).mp hc⟩
+    exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, hm, (replaced_iff t d).mp hc⟩
   · rintro ⟨x, hx, rfl, hm, hc⟩
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
-    exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, (replaced_iff d).mpr hc, rfl⟩
+    exact ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, (replaced_iff t d).mpr hc, rfl⟩
 
 theorem check_eq_append :
     Regula.Rules.RG1011.check t = Regula.Rules.RG1011.foreignCSimps i ++ Regula.Rules.RG1011.replaced t := by
@@ -352,7 +410,7 @@ constant of the claimed module {name}`m`, or {name}`m` is a claimed module whose
 entry names {name}`c` and no claimed module declares {name}`c`. -/
 theorem rg1011_attributed (c m : Name) :
     .constant c m ∈ (Regula.Rules.RG1011.check t).map (·.subject) ↔
-      (∃ d ∈ (toSpec i).decls, d.name = c ∧ d.module = m ∧ (toSpec i).ClaimedModule m ∧ Replaced d) ∨
+      (∃ d ∈ (toSpec i).decls, d.name = c ∧ d.module = m ∧ (toSpec i).ClaimedModule m ∧ Replaced (toSpec i) d) ∨
         ForeignCSimpIn (toSpec i) m c := by
   rw [check_eq_append, List.map_append, List.mem_append, foreignCSimps_exact, or_comm]
   refine or_congr ?_ Iff.rfl
@@ -364,11 +422,11 @@ theorem rg1011_attributed (c m : Name) :
     have hs : Regula.Closed.Subject.constant d.name d.module = .constant c m := hs
     cases hs
     obtain ⟨hd, hm⟩ := (mem_claimed t).mp hd
-    exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, rfl, hm, (replaced_iff d).mp hc⟩
+    exact ⟨decl d, mem_decls.mpr ⟨d, hd, rfl⟩, rfl, rfl, hm, (replaced_iff t d).mp hc⟩
   · rintro ⟨x, hx, rfl, rfl, hm, hc⟩
     obtain ⟨d, hd, rfl⟩ := mem_decls.mp hx
     exact List.mem_map.mpr ⟨_, List.mem_filterMap.mpr
-      ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, ite_eq_left ((replaced_iff d).mpr hc)⟩, rfl⟩
+      ⟨d, (mem_claimed t).mpr ⟨hd, hm⟩, ite_eq_left ((replaced_iff t d).mpr hc)⟩, rfl⟩
 
 /-- On an input with {lit}`i.csimps = []` (no exported {attr}`@[csimp]` entry; for loader output, no
 claimed-module exported {attr}`@[csimp]` entry), the check reports what it reported before that clause,
@@ -395,7 +453,7 @@ theorem rg1011_admits_neither {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     rw [hn, get_of_mem t hd] at hg
     exact (Option.some.inj hg).symm
   subst hyd
-  rcases hr with ⟨impl, himpl⟩ | hext | hfn
+  rcases hr with ⟨⟨impl, himpl⟩, -⟩ | hext | hfn
   · exact absurd (himpl.symm.trans hi) (by simp)
   · exact absurd (hext.symm.trans he) (by simp)
   · have hy := (initialized_iff y).mpr hfn
@@ -403,6 +461,27 @@ theorem rg1011_admits_neither {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
     rcases hinit with hnone | hkind
     · simp [hnone] at hy
     · exact hkind hy.1
+
+/-- The safe half {lit}`T.ctorIdx` of a verified {lit}`ctorIdx` pair is not among what
+{name}`Regula.Rules.RG1011.replaced` reports. -/
+theorem rg1011_admits_ctorIdxDef {d : Regula.Closed.Decl} (hd : d ∈ i.decls)
+    (hc : (toSpec i).CtorIdxDef (decl d)) :
+    d.name ∉ (Regula.Rules.RG1011.replaced t).map (·.subject.name) := by
+  intro h
+  obtain ⟨x, hx, hxn, -, hr⟩ := (replaced_exact t d.name).mp h
+  obtain ⟨y, hy, rfl⟩ := mem_decls.mp hx
+  have hyd : y = d := by
+    have hn : y.name = d.name := hxn
+    have hg := get_of_mem t hy
+    rw [hn, get_of_mem t hd] at hg
+    exact (Option.some.inj hg).symm
+  subst hyd
+  obtain ⟨_, _, _, hp⟩ := id hc
+  obtain ⟨_, _, _, _, _, _, _, hext', hinit', _⟩ := hp
+  rcases hr with ⟨-, hnot⟩ | hext | ⟨_, fn, hfn⟩
+  · exact hnot hc
+  · exact absurd (hext.symm.trans hext') (by simp)
+  · exact absurd (hfn.symm.trans hinit') (by simp)
 
 end Link
 
@@ -445,5 +524,12 @@ theorem rg1011_checker_admits_claimed_csimp :
       `Dep.shared ∉ rg1011Checker ⟨Witnesses.withMergedCSimp, Witnesses.wf_withMergedCSimp⟩ :=
   ⟨fun h => Witnesses.rg1011_admits_claimed_csimp (((meets_iff _).mp rg1011_meets _ _).mp h),
     fun h => Witnesses.rg1011_admits_merged_csimp (((meets_iff _).mp rg1011_meets _ _).mp h)⟩
+
+/-- The checker's function admits a verified {lit}`T.ctorIdx` and refuses a forged one. -/
+theorem rg1011_checker_ctorIdx :
+    `Good.T.ctorIdx ∉ rg1011Checker ⟨Witnesses.withCtorIdx, Witnesses.wf_withCtorIdx⟩ ∧
+      `Good.T.ctorIdx ∈ rg1011Checker ⟨Witnesses.withForgedCtorIdx11, Witnesses.wf_withForgedCtorIdx11⟩ :=
+  ⟨fun h => Witnesses.rg1011_admits_ctorIdx (((meets_iff _).mp rg1011_meets _ _).mp h),
+    ((meets_iff _).mp rg1011_meets _ _).mpr Witnesses.rg1011_refuses_forged_ctorIdx⟩
 
 end RegulaSpecification

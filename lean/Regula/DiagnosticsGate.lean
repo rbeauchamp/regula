@@ -50,7 +50,7 @@ structure Step where
 
 /-- The steps of the gate, in order.
 - `lake clean` in the specification's workspace, which holds both packages (`Workspace.clean`,
-  `Lake/CLI/Main.lean:1160-1172` at v4.35.0), so that no step reads an output of an earlier build: a module of
+  `Lake/CLI/Main.lean:1175-1187` at v4.36.0), so that no step reads an output of an earlier build: a module of
   a library that the configuration no longer names would still satisfy an import.
 - The checker, built in a separate copy of the program at `checker`.
 - The specification, with warnings as errors, and Regula's checker on it, which replays it in Lean's kernel, the

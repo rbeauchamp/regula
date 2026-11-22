@@ -8,9 +8,9 @@ public import Regula.Rule
 A definition or opaque constant of a claimed module whose value mentions a panic form: one of Lean's four
 panic functions, or a constant that is no theorem and whose name's last string component, with its macro
 scopes erased, contains `!`, Lean's naming for an operation that panics when it fails. `panicCore` is
-`default` in Lean's logic (`Init/Prelude.lean:3849` at v4.35.0), and its compiled code prints the message and
+`default` in Lean's logic (`Init/Prelude.lean:3857` at v4.36.0), and its compiled code prints the message and
 returns that default unless the variable `LEAN_ABORT_ON_PANIC` is set or the program asked to exit on a panic
-(`lean_panic_impl` and `lean_panic_fn`, `src/runtime/object.cpp:176-207` at v4.35.0), so a proved function can
+(`lean_panic_impl` and `lean_panic_fn`, `src/runtime/object.cpp:176-207` at v4.36.0), so a proved function can
 go on with a value that its proofs never considered. Mentions are read directly, with no closure through other
 constants, and a theorem is not read, because a proof is never run.
 `specification/RegulaSpecification/Rules/RG1012.lean` states the rule and proves this check against it.
@@ -23,8 +23,8 @@ namespace Regula.Rules.RG1012
 open Lean (Name)
 open Regula.Closed
 
-/-- Lean's four panic functions (`Init/Prelude.lean:3849` and `:3863`, `Init/Util.lean:59` and `:81` at
-v4.35.0). `panic!`, `unreachable!` and `assert!` elaborate to `panicWithPosWithDecl`. -/
+/-- Lean's four panic functions (`Init/Prelude.lean:3857` and `:3871`, `Init/Util.lean:59` and `:81` at
+v4.36.0). `panic!`, `unreachable!` and `assert!` elaborate to `panicWithPosWithDecl`. -/
 def panicFunctions : List Name := [``panicCore, ``panic, ``panicWithPos, ``panicWithPosWithDecl]
 
 /-- The last string component of a name, past the numeric components that follow it. -/
