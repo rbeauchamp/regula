@@ -29,96 +29,145 @@ def NoCommentsTarget.url (t : NoCommentsTarget) : String :=
 def hostNoCommentsTarget? : Option NoCommentsTarget :=
   if System.Platform.isOSX && System.Platform.target.startsWith "arm64-" then
     some .darwinArm64
-  else if System.Platform.isLinux && System.Platform.target.startsWith "x86_64-" then
+  else if !System.Platform.isOSX && System.Platform.isLinux && System.Platform.target.startsWith "x86_64-" then
     some .linuxX86_64
   else
     none
-
-def noCommentsCacheDir : System.FilePath :=
-  System.FilePath.mk ".cache" / "no-comments" / noCommentsVersion
 
 def executableRight : IO.FileRight where
   user := { read := true, write := true, execution := true }
   group := { read := true, execution := true }
   other := { read := true, execution := true }
 
-def isLowerHexChar (c : Char) : Bool :=
-  ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')
+def pathParts (p : System.FilePath) : List String :=
+  p.normalize.components.filter fun c => c != "" && c != "."
 
-def parseSha256Line (cs : List Char) : Option String :=
-  let digest := cs.take 64
-  let sep := (cs.drop 64).take 2
-  if digest.length == 64 && digest.all isLowerHexChar && (sep == [' ', ' '] || sep == [' ', '*']) then
-    some (String.ofList digest)
-  else
-    none
+def samePath (a b : System.FilePath) : Bool :=
+  a.isAbsolute == b.isAbsolute && pathParts a == pathParts b
 
-def parseSha256Output (stdout : String) : Option String :=
-  parseSha256Line ((stdout.splitOn "\n").headD "").toList
+def isSingleFileLine (cs : List Char) : Bool :=
+  match cs.reverse with
+  | '\n' :: rname => !rname.isEmpty && !rname.contains '\n'
+  | _ => false
 
-def sha256Request (path : System.FilePath) : IO.Process.SpawnArgs where
-  cmd := if System.Platform.isOSX then "shasum" else "sha256sum"
-  args := if System.Platform.isOSX then #["-a", "256", "--", path.toString] else #["--", path.toString]
-  stdin := .null
+def sha256Request (target : NoCommentsTarget) (path : System.FilePath) : IO.Process.SpawnArgs :=
+  match target with
+  | .darwinArm64 => { cmd := "shasum", args := #["-a", "256", "--", path.toString], stdin := .null }
+  | .linuxX86_64 => { cmd := "sha256sum", args := #["--", path.toString], stdin := .null }
 
 def sha256Matches (expected : String) (out : IO.Process.Output) : Bool :=
-  out.exitCode == 0 && parseSha256Output out.stdout == some expected
+  let cs := out.stdout.toList
+  let pref := (expected ++ "  ").toList
+  out.exitCode == 0 &&
+    ((pref.isPrefixOf cs && isSingleFileLine (cs.drop pref.length)) ||
+     (('\\' :: pref).isPrefixOf cs && isSingleFileLine (cs.drop (pref.length + 1))))
 
-def verifySha256 (path : System.FilePath) (expected : String) : IO Unit := do
-  let out ← IO.Process.output (sha256Request path)
-  if sha256Matches expected out then
+def verifySha256 (target : NoCommentsTarget) (path : System.FilePath) : IO Unit := do
+  let out ← IO.Process.output (sha256Request target path)
+  if sha256Matches target.sha256 out then
     pure ()
   else
-    throw <| IO.userError s!"local gate: SHA-256 verification failed for {path} (expected {expected})"
+    throw <| IO.userError s!"local gate: SHA-256 verification failed for {path} (expected {target.sha256})"
 
-def downloadNoComments (target : NoCommentsTarget) (cachePath : System.FilePath) : IO Unit := do
-  if let some dir := cachePath.parent then
-    IO.FS.createDirAll dir
-  let pid ← IO.Process.getPID
-  let tmpPath := System.FilePath.mk s!"{cachePath.toString}.download.{pid}"
-  if (← tmpPath.pathExists) then
-    IO.FS.removeFile tmpPath
+def symlinkType? (p : System.FilePath) : IO (Option IO.FS.FileType) :=
   try
-    IO.println s!"local gate: downloading {target.asset} ({noCommentsVersion})"
-    (← IO.getStdout).flush
-    let out ← IO.Process.output {
-      cmd := "curl"
-      args := #["-fsSL", "--retry", "3", "--retry-delay", "2", "-o", tmpPath.toString, target.url]
-      stdin := .null
-    }
-    if out.exitCode != 0 then
-      throw <| IO.userError s!"local gate: failed to download {target.url}: {out.stderr.trimAscii.toString}"
-    verifySha256 tmpPath target.sha256
-    IO.setAccessRights tmpPath executableRight
-    IO.FS.rename tmpPath cachePath
+    let m ← p.symlinkMetadata
+    pure (some m.type)
+  catch
+    | .noFileOrDirectory .. => pure none
+    | e => throw e
+
+def requireExactRealPath (label : String) (p : System.FilePath) : IO System.FilePath := do
+  let real ← IO.FS.realPath p
+  if samePath real p then
+    pure real
+  else
+    throw <| IO.userError s!"local gate: {label} resolves outside expected location: {p} -> {real}"
+
+def ensureSubdir (parent : System.FilePath) (name : String) : IO System.FilePath := do
+  let p := parent / name
+  match ← symlinkType? p with
+  | some .dir => requireExactRealPath "cache directory" p
+  | some _ =>
+    throw <| IO.userError s!"local gate: cache directory component is not a directory: {p}"
+  | none =>
+    try
+      IO.FS.createDir p
+    catch e =>
+      match ← symlinkType? p with
+      | some .dir => pure ()
+      | _ => throw e
+    requireExactRealPath "cache directory" p
+
+def ensureNoCommentsCacheDir : IO System.FilePath := do
+  let root ← IO.FS.realPath "."
+  let d1 ← ensureSubdir root ".cache"
+  let d2 ← ensureSubdir d1 "no-comments"
+  ensureSubdir d2 noCommentsVersion
+
+def stageNoComments (target : NoCommentsTarget) (cachePath tmpPath : System.FilePath) : IO Unit := do
+  IO.println s!"local gate: downloading {target.asset} ({noCommentsVersion})"
+  (← IO.getStdout).flush
+  let out ← IO.Process.output {
+    cmd := "curl"
+    args := #["-fsSL", "--retry", "3", "--retry-delay", "2", "-o", tmpPath.toString, target.url]
+    stdin := .null
+  }
+  if out.exitCode != 0 then
+    throw <| IO.userError s!"local gate: failed to download {target.url}: {out.stderr.trimAscii.toString}"
+  else
+    let tmpMeta ← tmpPath.symlinkMetadata
+    if tmpMeta.type != .file then
+      throw <| IO.userError s!"local gate: downloaded file is not a regular file: {tmpPath}"
+    else
+      let realTmp ← requireExactRealPath "downloaded file" tmpPath
+      verifySha256 target realTmp
+      IO.setAccessRights realTmp executableRight
+      IO.FS.rename realTmp cachePath
+
+def downloadNoComments (target : NoCommentsTarget) (cacheDir : System.FilePath) : IO System.FilePath := do
+  let cachePath := cacheDir / target.asset
+  let pid ← IO.Process.getPID
+  let tmpPath := cacheDir / s!"{target.asset}.download.{pid}"
+  match ← symlinkType? tmpPath with
+  | some .file => IO.FS.removeFile tmpPath
+  | some _ =>
+    throw <| IO.userError s!"local gate: download staging path is not a regular file: {tmpPath}"
+  | none => pure ()
+  try
+    stageNoComments target cachePath tmpPath
   finally
-    if (← tmpPath.pathExists) then
-      IO.FS.removeFile tmpPath
+    try
+      match ← symlinkType? tmpPath with
+      | some .file => IO.FS.removeFile tmpPath
+      | _ => pure ()
+    catch _ =>
+      pure ()
+  pure cachePath
+
+def resolveCachedNoCommentsBin (target : NoCommentsTarget) : IO System.FilePath := do
+  let cacheDir ← ensureNoCommentsCacheDir
+  let cachePath := cacheDir / target.asset
+  match ← symlinkType? cachePath with
+  | some .file => requireExactRealPath "cache path" cachePath
+  | some _ =>
+    throw <| IO.userError s!"local gate: cache path is not a regular file: {cachePath}"
+  | none =>
+    downloadNoComments target cacheDir
 
 def resolveNoCommentsBin (target : NoCommentsTarget) : IO System.FilePath := do
   match ← IO.getEnv "NO_COMMENTS_BIN" with
   | some raw =>
     if raw != "" then
       let p := System.FilePath.mk raw
-      unless (← p.pathExists) do
+      if ← p.pathExists then
+        pure p
+      else
         throw <| IO.userError s!"local gate: NO_COMMENTS_BIN does not exist: {raw}"
-      return p
-  | none => pure ()
-  let cachePath := noCommentsCacheDir / target.asset
-  if (← cachePath.pathExists) then
-    let realCache ← IO.FS.realPath cachePath
-    let meta_ ← realCache.metadata
-    if meta_.type == .dir then
-      throw <| IO.userError s!"local gate: cache path is a directory: {cachePath}"
-    if meta_.type == .file then
-      let out ← IO.Process.output (sha256Request realCache)
-      if sha256Matches target.sha256 out then
-        IO.setAccessRights realCache executableRight
-        return realCache
-    IO.eprintln s!"local gate: cached {cachePath} failed SHA-256 verification; re-downloading"
-    IO.FS.removeFile cachePath
-  downloadNoComments target cachePath
-  return cachePath
+    else
+      resolveCachedNoCommentsBin target
+  | none =>
+    resolveCachedNoCommentsBin target
 
 def noCommentsRequest (bin : System.FilePath) : IO.Process.SpawnArgs where
   cmd := bin.toString
@@ -133,7 +182,6 @@ def announceNoComments : IO Unit := do
   (← IO.getStdout).flush
 
 def runNoCommentsStep (bin : System.FilePath) : IO UInt32 := do
-  announceNoComments
   let child ← IO.Process.spawn (noCommentsRequest bin)
   child.wait
 
@@ -146,7 +194,8 @@ def runNoComments : IO UInt32 := do
     let realBin ← IO.FS.realPath binPath
     let meta_ ← realBin.metadata
     if meta_.type == .file then
-      verifySha256 realBin target.sha256
+      announceNoComments
+      verifySha256 target realBin
       runNoCommentsStep realBin
     else
       throw <| IO.userError s!"local gate: no-comments path is not a regular file: {realBin}"
