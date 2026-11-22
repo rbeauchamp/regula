@@ -14,11 +14,13 @@ This Code of Conduct applies in all spaces managed by the Regula project on GitH
 
 ## Reporting and enforcement
 
-Regula is maintained by one owner, Richard Beauchamp ([@rbeauchamp](https://github.com/rbeauchamp)).
+Regula is maintained by one owner, Richard Beauchamp ([@rbeauchamp](https://github.com/rbeauchamp)), and promises no response time (matching [SECURITY.md](SECURITY.md)).
 
-Report unacceptable behavior privately through [GitHub's private reporting for rbeauchamp/regula](https://github.com/rbeauchamp/regula/security/advisories/new) (Security → Advisories → Report a vulnerability, which reaches only the repository owner; see [SECURITY.md](SECURITY.md)). The owner reviews reports confidentially without promising a fixed response time and keeps the reporter's identity private.
+Regula does not currently publish a private direct contact channel to the owner for conduct-only complaints. Report vulnerabilities covered by [SECURITY.md](SECURITY.md) privately through [GitHub's private vulnerability reporting for rbeauchamp/regula](https://github.com/rbeauchamp/regula/security/advisories/new); do not use that form for conduct complaints, as GitHub treats submissions as proposed security advisories and adds the submitter as a collaborator and credited user.
 
-To enforce these standards, the owner may warn a participant, edit, remove, or close comments, issues, commits, or pull requests that violate this Code of Conduct, or temporarily or permanently block an account from the repository.
+For abusive or harassing content or accounts in Regula's GitHub spaces, use [GitHub's abuse-reporting workflow](https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam) to report them to GitHub Support.
+
+To enforce these standards, the owner may warn a participant, edit, remove, or reject comments, issues, commits, pull requests, or other contributions that violate this Code of Conduct, or impose a temporary or permanent ban on participation in Regula.
 
 ## Attribution and license
 
