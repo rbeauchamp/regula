@@ -8,7 +8,7 @@ def fullVariable : String := "REGULA_FULL"
 
 def noCommentsVersion : String := "v0.2.0"
 
-def noCommentsArgs : List String := ["check", "--bootstrap"]
+def noCommentsArgs : List String := ["check"]
 
 inductive NoCommentsTarget where
   | darwinArm64
@@ -137,12 +137,9 @@ def downloadNoComments (target : NoCommentsTarget) (cacheDir : System.FilePath) 
   try
     stageNoComments target cachePath tmpPath
   finally
-    try
-      match ← symlinkType? tmpPath with
-      | some .file => IO.FS.removeFile tmpPath
-      | _ => pure ()
-    catch _ =>
-      pure ()
+    match ← symlinkType? tmpPath with
+    | some .file => IO.FS.removeFile tmpPath
+    | _ => pure ()
   pure cachePath
 
 def resolveCachedNoCommentsBin (target : NoCommentsTarget) : IO System.FilePath := do
@@ -158,14 +155,10 @@ def resolveCachedNoCommentsBin (target : NoCommentsTarget) : IO System.FilePath 
 def resolveNoCommentsBin (target : NoCommentsTarget) : IO System.FilePath := do
   match ← IO.getEnv "NO_COMMENTS_BIN" with
   | some raw =>
-    if raw != "" then
-      let p := System.FilePath.mk raw
-      if ← p.pathExists then
-        pure p
-      else
-        throw <| IO.userError s!"local gate: NO_COMMENTS_BIN does not exist: {raw}"
+    if raw == "" then
+      throw <| IO.userError "local gate: NO_COMMENTS_BIN is empty"
     else
-      resolveCachedNoCommentsBin target
+      pure (System.FilePath.mk raw)
   | none =>
     resolveCachedNoCommentsBin target
 
@@ -191,14 +184,14 @@ def runNoComments : IO UInt32 := do
     throw <| IO.userError s!"local gate: unsupported platform for no-comments {noCommentsVersion}: {System.Platform.target}"
   | some target =>
     let binPath ← resolveNoCommentsBin target
-    let realBin ← IO.FS.realPath binPath
-    let meta_ ← realBin.metadata
+    let meta_ ← binPath.metadata
     if meta_.type == .file then
+      let realBin ← IO.FS.realPath binPath
       announceNoComments
       verifySha256 target realBin
       runNoCommentsStep realBin
     else
-      throw <| IO.userError s!"local gate: no-comments path is not a regular file: {realBin}"
+      throw <| IO.userError s!"local gate: no-comments path is not a regular file: {binPath}"
 
 structure Step where
   arguments : List String

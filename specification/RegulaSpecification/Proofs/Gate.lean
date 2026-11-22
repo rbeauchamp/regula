@@ -229,6 +229,8 @@ def expectedSha256Spec : NoCommentsTarget → String
   | .darwinArm64 => "4c610e1b0f0f93f54e89f33acb13c5120ed4e7ecfc3bb5db85e562aba637fe2a"
   | .linuxX86_64 => "f1a5d5cee2214515f9d36d3bb7245beee3856c06a85f6593ac0b23c4a0c6941e"
 
+def noCommentsArgsSpec : List String := ["check"]
+
 def sha256RequestSpec : NoCommentsTarget → System.FilePath → IO.Process.SpawnArgs
   | .darwinArm64, path =>
     { cmd := "shasum", args := #["-a", "256", "--", path.toString], stdin := .null }
@@ -852,12 +854,9 @@ theorem downloadNoComments_ok (target : NoCommentsTarget) (cacheDir outPath : Sy
               try
                 stageNoComments target (cacheDir / target.asset) (cacheDir / s!"{target.asset}.download.{pid}")
               finally
-                try
-                  match ← symlinkType? (cacheDir / s!"{target.asset}.download.{pid}") with
-                  | some .file => IO.FS.removeFile (cacheDir / s!"{target.asset}.download.{pid}")
-                  | _ => pure ()
-                catch _ =>
-                  pure ()
+                match ← symlinkType? (cacheDir / s!"{target.asset}.download.{pid}") with
+                | some .file => IO.FS.removeFile (cacheDir / s!"{target.asset}.download.{pid}")
+                | _ => pure ()
               pure (cacheDir / target.asset)) : IO System.FilePath) w₃ = .ok outPath w' →
           outPath = cacheDir / target.asset ∧
             ∃ (pid : UInt32) (realTmp : System.FilePath) (meta_ : IO.FS.Metadata)
@@ -874,12 +873,10 @@ theorem downloadNoComments_ok (target : NoCommentsTarget) (cacheDir outPath : Sy
         intro w₃ h₃
         cases htf : (tryFinally
             (stageNoComments target (cacheDir / target.asset) (cacheDir / s!"{target.asset}.download.{pid}"))
-            (try
+            (do
               match ← symlinkType? (cacheDir / s!"{target.asset}.download.{pid}") with
               | some .file => IO.FS.removeFile (cacheDir / s!"{target.asset}.download.{pid}")
-              | _ => pure ()
-            catch _ =>
-              pure ())) w₃ with
+              | _ => pure ())) w₃ with
         | error e w₄ =>
           rw [io_bind_error htf] at h₃
           cases h₃
@@ -953,12 +950,10 @@ theorem resolveCachedNoCommentsBin_ok (target : NoCommentsTarget) (binPath : Sys
 
 theorem resolveNoCommentsBin_ok (target : NoCommentsTarget) (binPath : System.FilePath)
     (w w' : Void IO.RealWorld) (h : resolveNoCommentsBin target w = .ok binPath w') :
-    (∃ raw w₁, (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some raw) w₁ ∧
-        raw ≠ "" ∧ binPath = System.FilePath.mk raw ∧
-        ((System.FilePath.mk raw).pathExists : IO Bool) w₁ = .ok true w') ∨
+    (∃ raw, (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some raw) w' ∧
+        raw ≠ "" ∧ binPath = System.FilePath.mk raw) ∨
     (∃ w₁,
-        ((IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok none w₁ ∨
-         (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some "") w₁) ∧
+        (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok none w₁ ∧
         resolveCachedNoCommentsBin target w₁ = .ok binPath w') := by
   unfold resolveNoCommentsBin at h
   cases he : (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w with
@@ -968,30 +963,40 @@ theorem resolveNoCommentsBin_ok (target : NoCommentsTarget) (binPath : System.Fi
   | ok opt w₁ =>
     rw [io_bind_ok he] at h
     cases opt with
-    | none => exact .inr ⟨w₁, .inl rfl, h⟩
+    | none => exact .inr ⟨w₁, rfl, h⟩
     | some raw =>
       by_cases hne : raw = ""
       · subst hne
-        have hf : (("" != "") : Bool) = false := rfl
-        simp only [hf, Bool.false_eq_true, ↓reduceIte] at h
-        exact .inr ⟨w₁, .inr rfl, h⟩
-      · have ht : (raw != "") = true := by simp [hne]
+        have ht : (("" == "") : Bool) = true := rfl
         simp only [ht, ↓reduceIte] at h
-        cases hx : ((System.FilePath.mk raw).pathExists : IO Bool) w₁ with
-        | error e w₂ =>
-          rw [io_bind_error hx] at h
-          cases h
-        | ok ex w₂ =>
-          rw [io_bind_ok hx] at h
-          cases ex with
-          | false => cases h
-          | true =>
-            obtain ⟨rfl, rfl⟩ := EST.Out.ok.inj h
-            exact .inl ⟨raw, w₁, rfl, hne, rfl, hx⟩
+        cases h
+      · have hf : (raw == "") = false := by simp [hne]
+        simp only [hf, Bool.false_eq_true, ↓reduceIte] at h
+        obtain ⟨rfl, rfl⟩ := EST.Out.ok.inj h
+        exact .inl ⟨raw, rfl, hne, rfl⟩
+
+theorem resolveNoCommentsBin_override (target : NoCommentsTarget) (raw : String)
+    (w w₁ : Void IO.RealWorld)
+    (h : (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some raw) w₁)
+    (hne : raw ≠ "") :
+    resolveNoCommentsBin target w = .ok (System.FilePath.mk raw) w₁ := by
+  unfold resolveNoCommentsBin
+  rw [io_bind_ok h]
+  have hf : (raw == "") = false := by simp [hne]
+  simp only [hf, Bool.false_eq_true, ↓reduceIte]
+  rfl
+
+theorem resolveNoCommentsBin_empty (target : NoCommentsTarget)
+    (w w₁ : Void IO.RealWorld)
+    (h : (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some "") w₁) :
+    resolveNoCommentsBin target w = .error (IO.userError "local gate: NO_COMMENTS_BIN is empty") w₁ := by
+  unfold resolveNoCommentsBin
+  rw [io_bind_ok h]
+  rfl
 
 def noCommentsRequestSpec (bin : System.FilePath) : IO.Process.SpawnArgs where
   cmd := bin.toString
-  args := #["check", "--bootstrap"]
+  args := noCommentsArgsSpec.toArray
   cwd := some (System.FilePath.mk ".")
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", none)]
@@ -1023,9 +1028,9 @@ def NoCommentsGateRan (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
     (w₁ w₂ w₃ w₄ w₅ : Void IO.RealWorld),
     hostNoCommentsTarget? = some target ∧
     resolveNoCommentsBin target w = .ok binPath w₁ ∧
-    IO.FS.realPath binPath w₁ = .ok realBin w₂ ∧
-    realBin.metadata w₂ = .ok meta_ w₃ ∧
+    binPath.metadata w₁ = .ok meta_ w₂ ∧
     meta_.type = .file ∧
+    IO.FS.realPath binPath w₂ = .ok realBin w₃ ∧
     announceNoComments w₃ = .ok () w₄ ∧
     Sha256Verified target realBin w₄ w₅ ∧
     NoCommentsRan realBin code w₅ w'
@@ -1039,43 +1044,43 @@ inductive NoCommentsOutcome (w : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .error e w₁ →
       NoCommentsOutcome w (.error e w₁)
-  | realPathError (target : NoCommentsTarget) (binPath : System.FilePath) (e : IO.Error)
+  | metadataError (target : NoCommentsTarget) (binPath : System.FilePath) (e : IO.Error)
       (w₁ w₂ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .error e w₂ →
+      binPath.metadata w₁ = .error e w₂ →
       NoCommentsOutcome w (.error e w₂)
-  | metadataError (target : NoCommentsTarget) (binPath realBin : System.FilePath) (e : IO.Error)
-      (w₁ w₂ w₃ : Void IO.RealWorld) :
+  | notRegularFile (target : NoCommentsTarget) (binPath : System.FilePath)
+      (meta_ : IO.FS.Metadata) (e : IO.Error) (w₁ w₂ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .ok realBin w₂ →
-      realBin.metadata w₂ = .error e w₃ →
-      NoCommentsOutcome w (.error e w₃)
-  | notRegularFile (target : NoCommentsTarget) (binPath realBin : System.FilePath)
+      binPath.metadata w₁ = .ok meta_ w₂ →
+      meta_.type ≠ .file →
+      NoCommentsOutcome w (.error e w₂)
+  | realPathError (target : NoCommentsTarget) (binPath : System.FilePath)
       (meta_ : IO.FS.Metadata) (e : IO.Error) (w₁ w₂ w₃ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .ok realBin w₂ →
-      realBin.metadata w₂ = .ok meta_ w₃ →
-      meta_.type ≠ .file →
+      binPath.metadata w₁ = .ok meta_ w₂ →
+      meta_.type = .file →
+      IO.FS.realPath binPath w₂ = .error e w₃ →
       NoCommentsOutcome w (.error e w₃)
   | announceError (target : NoCommentsTarget) (binPath realBin : System.FilePath)
       (meta_ : IO.FS.Metadata) (e : IO.Error) (w₁ w₂ w₃ w₄ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .ok realBin w₂ →
-      realBin.metadata w₂ = .ok meta_ w₃ →
+      binPath.metadata w₁ = .ok meta_ w₂ →
       meta_.type = .file →
+      IO.FS.realPath binPath w₂ = .ok realBin w₃ →
       announceNoComments w₃ = .error e w₄ →
       NoCommentsOutcome w (.error e w₄)
   | sha256OutputError (target : NoCommentsTarget) (binPath realBin : System.FilePath)
       (meta_ : IO.FS.Metadata) (e : IO.Error) (w₁ w₂ w₃ w₄ w₅ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .ok realBin w₂ →
-      realBin.metadata w₂ = .ok meta_ w₃ →
+      binPath.metadata w₁ = .ok meta_ w₂ →
       meta_.type = .file →
+      IO.FS.realPath binPath w₂ = .ok realBin w₃ →
       announceNoComments w₃ = .ok () w₄ →
       (IO.Process.output (sha256RequestSpec target realBin) : IO IO.Process.Output) w₄ = .error e w₅ →
       NoCommentsOutcome w (.error e w₅)
@@ -1084,9 +1089,9 @@ inductive NoCommentsOutcome (w : Void IO.RealWorld) :
       (w₁ w₂ w₃ w₄ w₅ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .ok realBin w₂ →
-      realBin.metadata w₂ = .ok meta_ w₃ →
+      binPath.metadata w₁ = .ok meta_ w₂ →
       meta_.type = .file →
+      IO.FS.realPath binPath w₂ = .ok realBin w₃ →
       announceNoComments w₃ = .ok () w₄ →
       (IO.Process.output (sha256RequestSpec target realBin) : IO IO.Process.Output) w₄ = .ok out w₅ →
       ¬ (out.exitCode = 0 ∧ Sha256OutputMatches (expectedSha256Spec target) out.stdout) →
@@ -1095,9 +1100,9 @@ inductive NoCommentsOutcome (w : Void IO.RealWorld) :
       (meta_ : IO.FS.Metadata) (e : IO.Error) (w₁ w₂ w₃ w₄ w₅ w₆ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .ok realBin w₂ →
-      realBin.metadata w₂ = .ok meta_ w₃ →
+      binPath.metadata w₁ = .ok meta_ w₂ →
       meta_.type = .file →
+      IO.FS.realPath binPath w₂ = .ok realBin w₃ →
       announceNoComments w₃ = .ok () w₄ →
       Sha256Verified target realBin w₄ w₅ →
       IO.Process.spawn (noCommentsRequestSpec realBin) w₅ = .error e w₆ →
@@ -1108,9 +1113,9 @@ inductive NoCommentsOutcome (w : Void IO.RealWorld) :
       (e : IO.Error) (w₁ w₂ w₃ w₄ w₅ w₆ w₇ : Void IO.RealWorld) :
       hostNoCommentsTarget? = some target →
       resolveNoCommentsBin target w = .ok binPath w₁ →
-      IO.FS.realPath binPath w₁ = .ok realBin w₂ →
-      realBin.metadata w₂ = .ok meta_ w₃ →
+      binPath.metadata w₁ = .ok meta_ w₂ →
       meta_.type = .file →
+      IO.FS.realPath binPath w₂ = .ok realBin w₃ →
       announceNoComments w₃ = .ok () w₄ →
       Sha256Verified target realBin w₄ w₅ →
       IO.Process.spawn (noCommentsRequestSpec realBin) w₅ = .ok child w₆ →
@@ -1135,42 +1140,39 @@ theorem runNoComments_outcome (w : Void IO.RealWorld) :
       exact .resolveError target e w₁ ht hres
     | ok binPath w₁ =>
       rw [io_bind_ok hres]
-      cases hreal : IO.FS.realPath binPath w₁ with
+      cases hmeta : binPath.metadata w₁ with
       | error e w₂ =>
-        rw [io_bind_error hreal]
-        exact .realPathError target binPath e w₁ w₂ ht hres hreal
-      | ok realBin w₂ =>
-        rw [io_bind_ok hreal]
-        cases hmeta : realBin.metadata w₂ with
-        | error e w₃ =>
-          rw [io_bind_error hmeta]
-          exact .metadataError target binPath realBin e w₁ w₂ w₃ ht hres hreal hmeta
-        | ok meta_ w₃ =>
-          rw [io_bind_ok hmeta]
-          cases htype : meta_.type with
-          | dir =>
-            have hne : (IO.FS.FileType.dir == IO.FS.FileType.file) = false := rfl
-            simp only [hne, Bool.false_eq_true, ↓reduceIte]
-            exact .notRegularFile target binPath realBin meta_ _ w₁ w₂ w₃ ht hres hreal hmeta
-              (by simp [htype])
-          | symlink =>
-            have hne : (IO.FS.FileType.symlink == IO.FS.FileType.file) = false := rfl
-            simp only [hne, Bool.false_eq_true, ↓reduceIte]
-            exact .notRegularFile target binPath realBin meta_ _ w₁ w₂ w₃ ht hres hreal hmeta
-              (by simp [htype])
-          | other =>
-            have hne : (IO.FS.FileType.other == IO.FS.FileType.file) = false := rfl
-            simp only [hne, Bool.false_eq_true, ↓reduceIte]
-            exact .notRegularFile target binPath realBin meta_ _ w₁ w₂ w₃ ht hres hreal hmeta
-              (by simp [htype])
-          | file =>
-            have hfile : (IO.FS.FileType.file == IO.FS.FileType.file) = true := rfl
-            simp only [hfile, ↓reduceIte]
+        rw [io_bind_error hmeta]
+        exact .metadataError target binPath e w₁ w₂ ht hres hmeta
+      | ok meta_ w₂ =>
+        rw [io_bind_ok hmeta]
+        cases htype : meta_.type with
+        | dir =>
+          have hne : (IO.FS.FileType.dir == IO.FS.FileType.file) = false := rfl
+          simp only [hne, Bool.false_eq_true, ↓reduceIte]
+          exact .notRegularFile target binPath meta_ _ w₁ w₂ ht hres hmeta (by simp [htype])
+        | symlink =>
+          have hne : (IO.FS.FileType.symlink == IO.FS.FileType.file) = false := rfl
+          simp only [hne, Bool.false_eq_true, ↓reduceIte]
+          exact .notRegularFile target binPath meta_ _ w₁ w₂ ht hres hmeta (by simp [htype])
+        | other =>
+          have hne : (IO.FS.FileType.other == IO.FS.FileType.file) = false := rfl
+          simp only [hne, Bool.false_eq_true, ↓reduceIte]
+          exact .notRegularFile target binPath meta_ _ w₁ w₂ ht hres hmeta (by simp [htype])
+        | file =>
+          have hfile : (IO.FS.FileType.file == IO.FS.FileType.file) = true := rfl
+          simp only [hfile, ↓reduceIte]
+          cases hreal : IO.FS.realPath binPath w₂ with
+          | error e w₃ =>
+            rw [io_bind_error hreal]
+            exact .realPathError target binPath meta_ e w₁ w₂ w₃ ht hres hmeta htype hreal
+          | ok realBin w₃ =>
+            rw [io_bind_ok hreal]
             cases hann : announceNoComments w₃ with
             | error e w₄ =>
               rw [io_bind_error hann]
-              exact .announceError target binPath realBin meta_ e w₁ w₂ w₃ w₄ ht hres hreal hmeta
-                htype hann
+              exact .announceError target binPath realBin meta_ e w₁ w₂ w₃ w₄ ht hres hmeta htype
+                hreal hann
             | ok u w₄ =>
               cases u
               rw [io_bind_ok hann]
@@ -1182,10 +1184,10 @@ theorem runNoComments_outcome (w : Void IO.RealWorld) :
                 cases hv with
                 | outputError _ _ ho =>
                   exact .sha256OutputError target binPath realBin meta_ e w₁ w₂ w₃ w₄ w₅
-                    ht hres hreal hmeta htype hann ho
+                    ht hres hmeta htype hreal hann ho
                 | mismatch out _ _ ho hnot =>
                   exact .sha256Mismatch target binPath realBin meta_ out e w₁ w₂ w₃ w₄ w₅
-                    ht hres hreal hmeta htype hann ho hnot
+                    ht hres hmeta htype hreal hann ho hnot
               | ok u w₅ =>
                 cases u
                 rw [io_bind_ok hveq]
@@ -1199,17 +1201,17 @@ theorem runNoComments_outcome (w : Void IO.RealWorld) :
                   | error e w₆ =>
                     rw [io_bind_error hsp]
                     exact .spawnError target binPath realBin meta_ e w₁ w₂ w₃ w₄ w₅ w₆
-                      ht hres hreal hmeta htype hann hsha hsp
+                      ht hres hmeta htype hreal hann hsha hsp
                   | ok child w₆ =>
                     rw [io_bind_ok hsp]
                     cases hwt : child.wait w₆ with
                     | error e w₇ =>
                       exact .waitError target binPath realBin meta_ child e w₁ w₂ w₃ w₄ w₅ w₆ w₇
-                        ht hres hreal hmeta htype hann hsha hsp hwt
+                        ht hres hmeta htype hreal hann hsha hsp hwt
                     | ok code w₇ =>
                       exact .ran code w₇
                         ⟨target, binPath, realBin, meta_, w₁, w₂, w₃, w₄, w₅,
-                          ht, hres, hreal, hmeta, htype, hann, hsha, ⟨w₆, child, hsp, hwt⟩⟩
+                          ht, hres, hmeta, htype, hreal, hann, hsha, ⟨w₆, child, hsp, hwt⟩⟩
 
 theorem runNoComments_ok (code : UInt32) (w w' : Void IO.RealWorld)
     (h : runNoComments w = .ok code w') :
@@ -1682,13 +1684,13 @@ theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := by rfl
 
 theorem noCommentsVersion_eq : noCommentsVersion = "v0.2.0" := by rfl
 
-theorem noCommentsArgs_eq : noCommentsArgs = ["check", "--bootstrap"] := by rfl
+theorem noCommentsArgs_eq : noCommentsArgs = noCommentsArgsSpec := by rfl
 
 theorem noCommentsTargets_eq :
     NoCommentsTarget.darwinArm64.asset = "no-comments-darwin-arm64" ∧
-    NoCommentsTarget.darwinArm64.sha256 = "4c610e1b0f0f93f54e89f33acb13c5120ed4e7ecfc3bb5db85e562aba637fe2a" ∧
+    NoCommentsTarget.darwinArm64.sha256 = expectedSha256Spec .darwinArm64 ∧
     NoCommentsTarget.linuxX86_64.asset = "no-comments-linux-x86_64" ∧
-    NoCommentsTarget.linuxX86_64.sha256 = "f1a5d5cee2214515f9d36d3bb7245beee3856c06a85f6593ac0b23c4a0c6941e" ∧
+    NoCommentsTarget.linuxX86_64.sha256 = expectedSha256Spec .linuxX86_64 ∧
     NoCommentsTarget.darwinArm64.url =
       "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.2.0/no-comments-darwin-arm64" ∧
     NoCommentsTarget.linuxX86_64.url =
