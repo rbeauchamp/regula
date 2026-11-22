@@ -344,8 +344,6 @@ theorem isOk_eq_true_iff {α : Sort u} {ε : α → Type v} {payload : α → Ty
 
 end Dependent
 
-/- Realize these equation lemmas here, once, so importers that unfold the definitions use the
-same declarations. -/
 section
 attribute [local simp] Except.toBool.eq_1 Except.toBool.eq_2 Function.uncurry.eq_1
   Dependent.isSome.eq_1 ExecutableContract.run.eq_1

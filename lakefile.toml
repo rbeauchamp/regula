@@ -15,7 +15,6 @@ lintDriverArgs = ["standard-logical"]
 warningAsError = true
 autoImplicit = false
 relaxedAutoImplicit = false
-linter.missingDocs = true
 
 # The checker: the closed input, the rules, the verdict and the language decision, each proved against
 # `specification/RegulaSpecification/`, the closed operations and their one table, the language check's reader and

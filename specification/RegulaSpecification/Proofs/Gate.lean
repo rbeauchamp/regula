@@ -3,19 +3,9 @@ module
 public import Regula.DiagnosticsGate
 public import Regula.Shell
 import all Init.System.FilePath
+import all Init.System.IO
 import all Init.System.ST
 import all Regula.DiagnosticsGate
-
-/-!
-# The local gate, at {name}`IO`
-
-The gate program is the merge gate, and a defect in it that let a broken change pass would be serious. {lit}`runSteps_io`,
-{lit}`runIn_zero` and {lit}`runLocal_zero` prove, of the definitions at {name}`IO`, from any state of the world, that it gives 0 only when it
-wrote each file of {name (full := Regula.DiagnosticsGate.checkerFiles)}`checkerFiles` to the checker's directory joined with that file, with the bytes it read, and for each step
-of {name (full := Regula.DiagnosticsGate.localSteps)}`localSteps` there are worlds in which it spawned that step's own {lit}`lake` command and that child's wait gave 0 ({lit}`StepRan`, {lit}`runStep_ran`), with that directory as the checker and the working directory as the project. {name}`BaseIO` and {name}`IO` are state monads in Lean's own definition ({lit}`Init/System/ST.lean`), so
-no assumption about the order of effects is needed for this. {lit}`localSteps_eq`, {lit}`localSteps_full`, {lit}`stepRequest` and {lit}`runStep_spawns` state what each step asks the operating system to start, and what it does with that request stays trusted. A defect that only stops the gate visibly, such as a failed
-copy or removal, which {name}`IO` turns into a nonzero exit, is accepted risk.
--/
 
 @[expose] public section
 
@@ -102,9 +92,6 @@ theorem runSteps_io (run : Step → IO UInt32) (steps : List Step) (w w' : Void 
         · exact ih w₁ h s hs
       · cases h
 
-/-- The one process that a step names, stated apart from {name}`runStep`: the program that {lit}`PATH` selects under the name {lit}`lake`, with the
-step's arguments, in the step's directory, with no standard input, no inherited Lean search path, Lake's artifact cache off, and {lit}`REGULA_FULL`
-bound to the step's project, where {name}`none` removes an inherited value ({name}`IO.Process.SpawnArgs.env`, which is Lean's). -/
 def stepRequest (step : Step) : IO.Process.SpawnArgs where
   cmd := "lake"
   args := step.arguments.toArray
@@ -112,8 +99,6 @@ def stepRequest (step : Step) : IO.Process.SpawnArgs where
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", step.full)]
 
-/-- What a result of a step is: from {name}`w` the step announced itself, spawned exactly its request, and {name}`code` is what the wait of that child gave.
-This says nothing of which program {lit}`PATH` selects, or of what Lake's exit code means, which are the operating system's and Lake's. -/
 def StepRan (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
   ∃ w₁ w₂, ∃ child : IO.Process.Child (stepRequest step).toStdioConfig,
     announce step w = .ok () w₁ ∧ IO.Process.spawn (stepRequest step) w₁ = .ok child w₂ ∧ child.wait w₂ = .ok code w'
@@ -137,9 +122,156 @@ theorem runStep_ran (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) (h 
       rw [io_bind_ok hs] at h
       exact ⟨w₁, w₂, child, ha, hs, h⟩
 
+def IsLowerHex (c : Char) : Prop :=
+  ('0' ≤ c ∧ c ≤ '9') ∨ ('a' ≤ c ∧ c ≤ 'f')
+
+theorem isLowerHexChar_iff (c : Char) : isLowerHexChar c = true ↔ IsLowerHex c := by
+  simp [isLowerHexChar, IsLowerHex]
+
+theorem parseSha256Line_iff (cs : List Char) (hex : String) :
+    parseSha256Line cs = some hex ↔
+      (cs.take 64).length = 64 ∧ (∀ c ∈ cs.take 64, IsLowerHex c) ∧
+        ((cs.drop 64).take 2 = [' ', ' '] ∨ (cs.drop 64).take 2 = [' ', '*']) ∧
+        hex = String.ofList (cs.take 64) := by
+  unfold parseSha256Line
+  dsimp only
+  split
+  · rename_i hcond
+    simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq, List.all_eq_true, isLowerHexChar_iff] at hcond
+    rcases hcond with ⟨⟨hlen, hall⟩, hsep⟩
+    simp only [Option.some.injEq]
+    exact ⟨fun h => ⟨hlen, hall, hsep, h.symm⟩, fun ⟨_, _, _, h⟩ => h.symm⟩
+  · rename_i hcond
+    simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq, List.all_eq_true, isLowerHexChar_iff, not_and] at hcond
+    constructor
+    · intro h
+      cases h
+    · rintro ⟨hlen, hall, hsep, _⟩
+      exact absurd hsep (hcond ⟨hlen, hall⟩)
+
+theorem sha256Matches_iff (expected : String) (out : IO.Process.Output) :
+    sha256Matches expected out = true ↔ out.exitCode = 0 ∧ parseSha256Output out.stdout = some expected := by
+  simp [sha256Matches]
+
+def Sha256Verified (path : System.FilePath) (expected : String) (w w' : Void IO.RealWorld) : Prop :=
+  ∃ out : IO.Process.Output, (IO.Process.output (sha256Request path) : IO IO.Process.Output) w = .ok out w' ∧
+    out.exitCode = 0 ∧ parseSha256Output out.stdout = some expected
+
+theorem verifySha256_ok (path : System.FilePath) (expected : String) (w w' : Void IO.RealWorld)
+    (h : verifySha256 path expected w = .ok () w') :
+    Sha256Verified path expected w w' := by
+  unfold verifySha256 at h
+  cases ho : (IO.Process.output (sha256Request path) : IO IO.Process.Output) w with
+  | error e w₁ =>
+    rw [io_bind_error ho] at h
+    cases h
+  | ok out w₁ =>
+    rw [io_bind_ok ho] at h
+    cases hm : sha256Matches expected out with
+    | false =>
+      simp only [hm, Bool.false_eq_true, ↓reduceIte] at h
+      cases h
+    | true =>
+      simp only [hm, ↓reduceIte] at h
+      obtain ⟨_, hw⟩ := EST.Out.ok.inj h
+      subst hw
+      obtain ⟨hcode, hparse⟩ := (sha256Matches_iff expected out).mp hm
+      exact ⟨out, ho, hcode, hparse⟩
+
+def noCommentsRequestSpec (bin : System.FilePath) : IO.Process.SpawnArgs where
+  cmd := bin.toString
+  args := noCommentsArgs.toArray
+  cwd := some (System.FilePath.mk ".")
+  stdin := .null
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), (Regula.Shell.fullVariable, none)]
+
+theorem noCommentsRequest_eq (bin : System.FilePath) :
+    noCommentsRequest bin = noCommentsRequestSpec bin := by
+  rfl
+
+def NoCommentsRan (bin : System.FilePath) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
+  ∃ w₁ w₂, ∃ child : IO.Process.Child (noCommentsRequest bin).toStdioConfig,
+    announceNoComments w = .ok () w₁ ∧ IO.Process.spawn (noCommentsRequest bin) w₁ = .ok child w₂ ∧
+      child.wait w₂ = .ok code w'
+
+theorem runNoCommentsStep_ran (bin : System.FilePath) (code : UInt32) (w w' : Void IO.RealWorld)
+    (h : runNoCommentsStep bin w = .ok code w') :
+    NoCommentsRan bin code w w' := by
+  unfold runNoCommentsStep at h
+  cases ha : announceNoComments w with
+  | error e w₁ =>
+    rw [io_bind_error ha] at h
+    cases h
+  | ok u w₁ =>
+    cases u
+    rw [io_bind_ok ha] at h
+    change ((IO.Process.spawn (noCommentsRequest bin)) >>= IO.Process.Child.wait) w₁ = .ok code w' at h
+    cases hs : IO.Process.spawn (noCommentsRequest bin) w₁ with
+    | error e w₂ =>
+      rw [io_bind_error hs] at h
+      cases h
+    | ok child w₂ =>
+      rw [io_bind_ok hs] at h
+      exact ⟨w₁, w₂, child, ha, hs, h⟩
+
+def NoCommentsGateRan (w w' : Void IO.RealWorld) : Prop :=
+  ∃ (target : NoCommentsTarget) (binPath realBin : System.FilePath) (meta_ : IO.FS.Metadata)
+    (w₁ w₂ w₃ w₄ : Void IO.RealWorld),
+    hostNoCommentsTarget? = some target ∧
+    resolveNoCommentsBin target w = .ok binPath w₁ ∧
+    IO.FS.realPath binPath w₁ = .ok realBin w₂ ∧
+    realBin.metadata w₂ = .ok meta_ w₃ ∧
+    meta_.type = .file ∧
+    Sha256Verified realBin target.sha256 w₃ w₄ ∧
+    NoCommentsRan realBin 0 w₄ w'
+
+theorem runNoComments_zero (w w' : Void IO.RealWorld) (h : runNoComments w = .ok 0 w') :
+    NoCommentsGateRan w w' := by
+  unfold runNoComments at h
+  cases ht : hostNoCommentsTarget? with
+  | none =>
+    simp only [ht] at h
+    cases h
+  | some target =>
+    simp only [ht] at h
+    cases hres : resolveNoCommentsBin target w with
+    | error e w₁ =>
+      rw [io_bind_error hres] at h
+      cases h
+    | ok binPath w₁ =>
+      rw [io_bind_ok hres] at h
+      cases hreal : IO.FS.realPath binPath w₁ with
+      | error e w₂ =>
+        rw [io_bind_error hreal] at h
+        cases h
+      | ok realBin w₂ =>
+        rw [io_bind_ok hreal] at h
+        cases hmeta : realBin.metadata w₂ with
+        | error e w₃ =>
+          rw [io_bind_error hmeta] at h
+          cases h
+        | ok meta_ w₃ =>
+          rw [io_bind_ok hmeta] at h
+          cases htype : meta_.type with
+          | dir | symlink | other =>
+            simp only [htype] at h
+            cases h
+          | file =>
+            have hfile : (IO.FS.FileType.file == IO.FS.FileType.file) = true := rfl
+            simp only [htype, hfile, ↓reduceIte] at h
+            cases hv : verifySha256 realBin target.sha256 w₃ with
+            | error e w₄ =>
+              rw [io_bind_error hv] at h
+              cases h
+            | ok u w₄ =>
+              cases u
+              rw [io_bind_ok hv] at h
+              exact ⟨target, binPath, realBin, meta_, w₁, w₂, w₃, w₄, ht, hres, hreal, hmeta, htype,
+                verifySha256_ok realBin target.sha256 w₃ w₄ hv, runNoCommentsStep_ran realBin 0 w₄ w' h⟩
+
 theorem runIn_zero (target root : String) (w w' : Void IO.RealWorld)
     (h : runIn target root w = .ok 0 w') :
-    ∀ s ∈ localSteps target root, ∃ w₁ w₂, StepRan s 0 w₁ w₂ := by
+    (∀ s ∈ localSteps target root, ∃ w₁ w₂, StepRan s 0 w₁ w₂) ∧ ∃ w₁ w₂, NoCommentsGateRan w₁ w₂ := by
   unfold runIn at h
   cases hr : runSteps runStep (localSteps target root) w with
   | error e w₁ =>
@@ -147,18 +279,38 @@ theorem runIn_zero (target root : String) (w w' : Void IO.RealWorld)
     cases h
   | ok r w₁ =>
     rw [io_bind_ok hr] at h
-    cases hs : sayResult (localSteps target root) r w₁ with
-    | error e w₂ =>
-      rw [io_bind_error hs] at h
-      cases h
-    | ok u w₂ =>
-      rw [io_bind_ok hs] at h
-      have hc : exitOf r = 0 := EST.Out.ok.inj h |>.1
-      have hn := (exitOf_eq_zero_iff r).mp hc
-      subst hn
-      intro s hs
-      obtain ⟨w₃, w₄, hrun⟩ := runSteps_io _ _ _ _ hr s hs
-      exact ⟨w₃, w₄, runStep_ran s 0 w₃ w₄ hrun⟩
+    cases r with
+    | some p =>
+      simp only at h
+      cases hs : sayResult (localSteps target root) (some p) w₁ with
+      | error e w₂ =>
+        rw [io_bind_error hs] at h
+        cases h
+      | ok u w₂ =>
+        rw [io_bind_ok hs] at h
+        have hc : exitOf (some p) = 0 := (EST.Out.ok.inj h).1
+        cases hc
+    | none =>
+      simp only at h
+      cases hnc : runNoComments w₁ with
+      | error e w₂ =>
+        rw [io_bind_error hnc] at h
+        cases h
+      | ok ncCode w₂ =>
+        rw [io_bind_ok hnc] at h
+        cases hs : sayNoCommentsResult (localSteps target root) ncCode w₂ with
+        | error e w₃ =>
+          rw [io_bind_error hs] at h
+          cases h
+        | ok u w₃ =>
+          rw [io_bind_ok hs] at h
+          have hc : (if ncCode == 0 then (0 : UInt32) else 1) = 0 := (EST.Out.ok.inj h).1
+          by_cases hzero : ncCode = 0
+          · subst hzero
+            refine ⟨fun s hmem => ?_, ⟨w₁, w₂, runNoComments_zero w₁ w₂ hnc⟩⟩
+            obtain ⟨w₄, w₅, hrun⟩ := runSteps_io _ _ _ _ hr s hmem
+            exact ⟨w₄, w₅, runStep_ran s 0 w₄ w₅ hrun⟩
+          · simp [hzero] at hc
 
 theorem regularFiles_io (paths : List System.FilePath) (w w' : Void IO.RealWorld) (files : List System.FilePath)
     (h : regularFiles paths w = .ok files w') :
@@ -230,9 +382,6 @@ theorem checkerFiles_io (w w' : Void IO.RealWorld) (files : List System.FilePath
       subst hw'
       exact ⟨sources, others, w₁, rfl, hr, hf.symm⟩
 
-/-- This says nothing of where {lean}`target / file` lies: {lit}`/` gives {name}`file` itself for an absolute {name}`file`
-({name (full := System.FilePath.join)}`FilePath.join`, {lit}`Init/System/FilePath.lean:126-130` at v4.36.0), so such a copy writes to the file it
-read, and a relative {name}`file` with `..` can leave {name}`target`. -/
 theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (h : copyFile target file w = .ok () w') :
     ∃ bytes w₁ w₂, IO.FS.readBinFile file w₁ = .ok bytes w₂ ∧
       IO.FS.writeBinFile (target / file) bytes w₂ = .ok () w' := by
@@ -262,7 +411,6 @@ theorem copyFile_io (target file : System.FilePath) (w w' : Void IO.RealWorld) (
       rw [io_bind_ok hm] at h
       exact hrest w₁ h
 
-/-- A {name}`file` with `..` can name a path outside {name}`target`, so this is no statement of containment. -/
 theorem join_relative (target file : System.FilePath) (h : file.isAbsolute = false) :
     target / file = System.FilePath.mk (target.toString ++ System.FilePath.pathSeparator.toString ++ file.toString) := by
   show System.FilePath.join target file = _
@@ -301,13 +449,11 @@ theorem copyChecker_io (target : System.FilePath) (w w' : Void IO.RealWorld) (h 
     rw [io_bind_ok hc] at h
     exact ⟨files, w₁, rfl, copyAll_io target files w₁ w' h⟩
 
-/-- That a step builds what was written and checks this checkout rests on what {name}`localSteps` names, the file
-system and Lake, which this does not state, and so do which program {lit}`PATH` selects and what Lake's exit code
-means. -/
 theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
     ∃ target root w₁ w₂ w₃ w₄, IO.FS.createTempDir w = .ok target w₁ ∧ copyChecker target w₁ = .ok () w₂ ∧
       IO.currentDir w₂ = .ok root w₃ ∧ runIn target.toString root.toString w₃ = .ok 0 w₄ ∧
-      ∀ s ∈ localSteps target.toString root.toString, ∃ a b, StepRan s 0 a b := by
+      (∀ s ∈ localSteps target.toString root.toString, ∃ a b, StepRan s 0 a b) ∧
+      ∃ a b, NoCommentsGateRan a b := by
   unfold runLocal at h
   cases ht : IO.FS.createTempDir w with
   | error e w₁ =>
@@ -329,7 +475,8 @@ theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
         cases hbody
       | ok root w₄ =>
         rw [io_bind_ok hd] at hbody
-        exact ⟨target, root, w₁, w₃, w₄, w₂, rfl, hc, hd, hbody, runIn_zero _ _ _ _ hbody⟩
+        obtain ⟨hsteps, hnc⟩ := runIn_zero _ _ _ _ hbody
+        exact ⟨target, root, w₁, w₃, w₄, w₂, rfl, hc, hd, hbody, hsteps, hnc⟩
 
 theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.main args w = .ok 0 w') :
     args = ["local"] ∧ runLocal w = .ok 0 w' := by
@@ -348,6 +495,32 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
 
 theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := by rfl
 
+theorem noCommentsVersion_eq : noCommentsVersion = "v0.2.0" := by rfl
+
+theorem noCommentsArgs_eq : noCommentsArgs = ["check", "--bootstrap"] := by rfl
+
+theorem noCommentsTargets_eq :
+    NoCommentsTarget.darwinArm64.asset = "no-comments-darwin-arm64" ∧
+    NoCommentsTarget.darwinArm64.sha256 = "4c610e1b0f0f93f54e89f33acb13c5120ed4e7ecfc3bb5db85e562aba637fe2a" ∧
+    NoCommentsTarget.linuxX86_64.asset = "no-comments-linux-x86_64" ∧
+    NoCommentsTarget.linuxX86_64.sha256 = "f1a5d5cee2214515f9d36d3bb7245beee3856c06a85f6593ac0b23c4a0c6941e" ∧
+    NoCommentsTarget.darwinArm64.url =
+      "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.2.0/no-comments-darwin-arm64" ∧
+    NoCommentsTarget.linuxX86_64.url =
+      "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.2.0/no-comments-linux-x86_64" := by
+  decide +kernel
+
+theorem hostNoCommentsTarget_darwin (hOsx : System.Platform.isOSX = true)
+    (hArch : System.Platform.target.startsWith "arm64-" = true) :
+    hostNoCommentsTarget? = some .darwinArm64 := by
+  simp [hostNoCommentsTarget?, hOsx, hArch]
+
+theorem hostNoCommentsTarget_linux (hOsx : System.Platform.isOSX = false)
+    (hLinux : System.Platform.isLinux = true)
+    (hArch : System.Platform.target.startsWith "x86_64-" = true) :
+    hostNoCommentsTarget? = some .linuxX86_64 := by
+  simp [hostNoCommentsTarget?, hOsx, hLinux, hArch]
+
 theorem localSteps_eq (checker root : String) :
     localSteps checker root =
       [⟨["clean"], "specification", none⟩,
@@ -364,12 +537,17 @@ theorem localSteps_full (checker root : String) :
       s.full = if s.arguments = ["exe", "lint", "standard-logical"] then some root else none := by
   simp [localSteps]
 
-/-- What {name}`runStep` does for any {name}`step`, with no premise about how the call ends: it announces the step, starts the process that
-{name}`stepRequest` describes and waits for it. What the operating system and {lit}`lake` then do with the request is trusted. -/
 theorem runStep_spawns (step : Step) :
     runStep step = (do
       announce step
       let child ← IO.Process.spawn (stepRequest step)
+      child.wait) :=
+  by rfl
+
+theorem runNoCommentsStep_spawns (bin : System.FilePath) :
+    runNoCommentsStep bin = (do
+      announceNoComments
+      let child ← IO.Process.spawn (noCommentsRequest bin)
       child.wait) :=
   by rfl
 
