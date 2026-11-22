@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/rbeauchamp/regula/security/advisories/new
+    about: Report a vulnerability covered by SECURITY.md privately to the maintainer.
