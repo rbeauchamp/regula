@@ -21,6 +21,8 @@
 # The digest is that of the archive as downloaded on 2026-11-20, whose Lean reports the release and
 # the commit that the checker reads (`Regula.Closed.pinnedLean`).
 #
+# The job fetches full history (`fetch-depth: 0`) so `git merge-base HEAD origin/main` in the
+# `no-comments` ratchet check (`lean/Regula/DiagnosticsGate.lean`) resolves cleanly on pull requests.
 # The job sets no time limit of its own, as the gate sets none, so GitHub's limit for a job applies.
 # The token can only read the repository (`permissions`), and the checkout keeps no credential
 # (`persist-credentials`). The event is `pull_request` and never `pull_request_target`, which GitHub
@@ -44,6 +46,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Install the Lean that lean-toolchain names, by the SHA-256 of its archive
         run: |
           v="$(sed 's/^.*:v//' lean-toolchain)"

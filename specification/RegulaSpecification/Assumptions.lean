@@ -526,8 +526,6 @@ theorem each_relied_on (a : Assumption) :
   · exact .inl ⟨.readFile "", by decide⟩
   · exact .inl ⟨.flush, by decide⟩
 
--- This package builds only with the Lean that the checker reads. With `readAt_pinned`, a change of the pinned toolchain
--- fails this build until each entry is read again at the new release.
 run_cmd do
   unless (Lean.versionString, Lean.githash) == Regula.Closed.pinnedLean do
     Lean.throwError m!"this is Lean {Lean.versionString} ({Lean.githash}), and Regula.Closed.pinnedLean and each entry of \

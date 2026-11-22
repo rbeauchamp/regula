@@ -1,0 +1,15 @@
+{
+  "workspaces": [
+    {
+      "dir": ".",
+      "srcDir": "lean",
+      "excludePrefixes": ["specification/"]
+    },
+    {
+      "dir": "specification",
+      "srcDir": "."
+    }
+  ],
+  "exclude": [],
+  "ratchet": "comment-ratchet.json"
+}

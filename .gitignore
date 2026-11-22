@@ -1,5 +1,6 @@
 /build/
 /.lake/
+/.cache/no-comments/
 
 # Lean build artifacts (in case of direct `lean` invocation)
 *.olean
