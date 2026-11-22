@@ -271,6 +271,11 @@ structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop wh
   /-- What Lean's import gave has the floor. -/
   floor : ∀ root a roots, PlainRoot t root → BuildAnswered t root a roots → a.Floor roots p
 
+structure OutProofOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
+  noReason : ¬ OutProofReason dir t
+  replayed : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ t
+  floor : ∀ root a roots, OutProofRoot dir t root → BuildAnswered t root a roots → a.Floor roots p
+
 /-- What a run of the full gate receives on a build that it owes a pass: the run has its tree, nothing keeps the project from
 being admitted, the build was not rejected, nothing that the load of the result needs failed, Lean's kernel accepted each
 replay that the load asked for, and each build that the run read has {name}`BuildAnswer.Floor`. -/
@@ -310,6 +315,18 @@ theorem replayed_eq {t : List (Event L E)} {f : Regula.Load.Facts} {x result : E
 
 theorem plain_owed {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32} (h : PlainRun t p c)
     (owed : PlainOwed t p) : c = 0 ∧ ∃ subject, EndsWith t (plainPass subject) := by
+  obtain ⟨result, hl, hc, he, -⟩ := h
+  rcases hl with ⟨root, f, roots, hg, hb, hrp⟩ | ⟨hw, -⟩
+  · obtain rfl := replayed_eq hrp owed.replayed
+    have hv := (pass_iff_answer f roots p).mpr (owed.floor root _ roots hg hb.answered)
+    rw [hv] at hc he
+    obtain ⟨subject, hend, -⟩ := he
+    exact ⟨hc, subject, hend⟩
+  · exact absurd hw owed.noReason
+
+theorem outProof_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile} {c : UInt32}
+    (h : OutProofRun t dir p c) (owed : OutProofOwed t dir p) :
+    c = 0 ∧ ∃ subject, EndsWith t (plainPass subject) := by
   obtain ⟨result, hl, hc, he, -⟩ := h
   rcases hl with ⟨root, f, roots, hg, hb, hrp⟩ | ⟨hw, -⟩
   · obtain rfl := replayed_eq hrp owed.replayed
@@ -367,7 +384,9 @@ theorem full_owed {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Pro
 
 theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text : String} {p : Regula.Closed.Profile}
     (hp : text = p.spelling) {rest : List (Event L E)} {c : UInt32}
-    (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ :: rest) c)
+    (h : Runs (w [text])
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ ::
+        ⟨.getEnv Regula.Shell.proofVariable, none⟩ :: rest) c)
     (owed : PlainOwed (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) p) :
     c = 0 ∧ ∃ subject, EndsWith (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: rest) (plainPass subject) := by
   have hsp : Regula.Closed.Profile.ofSpelling? text = some p := Regula.Closed.Profile.ofSpelling?_eq_some.mpr hp.symm
@@ -375,21 +394,39 @@ theorem run_plain_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {
   simp only [hsp] at hm
   obtain ⟨v, rest', he, hrun, -⟩ := hm
   cases he
-  obtain ⟨v', r, rest'', he', hf⟩ := hrun rfl
+  obtain ⟨v', rf, rp, rest'', he', hf⟩ := hrun rfl
   cases he'
   exact plain_owed hf owed
+
+theorem run_outProof_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String}
+    {p : Regula.Closed.Profile} (hp : text = p.spelling) {rest : List (Event L E)} {c : UInt32}
+    (h : Runs (w [text])
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ ::
+        ⟨.getEnv Regula.Shell.proofVariable, some dir⟩ :: rest) c)
+    (owed : OutProofOwed rest (FilePath.mk dir) p) :
+    c = 0 ∧ ∃ subject, EndsWith rest (plainPass subject) := by
+  have hsp : Regula.Closed.Profile.ofSpelling? text = some p := Regula.Closed.Profile.ofSpelling?_eq_some.mpr hp.symm
+  have hm := hw _ _ _ h
+  simp only [hsp] at hm
+  obtain ⟨v, rest', he, hrun, -⟩ := hm
+  cases he
+  obtain ⟨v', rf, rp, rest'', he', hf⟩ := hrun rfl
+  cases he'
+  exact outProof_owed hf owed
 
 theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {text dir : String}
     {p : Regula.Closed.Profile} (hp : text = p.spelling) {rest : List (Event L E)}
     {c : UInt32}
-    (h : Runs (w [text]) (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, some dir⟩ :: rest) c)
+    (h : Runs (w [text])
+      (⟨.leanVersion, Regula.Closed.pinnedLean⟩ :: ⟨.getEnv Regula.Shell.fullVariable, some dir⟩ ::
+        ⟨.getEnv Regula.Shell.proofVariable, none⟩ :: rest) c)
     (owed : FullOwed rest (FilePath.mk dir) p) : c = 0 ∧ EndsWith rest (fullPass (FilePath.mk dir)) := by
   have hsp : Regula.Closed.Profile.ofSpelling? text = some p := Regula.Closed.Profile.ofSpelling?_eq_some.mpr hp.symm
   have hm := hw _ _ _ h
   simp only [hsp] at hm
   obtain ⟨v, rest', he, hrun, -⟩ := hm
   cases he
-  obtain ⟨v', r, rest'', he', hf⟩ := hrun rfl
+  obtain ⟨v', rf, rp, rest'', he', hf⟩ := hrun rfl
   cases he'
   exact full_owed hf owed
 
@@ -398,22 +435,24 @@ and says that the proof verdict is incomplete. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
-      .ask (.getEnv name) fun _ =>
-        .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
+      .ask (.getEnv Regula.Shell.proofVariable) fun _ =>
+        .ask (.getEnv name) fun _ =>
+          .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
 
 theorem manufacturer_fails {name : String} (h1 : name ≠ "LEAN_SYSROOT") (h2 : name ≠ "LEAN_PATH") :
     ¬ RunMeets (manufacturer name : List String → Prog L E UInt32) := by
   intro hw
   have hr : Runs (manufacturer name ["standard-logical"] : Prog L E UInt32)
-      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv Regula.Shell.fullVariable, none⟩, ⟨.getEnv name, none⟩,
+      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv Regula.Shell.fullVariable, none⟩,
+        ⟨.getEnv Regula.Shell.proofVariable, none⟩, ⟨.getEnv name, none⟩,
         ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩] 2 :=
-    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _))))
+    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _)))))
   have hm := hw _ _ _ hr
   have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
   simp only [hsp] at hm
   obtain ⟨v, rest, he, hrun, -⟩ := hm
   cases he
-  obtain ⟨v', r, rest, he', hf⟩ := hrun rfl
+  obtain ⟨v', rf, rp, rest, he', hf⟩ := hrun rfl
   cases he'
   obtain ⟨result, hl, -⟩ := hf
   have hno : ∀ {o : Op L E} {r : Resp o},
