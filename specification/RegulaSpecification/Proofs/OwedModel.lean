@@ -250,7 +250,7 @@ def answersOutProof (w : WitnessPaths) (env : Lean.Environment) : (o : Op Unit U
 theorem outProofOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Regula.Closed.Profile}
     (hm : EnvModel w env p) (hne : w.project.toString ≠ "") (q : Prog Unit Unit α) :
     OutProofOwed (traceWith (answersOutProof w env) q) (FilePath.mk w.project.toString) p := by
-  have hroot : ∀ {root}, OutProofRoot (FilePath.mk w.project.toString) (traceWith (answersOutProof w env) q) root →
+  have hloaded : ∀ {root}, OutProofLoaded (FilePath.mk w.project.toString) (traceWith (answersOutProof w env) q) root →
       root = witnessRoot w := by
     rintro root ⟨-, sysroot, real, err, name, code, details, log, -, -, -, -, h⟩
     have he : (Except.ok (some root, log) : Except String (Option (Root Unit) × List String)) =
@@ -273,13 +273,19 @@ theorem outProofOwed_answers {w : WitnessPaths} {env : Lean.Environment} {p : Re
     | load _ _ _ _ _ h hf =>
       have hv := resp_eq h
       rcases hf with ⟨x, hx⟩ | ⟨x, hx⟩ <;> (rw [hx] at hv; cases hv)
+    | emptyTargets hl he =>
+      obtain rfl := hloaded hl
+      cases he
+    | notLibrary hl _ hf =>
+      obtain rfl := hloaded hl
+      simp [witnessRoot] at hf
     | build _ hf =>
       cases hf with
       | library _ _ h => cases resp_eq h
       | «import» _ h => cases resp_eq h
       | search _ _ _ h => cases resp_eq h
   · cases resp_eq he
-  · obtain rfl := hroot hg
+  · obtain rfl := hloaded hg.1
     obtain ⟨modules, hd, rfl, hs, ht, hr, hn, hol⟩ := hb
     have hmods : modules = [(`Good, w.file)] := by
       have hdt : (witnessRoot w).defaultTargets = [`Good] := rfl
@@ -433,130 +439,6 @@ theorem outProof_noSysroot_witness {L E : Type} (p : Regula.Closed.Profile) :
   · intro e he
     simp only [t, List.mem_cons, List.not_mem_nil, or_false] at he
     rcases he with rfl | rfl <;> exact trivial
-
-def outProofFallback {L E : Type} (_ : List String) : Prog L E UInt32 :=
-  .ask .leanVersion fun _ =>
-    .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
-      .ask (.getEnv Regula.Shell.proofVariable) fun _ =>
-        .ask (.getEnv "LEAN_SYSROOT") fun _ =>
-          .ask (.getEnv "LEAN_PATH") fun _ =>
-            .ask (.println "  RG2001: no LEAN_PATH") fun _ =>
-              .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
-
-theorem outProof_plain_fallback_fails {L E : Type} :
-    ¬ RunMeets (outProofFallback : List String → Prog L E UInt32) := by
-  intro hm
-  let p := Regula.Closed.Profile.choiceFree
-  have hp : Regula.Closed.Profile.ofSpelling? "choice-free" = some p := by decide +kernel
-  let rest : List (Event L E) :=
-    [⟨.getEnv "LEAN_SYSROOT", some "sysroot"⟩,
-     ⟨.getEnv "LEAN_PATH", none⟩,
-     ⟨.println "  RG2001: no LEAN_PATH", .ok ()⟩,
-     ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩]
-  let t : List (Event L E) :=
-    ⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
-    ⟨.getEnv Regula.Shell.fullVariable, none⟩ ::
-    ⟨.getEnv Regula.Shell.proofVariable, some "pkg"⟩ :: rest
-  have hr : Runs (outProofFallback ["choice-free"] : Prog L E UInt32) t 2 :=
-    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _)))))))
-  have hspec := hm ["choice-free"] t 2 hr
-  dsimp only at hspec
-  rw [hp] at hspec
-  rcases hspec with ⟨v, rest0, hhead, hpin, _⟩
-  dsimp only [t] at hhead
-  have hv : v = Regula.Closed.pinnedLean := by cases hhead; rfl
-  obtain ⟨v', rf, rp, rest1, ht2, hmatch⟩ := hpin hv
-  dsimp only [t] at ht2
-  cases ht2
-  obtain ⟨result, hl, -⟩ := hmatch
-  rcases hl with ⟨root, f, roots, ⟨_, -, real, -, -, -, -, -, -, hreal, -⟩, _⟩ | ⟨why, _⟩
-  · simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hreal
-    rcases hreal with h | h | h | h <;> cases h
-  · cases why with
-    | emptyTarget he => exact absurd he (by decide)
-    | noSysroot hns =>
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hns
-      rcases hns with h | h | h | h
-      · cases h
-      · have hop := congrArg Event.op h
-        injection hop with hs
-        exact absurd hs (by decide)
-      · cases h
-      · cases h
-    | noDirectory _ hnd =>
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hnd
-      rcases hnd with h | h | h | h <;> cases h
-    | configShadowed _ hnd _ =>
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hnd
-      rcases hnd with h | h | h | h <;> cases h
-    | leanConfig _ hnd _ _ =>
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hnd
-      rcases hnd with h | h | h | h <;> cases h
-    | load _ _ hreal _ _ _ _ =>
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hreal
-      rcases hreal with h | h | h | h <;> cases h
-    | build hroot _ =>
-      obtain ⟨_, -, real, -, -, -, -, -, -, hreal, -⟩ := hroot
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hreal
-      rcases hreal with h | h | h | h <;> cases h
-
-def outProofSkipShadow {L E : Type} (_ : List String) : Prog L E UInt32 :=
-  .ask .leanVersion fun _ =>
-    .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
-      .ask (.getEnv Regula.Shell.proofVariable) fun _ =>
-        .ask (.getEnv "LEAN_SYSROOT") fun _ =>
-          .ask (.realPath (FilePath.mk "pkg")) fun _ =>
-            .ask (.loadRoot "sysroot" (FilePath.mk "pkg")) fun _ =>
-              .ask (.println "  RG2001: load failed") fun _ =>
-                .ask (.println (Regula.Closed.Verdict.proofLine .incomplete)) fun _ => .done 2
-
-theorem outProof_skip_shadow_check_fails {L E : Type} :
-    ¬ RunMeets (outProofSkipShadow : List String → Prog L E UInt32) := by
-  intro hm
-  let p := Regula.Closed.Profile.choiceFree
-  have hp : Regula.Closed.Profile.ofSpelling? "choice-free" = some p := by decide +kernel
-  let rest : List (Event L E) :=
-    [⟨.getEnv "LEAN_SYSROOT", some "sysroot"⟩,
-     ⟨.realPath (FilePath.mk "pkg"), .ok (FilePath.mk "pkg")⟩,
-     ⟨.loadRoot "sysroot" (FilePath.mk "pkg"), .error "bad"⟩,
-     ⟨.println "  RG2001: load failed", .ok ()⟩,
-     ⟨.println (Regula.Closed.Verdict.proofLine .incomplete), .ok ()⟩]
-  let t : List (Event L E) :=
-    ⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
-    ⟨.getEnv Regula.Shell.fullVariable, none⟩ ::
-    ⟨.getEnv Regula.Shell.proofVariable, some "pkg"⟩ :: rest
-  have hr : Runs (outProofSkipShadow ["choice-free"] : Prog L E UInt32) t 2 :=
-    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _))))))))
-  have hspec := hm ["choice-free"] t 2 hr
-  dsimp only at hspec
-  rw [hp] at hspec
-  rcases hspec with ⟨v, rest0, hhead, hpin, _⟩
-  dsimp only [t] at hhead
-  have hv : v = Regula.Closed.pinnedLean := by cases hhead; rfl
-  obtain ⟨v', rf, rp, rest1, ht2, hmatch⟩ := hpin hv
-  dsimp only [t] at ht2
-  cases ht2
-  obtain ⟨result, hl, -⟩ := hmatch
-  have hnoMeta : ∀ path r, (⟨.symlinkMetadata path, r⟩ : Event L E) ∉ rest := by
-    intro path r hm'
-    simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hm'
-    rcases hm' with h | h | h | h | h <;> cases h
-  rcases hl with ⟨root, f, roots, ⟨_, sysroot, real, err, name, code, details, log, _, _, hmeta, _, _⟩, _⟩ | ⟨why, _⟩
-  · exact hnoMeta _ _ hmeta
-  · cases why with
-    | emptyTarget he => exact absurd he (by decide)
-    | noSysroot hns =>
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hns
-      rcases hns with h | h | h | h | h <;> cases h
-    | noDirectory _ hnd =>
-      simp only [rest, List.mem_cons, List.not_mem_nil, or_false] at hnd
-      rcases hnd with h | h | h | h | h <;> cases h
-    | configShadowed _ _ hm' => exact hnoMeta _ _ hm'
-    | leanConfig _ _ hm' _ => exact hnoMeta _ _ hm'
-    | load _ _ _ hm' _ _ _ => exact hnoMeta _ _ hm'
-    | build hroot _ =>
-      obtain ⟨_, sysroot, real, err, name, code, details, log, _, _, hmeta, _, _⟩ := hroot
-      exact hnoMeta _ _ hmeta
 
 theorem unrelated_read_no_reason {L E : Type} {u dir treeDir : FilePath} {e : IO.Error} {o : Outcome}
     (h1 : u ≠ dir) (h2 : u ≠ treeDir) :

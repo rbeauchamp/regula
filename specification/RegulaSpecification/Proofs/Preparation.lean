@@ -167,7 +167,12 @@ theorem OutProofPreparation.appendQuiet {t after : List (Event L E)} {target : F
       obtain ⟨root, log⟩ := pair
       cases root with
       | none => exact hr.append hq
-      | some root => exact hr.appendQuiet hq
+      | some root =>
+        by_cases hdt : root.defaultTargets ≠ [] ∧ ∀ target ∈ root.defaultTargets, (root.findLib target).isSome = true
+        · simp only [ite_eq_left hdt] at hr ⊢
+          exact hr.appendQuiet hq
+        · simp only [ite_eq_right hdt] at hr ⊢
+          exact hr.append hq
 
 theorem CopyStep.complete {tree path : FilePath} {text : String} {t : List (Event L E)} {c : Bool}
     (h : CopyStep tree path text t c) (hc : c = true) :

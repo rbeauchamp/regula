@@ -245,7 +245,11 @@ def OutProofPreparation (target : FilePath) (t : List (Event L E)) : Prop :=
     (⟨.symlinkMetadata (dir / "lakefile.lean"), .error err⟩ : Event L E) ∈ before ∧
     err = .noFileOrDirectory name code details ∧
     match response with
-    | .ok (some root, _) => InputPreparation root rest
+    | .ok (some root, _) =>
+        if root.defaultTargets ≠ [] ∧ ∀ target ∈ root.defaultTargets, (root.findLib target).isSome = true then
+          InputPreparation root rest
+        else
+          Quiet rest
     | _ => Quiet rest
 
 /-- Relevance to the requested build: its observations and copies, and each needed name's file or place in the
@@ -502,7 +506,7 @@ def TreeRoot (sysroot : String) (tree : FilePath) (t : List (Event L E)) (root :
     (⟨.realPath tree, .ok real⟩ : Event L E) ∈ t ∧
     (⟨.loadRoot sysroot real, .ok (some root, log)⟩ : Event L E) ∈ t
 
-def OutProofRoot (dir : FilePath) (t : List (Event L E)) (root : Root L) : Prop :=
+def OutProofLoaded (dir : FilePath) (t : List (Event L E)) (root : Root L) : Prop :=
   dir.toString ≠ "" ∧
   ∃ sysroot real err name code details log,
     SysrootIs t sysroot ∧
@@ -510,6 +514,11 @@ def OutProofRoot (dir : FilePath) (t : List (Event L E)) (root : Root L) : Prop 
     (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t ∧
     err = .noFileOrDirectory name code details ∧
     (⟨.loadRoot sysroot real, .ok (some root, log)⟩ : Event L E) ∈ t
+
+def OutProofRoot (dir : FilePath) (t : List (Event L E)) (root : Root L) : Prop :=
+  OutProofLoaded dir t root ∧
+  root.defaultTargets ≠ [] ∧
+  ∀ target ∈ root.defaultTargets, (root.findLib target).isSome = true
 
 /-- An operation that the load of the finished build of the workspace {name}`root` needs failed: the modules of a default
 library, the import of the modules of the default targets, or where Lean finds a module of that import. -/
@@ -574,6 +583,9 @@ inductive OutProofReason (dir : FilePath) (t : List (Event L E)) : Prop where
       err = .noFileOrDirectory name code details →
       (⟨.loadRoot sysroot real, r⟩ : Event L E) ∈ t →
       Event.failed (⟨.loadRoot sysroot real, r⟩ : Event L E) → OutProofReason dir t
+  | emptyTargets {root} : OutProofLoaded dir t root → root.defaultTargets = [] → OutProofReason dir t
+  | notLibrary {root target} : OutProofLoaded dir t root → target ∈ root.defaultTargets →
+      root.findLib target = none → OutProofReason dir t
   | build {root} : OutProofRoot dir t root → BuildFailed t root → OutProofReason dir t
 
 /-- What the run made of the loader's result on the facts {name}`f`: an error stays, and an input stands exactly when Lean's

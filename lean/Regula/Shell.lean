@@ -190,8 +190,15 @@ def loadProof (target : FilePath) (profile : Profile) : Attempt L E (FilePath ×
     else
       let root ← ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot dir)) fun r =>
         pure (loaded "the configuration" r))
-      let prepared ← inputOf root profile
-      pure (dir, prepared)
+      if root.defaultTargets.isEmpty then
+        throw "the package has no default library target to audit"
+      else
+        match root.defaultTargets.find? (fun target => (root.findLib target).isNone) with
+        | some target =>
+          throw s!"default target {target} is not a library: out-of-tree proof mode checks only library targets"
+        | none =>
+          let prepared ← inputOf root profile
+          pure (dir, prepared)
 
 /-- What a load read, printed. -/
 def sayCoverage : Except String Prepared → Prog L E Unit
@@ -279,22 +286,19 @@ def runFull (profile : Profile) (dir : FilePath) : Prog L E UInt32 := do
       say s!"regula: the checker could not remove its tree {tree}: {e}"
       finishFull dir report
 
-/-- A run of the proof verdict on the workspace in the current directory. -/
-def runPlain (profile : Profile) : Prog L E UInt32 := do
-  let result ← (loadPlain profile).run
-  match result with
+def reportProof (load : Attempt L E (FilePath × Prepared)) : Prog L E UInt32 := do
+  match ← load.run with
   | .error why => finishProof (decisionPrepared (.error why))
   | .ok (dir, prepared) =>
     say (coverage prepared.input)
     finishPlain dir (decisionPrepared (.ok prepared))
 
-def runProof (profile : Profile) (target : FilePath) : Prog L E UInt32 := do
-  let result ← (loadProof target profile).run
-  match result with
-  | .error why => finishProof (decisionPrepared (.error why))
-  | .ok (dir, prepared) =>
-    say (coverage prepared.input)
-    finishPlain dir (decisionPrepared (.ok prepared))
+/-- A run of the proof verdict on the workspace in the current directory. -/
+def runPlain (profile : Profile) : Prog L E UInt32 :=
+  reportProof (loadPlain profile)
+
+def runProof (profile : Profile) (target : FilePath) : Prog L E UInt32 :=
+  reportProof (loadProof target profile)
 
 /-- What a run does on this Lean with these arguments: the profile, or a refusal, and then the variable says which run. -/
 def dispatch (version commit : String) (args : List String) : Prog L E UInt32 :=

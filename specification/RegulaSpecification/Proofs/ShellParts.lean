@@ -519,41 +519,77 @@ theorem loadProof_spec {T t : List (Event L E)} {target : FilePath} {p : Regula.
               · exact .inr ⟨_, sysroot, dir, _, name, code, details, .ok (none, log), [], by simp, hpre, by simp [SysrootIs], by simp, by simp, rfl, quiet_nil⟩
             | ok root =>
               rw [hl] at h₈
+              dsimp only at h₈
               obtain ⟨log, rfl⟩ := l1 root hl
-              obtain ⟨tI, tP, rI, rfl, hI, hP⟩ := runs_attempt_bind_iff.mp h₈
-              obtain ⟨o1, otab, o2⟩ := inputOf_spec ((List.sublist_append_left _ _).trans hT₈) hI
-              have hroot : OutProofRoot target T root :=
+              have hloaded : OutProofLoaded target T root :=
                 ⟨hne, sysroot, dir, _, name, code, details, log, hmem₁, hmemDir, hmemMeta, rfl, hmemLoad⟩
-              have hend : tP = [] ∧ b.map (·.2.input) = rI.map (·.input) ∧
-                  ∀ d prep, b = .ok (d, prep) → d = dir ∧ rI = .ok prep := by
-                cases rI with
-                | error why => obtain ⟨rfl, rfl⟩ := hP; exact ⟨rfl, rfl, fun _ _ he => by cases he⟩
-                | ok prep =>
-                  obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp hP
-                  exact ⟨rfl, rfl, fun d prep' he => by cases he; exact ⟨rfl, rfl⟩⟩
-              obtain ⟨rfl, hmap, hsub⟩ := hend
-              refine ⟨?_, fun d prep he => ?_,
-                .inr ⟨_, sysroot, dir, _, name, code, details, .ok (some root, log), tI,
-                  by simp, hpre, by simp [SysrootIs], by simp, by simp, rfl, o2⟩⟩
-              · rw [hmap]
-                rcases o1 with ⟨f, roots, hb, he', -⟩ | ⟨hf, why, rfl⟩
-                · exact .inl ⟨root, f, roots, hroot, hb, he'⟩
-                · exact .inr ⟨.build hroot hf, why, rfl⟩
-              · obtain ⟨rfl, hi⟩ := hsub d prep he
-                refine ⟨otab prep hi, ⟨hmemDir, sysroot, root, log, _, name, code, details,
-                  hmem₁, hmemMeta, rfl, hmemLoad, hroot⟩, ?_⟩
-                rcases o1 with ⟨f, roots, -, -, hcl⟩ | ⟨-, why, hw⟩
-                · have hc₁ : Clean ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩, ⟨.realPath target, .ok d⟩,
-                      ⟨.symlinkMetadata (d / "lakefile.lean"), .error (.noFileOrDirectory name code details)⟩,
-                      ⟨.loadRoot sysroot d, .ok (some root, log)⟩] : List (Event L E)) := by
-                    intro x hx
-                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
-                    rcases hx with rfl | rfl | rfl | rfl
-                    · exact fun hn => by cases hn
-                    · rintro ⟨y, hy⟩; cases hy
-                    · rintro ⟨e, he, hn⟩; cases he; exact hn _ _ _ rfl
-                    · rintro (⟨y, hy⟩ | ⟨y, hy⟩) <;> cases hy
-                  simpa [List.append_assoc] using hc₁.append (hcl prep hi)
-                · rw [hw] at hi; cases hi
+              by_cases hdt : root.defaultTargets.isEmpty = true
+              · rw [ite_eq_left hdt] at h₈
+                obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₈
+                have hnil : root.defaultTargets = [] := List.isEmpty_iff.mp hdt
+                refine ⟨.inr ⟨.emptyTargets hloaded hnil, _, rfl⟩, (fun _ _ he => by cases he),
+                  .inr ⟨_, sysroot, dir, _, name, code, details, .ok (some root, log), [],
+                    by simp, hpre, by simp [SysrootIs], by simp, by simp, rfl, ?_⟩⟩
+                dsimp only
+                rw [ite_eq_right (by simp [hnil])]
+                exact quiet_nil
+              · rw [ite_eq_right hdt] at h₈
+                have hdt_ne : root.defaultTargets ≠ [] := fun he => hdt (by simp [he])
+                cases hfind : root.defaultTargets.find? (fun t => (root.findLib t).isNone) with
+                | some bad =>
+                  rw [hfind] at h₈
+                  dsimp only at h₈
+                  obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h₈
+                  obtain ⟨hnone, as, bs, hdt_eq, -⟩ := List.find?_eq_some_iff_append.mp hfind
+                  have hmem_bad : bad ∈ root.defaultTargets := hdt_eq ▸ by simp
+                  have hfl_none : root.findLib bad = none := Option.isNone_iff_eq_none.mp hnone
+                  refine ⟨.inr ⟨.notLibrary hloaded hmem_bad hfl_none, _, rfl⟩, (fun _ _ he => by cases he),
+                    .inr ⟨_, sysroot, dir, _, name, code, details, .ok (some root, log), [],
+                      by simp, hpre, by simp [SysrootIs], by simp, by simp, rfl, ?_⟩⟩
+                  dsimp only
+                  rw [ite_eq_right (fun ⟨_, hall⟩ => by have := hall bad hmem_bad; simp [hfl_none] at this)]
+                  exact quiet_nil
+                | none =>
+                  rw [hfind] at h₈
+                  dsimp only at h₈
+                  have hall_lib : ∀ tgt ∈ root.defaultTargets, (root.findLib tgt).isSome = true := by
+                    intro tgt htgt
+                    have hn := List.find?_eq_none.mp hfind tgt htgt
+                    cases hlib : root.findLib tgt <;> simp_all
+                  obtain ⟨tI, tP, rI, rfl, hI, hP⟩ := runs_attempt_bind_iff.mp h₈
+                  obtain ⟨o1, otab, o2⟩ := inputOf_spec ((List.sublist_append_left _ _).trans hT₈) hI
+                  have hroot : OutProofRoot target T root := ⟨hloaded, hdt_ne, hall_lib⟩
+                  have hend : tP = [] ∧ b.map (·.2.input) = rI.map (·.input) ∧
+                      ∀ d prep, b = .ok (d, prep) → d = dir ∧ rI = .ok prep := by
+                    cases rI with
+                    | error why => obtain ⟨rfl, rfl⟩ := hP; exact ⟨rfl, rfl, fun _ _ he => by cases he⟩
+                    | ok prep =>
+                      obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp hP
+                      exact ⟨rfl, rfl, fun d prep' he => by cases he; exact ⟨rfl, rfl⟩⟩
+                  obtain ⟨rfl, hmap, hsub⟩ := hend
+                  refine ⟨?_, fun d prep he => ?_,
+                    .inr ⟨_, sysroot, dir, _, name, code, details, .ok (some root, log), tI,
+                      by simp, hpre, by simp [SysrootIs], by simp, by simp, rfl,
+                      by dsimp only; rw [ite_eq_left ⟨hdt_ne, hall_lib⟩]; exact o2⟩⟩
+                  · rw [hmap]
+                    rcases o1 with ⟨f, roots, hb, he', -⟩ | ⟨hf, why, rfl⟩
+                    · exact .inl ⟨root, f, roots, hroot, hb, he'⟩
+                    · exact .inr ⟨.build hroot hf, why, rfl⟩
+                  · obtain ⟨rfl, hi⟩ := hsub d prep he
+                    refine ⟨otab prep hi, ⟨hmemDir, sysroot, root, log, _, name, code, details,
+                      hmem₁, hmemMeta, rfl, hmemLoad, hroot⟩, ?_⟩
+                    rcases o1 with ⟨f, roots, -, -, hcl⟩ | ⟨-, why, hw⟩
+                    · have hc₁ : Clean ([⟨.getEnv "LEAN_SYSROOT", some sysroot⟩, ⟨.realPath target, .ok d⟩,
+                          ⟨.symlinkMetadata (d / "lakefile.lean"), .error (.noFileOrDirectory name code details)⟩,
+                          ⟨.loadRoot sysroot d, .ok (some root, log)⟩] : List (Event L E)) := by
+                        intro x hx
+                        simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+                        rcases hx with rfl | rfl | rfl | rfl
+                        · exact fun hn => by cases hn
+                        · rintro ⟨y, hy⟩; cases hy
+                        · rintro ⟨e, he, hn⟩; cases he; exact hn _ _ _ rfl
+                        · rintro (⟨y, hy⟩ | ⟨y, hy⟩) <;> cases hy
+                      simpa [List.append_assoc] using hc₁.append (hcl prep hi)
+                    · rw [hw] at hi; cases hi
 
 end RegulaSpecification.Effects

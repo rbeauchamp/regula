@@ -306,7 +306,8 @@ def sources : Assumption → List Source
   | leanVersion => [.file "src/Init/Meta/Defs.lean" "37, 57"]
   | platform => [.file "src/Init/System/Platform.lean" "39, 44", .file "src/Init/System/FilePath.lean" "127"]
   | lakeLoad => [.file "src/lake/Lake/Load/Workspace.lean" "31-47, 61", .file "src/lake/Lake/Load/Package.lean" "100-105",
-      .file "src/lake/Lake/Load/Config.lean" "31, 44", .file "src/lake/Lake/Config/Module.lean" "63-66, 88-91",
+      .file "src/lake/Lake/Load/Config.lean" "31, 44", .file "src/lake/Lake/Config/Module.lean" "63-67, 88-91",
+      .file "src/Lean/Util/Path.lean" "34-41",
       .file "src/lake/Lake/Config/LeanLib.lean" "24, 34-35", .file "src/lake/Lake/Config/LeanLibConfig.lean" "46, 140",
       .file "src/lake/Lake/Config/LeanExe.lean" "22-23, 30, 46, 49-51, 72", .file "src/lake/Lake/Config/Package.lean" "68, 356-357, 364-365",
       .file "src/lake/Lake/Config/Workspace.lean" "279-280, 356-357, 391-392", .file "src/lake/Lake/Config/Glob.lean" "53-59",
