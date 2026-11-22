@@ -486,8 +486,9 @@ namespace Route
 
 open Assumption
 
-/-- What each route relies on beyond its operations. Both rest on how Lake starts the checker, on the compiler and on the
-platform. A pass of the proof verdict also rests on the operator's {lit}`lake build --wfail` of the same build, and on the
+/-- What each route relies on beyond its operations. Both rest on how Lake starts the checker, on the compiler, on runtime tag
+agreement for compiler-generated {lit}`ctorIdx` pairs ({name}`ctorIdxTag`), and on the platform. A pass of the proof verdict also
+rests on the operator's {lit}`lake build --wfail` of the same build, and on the
 project, which is no behaviour of Lean, Lake or the operating system and so no entry: its route starts the checker from the
 project's own Lake, so it holds only for a project that places no file or code aimed at the checker or the toolchain, as
 `README.md` in this directory states under "A project aimed at the checker". -/

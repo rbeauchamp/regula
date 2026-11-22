@@ -86,13 +86,14 @@ structure Decl where
   and RG1012 for panic forms. -/
   valueUses : List Name
   /-- The constant {attr}`@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). RG1011 reads
-  it, and so does the form of a recursion helper (RG1006). -/
+  it, and so do the exempted forms of RG1006 and RG1011 ({lit}`Input.HelperForm`, {lit}`Input.CtorIdxPair`). -/
   implementedBy : Option Name
-  /-- Whether it is {attr}`@[extern]` (`Lean.isExtern`). RG1011 reads it, and so does the form of a recursion
-  helper (RG1006). -/
+  /-- Whether it is {attr}`@[extern]` (`Lean.isExtern`). RG1011 reads it, and so do the exempted forms of
+  RG1006 and RG1011 ({lit}`Input.HelperForm`, {lit}`Input.CtorIdxPair`). -/
   isExtern : Bool
   /-- The initialization function that {attr}`@[init]` or {attr}`@[builtin_init]` names for it, if any
-  (`Lean.getInitFnNameFor?`). RG1011 reads it of a definition. -/
+  (`Lean.getInitFnNameFor?`). RG1011 reads it of a definition, and RG1006 and RG1011 both read it in
+  {lit}`Input.CtorIdxPair`. -/
   initFn : Option Name
   /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
