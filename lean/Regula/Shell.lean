@@ -85,7 +85,7 @@ def profileSpellings : String :=
 
 /-- The variable that names the project of the full gate; `Regula.DiagnosticsGate` sets it for one step. A project's `lakefile.toml`
 sets the arguments of its lint driver, and has no key that sets a variable: Lake gives a program what it inherited, with the fixed list of `Workspace.augmentedEnvVars`
-(`Lake/Config/Workspace.lean:417-433`) over it. So this is what whoever started the run asked about. -/
+(`Lake/Config/Workspace.lean:417-431`) over it. So this is what whoever started the run asked about. -/
 abbrev fullVariable : String := "REGULA_FULL"
 
 /-- The profile of a run of the Lean release `version` at `commit` with the arguments `args`, or why
