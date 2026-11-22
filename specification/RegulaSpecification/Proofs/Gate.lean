@@ -229,6 +229,8 @@ def expectedSha256Spec : NoCommentsTarget → String
   | .darwinArm64 => "4c610e1b0f0f93f54e89f33acb13c5120ed4e7ecfc3bb5db85e562aba637fe2a"
   | .linuxX86_64 => "f1a5d5cee2214515f9d36d3bb7245beee3856c06a85f6593ac0b23c4a0c6941e"
 
+def noCommentsArgsSpec : List String := ["check"]
+
 def sha256RequestSpec : NoCommentsTarget → System.FilePath → IO.Process.SpawnArgs
   | .darwinArm64, path =>
     { cmd := "shasum", args := #["-a", "256", "--", path.toString], stdin := .null }
@@ -852,12 +854,9 @@ theorem downloadNoComments_ok (target : NoCommentsTarget) (cacheDir outPath : Sy
               try
                 stageNoComments target (cacheDir / target.asset) (cacheDir / s!"{target.asset}.download.{pid}")
               finally
-                try
-                  match ← symlinkType? (cacheDir / s!"{target.asset}.download.{pid}") with
-                  | some .file => IO.FS.removeFile (cacheDir / s!"{target.asset}.download.{pid}")
-                  | _ => pure ()
-                catch _ =>
-                  pure ()
+                match ← symlinkType? (cacheDir / s!"{target.asset}.download.{pid}") with
+                | some .file => IO.FS.removeFile (cacheDir / s!"{target.asset}.download.{pid}")
+                | _ => pure ()
               pure (cacheDir / target.asset)) : IO System.FilePath) w₃ = .ok outPath w' →
           outPath = cacheDir / target.asset ∧
             ∃ (pid : UInt32) (realTmp : System.FilePath) (meta_ : IO.FS.Metadata)
@@ -874,12 +873,10 @@ theorem downloadNoComments_ok (target : NoCommentsTarget) (cacheDir outPath : Sy
         intro w₃ h₃
         cases htf : (tryFinally
             (stageNoComments target (cacheDir / target.asset) (cacheDir / s!"{target.asset}.download.{pid}"))
-            (try
+            (do
               match ← symlinkType? (cacheDir / s!"{target.asset}.download.{pid}") with
               | some .file => IO.FS.removeFile (cacheDir / s!"{target.asset}.download.{pid}")
-              | _ => pure ()
-            catch _ =>
-              pure ())) w₃ with
+              | _ => pure ())) w₃ with
         | error e w₄ =>
           rw [io_bind_error htf] at h₃
           cases h₃
@@ -953,12 +950,10 @@ theorem resolveCachedNoCommentsBin_ok (target : NoCommentsTarget) (binPath : Sys
 
 theorem resolveNoCommentsBin_ok (target : NoCommentsTarget) (binPath : System.FilePath)
     (w w' : Void IO.RealWorld) (h : resolveNoCommentsBin target w = .ok binPath w') :
-    (∃ raw w₁, (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some raw) w₁ ∧
-        raw ≠ "" ∧ binPath = System.FilePath.mk raw ∧
-        ((System.FilePath.mk raw).pathExists : IO Bool) w₁ = .ok true w') ∨
+    (∃ raw, (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some raw) w' ∧
+        raw ≠ "" ∧ binPath = System.FilePath.mk raw) ∨
     (∃ w₁,
-        ((IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok none w₁ ∨
-         (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok (some "") w₁) ∧
+        (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w = .ok none w₁ ∧
         resolveCachedNoCommentsBin target w₁ = .ok binPath w') := by
   unfold resolveNoCommentsBin at h
   cases he : (IO.getEnv "NO_COMMENTS_BIN" : IO (Option String)) w with
@@ -968,30 +963,21 @@ theorem resolveNoCommentsBin_ok (target : NoCommentsTarget) (binPath : System.Fi
   | ok opt w₁ =>
     rw [io_bind_ok he] at h
     cases opt with
-    | none => exact .inr ⟨w₁, .inl rfl, h⟩
+    | none => exact .inr ⟨w₁, rfl, h⟩
     | some raw =>
       by_cases hne : raw = ""
       · subst hne
-        have hf : (("" != "") : Bool) = false := rfl
-        simp only [hf, Bool.false_eq_true, ↓reduceIte] at h
-        exact .inr ⟨w₁, .inr rfl, h⟩
-      · have ht : (raw != "") = true := by simp [hne]
+        have ht : (("" == "") : Bool) = true := rfl
         simp only [ht, ↓reduceIte] at h
-        cases hx : ((System.FilePath.mk raw).pathExists : IO Bool) w₁ with
-        | error e w₂ =>
-          rw [io_bind_error hx] at h
-          cases h
-        | ok ex w₂ =>
-          rw [io_bind_ok hx] at h
-          cases ex with
-          | false => cases h
-          | true =>
-            obtain ⟨rfl, rfl⟩ := EST.Out.ok.inj h
-            exact .inl ⟨raw, w₁, rfl, hne, rfl, hx⟩
+        cases h
+      · have hf : (raw == "") = false := by simp [hne]
+        simp only [hf, Bool.false_eq_true, ↓reduceIte] at h
+        obtain ⟨rfl, rfl⟩ := EST.Out.ok.inj h
+        exact .inl ⟨raw, rfl, hne, rfl⟩
 
 def noCommentsRequestSpec (bin : System.FilePath) : IO.Process.SpawnArgs where
   cmd := bin.toString
-  args := #["check", "--bootstrap"]
+  args := noCommentsArgsSpec.toArray
   cwd := some (System.FilePath.mk ".")
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", none)]
@@ -1682,13 +1668,13 @@ theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := by rfl
 
 theorem noCommentsVersion_eq : noCommentsVersion = "v0.2.0" := by rfl
 
-theorem noCommentsArgs_eq : noCommentsArgs = ["check", "--bootstrap"] := by rfl
+theorem noCommentsArgs_eq : noCommentsArgs = noCommentsArgsSpec := by rfl
 
 theorem noCommentsTargets_eq :
     NoCommentsTarget.darwinArm64.asset = "no-comments-darwin-arm64" ∧
-    NoCommentsTarget.darwinArm64.sha256 = "4c610e1b0f0f93f54e89f33acb13c5120ed4e7ecfc3bb5db85e562aba637fe2a" ∧
+    NoCommentsTarget.darwinArm64.sha256 = expectedSha256Spec .darwinArm64 ∧
     NoCommentsTarget.linuxX86_64.asset = "no-comments-linux-x86_64" ∧
-    NoCommentsTarget.linuxX86_64.sha256 = "f1a5d5cee2214515f9d36d3bb7245beee3856c06a85f6593ac0b23c4a0c6941e" ∧
+    NoCommentsTarget.linuxX86_64.sha256 = expectedSha256Spec .linuxX86_64 ∧
     NoCommentsTarget.darwinArm64.url =
       "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.2.0/no-comments-darwin-arm64" ∧
     NoCommentsTarget.linuxX86_64.url =
