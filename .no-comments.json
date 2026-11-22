@@ -3,16 +3,11 @@
     {
       "dir": ".",
       "srcDir": "lean",
-      "lakeArgs": [],
-      "toolPrefixes": [],
       "excludePrefixes": ["specification/"]
     },
     {
       "dir": "specification",
-      "srcDir": ".",
-      "lakeArgs": [],
-      "toolPrefixes": [],
-      "excludePrefixes": []
+      "srcDir": "."
     }
   ],
   "exclude": [],
