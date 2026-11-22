@@ -39,19 +39,30 @@ open RegulaSpecification.Assumptions
 /-- What a run of each route is, by what it asked and received: its first two events ask for the Lean release and for
 {lit}`REGULA_FULL`, whose answer selects the route. -/
 def _root_.RegulaSpecification.Assumptions.Route.Runs {L E : Type} : Route → List (Event L E) → UInt32 → Prop
-  | .proof, t, c => ∃ p v rest, t = ⟨.leanVersion, v⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ :: rest ∧
+  | .proof, t, c => ∃ p v rest,
+      t = ⟨.leanVersion, v⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ ::
+        ⟨.getEnv Regula.Shell.proofVariable, none⟩ :: rest ∧
       PlainRun (⟨.leanVersion, v⟩ :: rest) p c
+  | .outOfTreeProof, t, c => ∃ p v rest, ∃ dir : String,
+      t = ⟨.leanVersion, v⟩ :: ⟨.getEnv Regula.Shell.fullVariable, none⟩ ::
+        ⟨.getEnv Regula.Shell.proofVariable, some dir⟩ :: rest ∧
+      OutProofRun rest (FilePath.mk dir) p c
   | .full, t, c => ∃ p v rest, ∃ dir : String,
-      t = ⟨.leanVersion, v⟩ :: ⟨.getEnv Regula.Shell.fullVariable, some dir⟩ :: rest ∧ FullRun rest (FilePath.mk dir) p c
+      t = ⟨.leanVersion, v⟩ :: ⟨.getEnv Regula.Shell.fullVariable, some dir⟩ ::
+        ⟨.getEnv Regula.Shell.proofVariable, none⟩ :: rest ∧
+      FullRun rest (FilePath.mk dir) p c
 
 /-- **Every run is a refusal or a run of a route**, for every argument list and every response. A mode added to
 {name}`Regula.Shell.run` changes {name}`run_subject`, and this proof fails until the mode is a {name}`Route` with what it relies on. -/
 theorem run_route {L E : Type} {args : List String} {t : List (Event L E)} {c : UInt32}
-    (h : Runs (Regula.Shell.run args : Prog L E UInt32) t c) : Refusal t c ∨ ∃ r : Route, r.Runs t c := by
-  rcases run_subject h with hr | ⟨p, v, rest, ⟨ht, hp⟩ | ⟨dir, ht, hf⟩⟩
+    (h : Runs (Regula.Shell.run args : Prog L E UInt32) t c) :
+    Refusal t c ∨ ConflictingRefusal t c ∨ ∃ r : Route, r.Runs t c := by
+  rcases run_subject h with hr | hc | ⟨p, v, rest, ⟨ht, hp⟩ | ⟨dir, ht, ho⟩ | ⟨dir, ht, hf⟩⟩
   · exact .inl hr
-  · exact .inr ⟨.proof, p, v, rest, ht, hp⟩
-  · exact .inr ⟨.full, p, v, rest, dir, ht, hf⟩
+  · exact .inr (.inl hc)
+  · exact .inr (.inr ⟨.proof, p, v, rest, ht, hp⟩)
+  · exact .inr (.inr ⟨.outOfTreeProof, p, v, rest, dir, ht, ho⟩)
+  · exact .inr (.inr ⟨.full, p, v, rest, dir, ht, hf⟩)
 
 /-- What a verdict means, each field the statement of the theorem that its docstring names. -/
 structure Meaning : Prop where
@@ -63,7 +74,8 @@ structure Meaning : Prop where
       (Prog.interpret table (Regula.Shell.run args) w).val
   /-- {name}`run_route`: every run is a refusal or a run of a route. -/
   routes : ∀ {L E : Type} {args : List String} {t : List (Event L E)} {c : UInt32},
-    Runs (Regula.Shell.run args : Prog L E UInt32) t c → Refusal t c ∨ ∃ r : Route, r.Runs t c
+    Runs (Regula.Shell.run args : Prog L E UInt32) t c →
+    Refusal t c ∨ ConflictingRefusal t c ∨ ∃ r : Route, r.Runs t c
   /-- {name}`plainRun_pass`: a pass of the proof verdict names the current directory's real path, from which the workspace it
   read was loaded. -/
   plainPass : ∀ {L E : Type} {t : List (Event L E)} {p : Regula.Closed.Profile}, PlainRun t p 0 →
@@ -74,6 +86,20 @@ structure Meaning : Prop where
   that Lean's replay of the cone of the claim answered with success. -/
   plainExit : ∀ {L E : Type} {t : List (Event L E)} {p : Regula.Closed.Profile}, PlainRun t p 0 →
     ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), PlainRoot t root ∧ BuildRead t root f roots ∧
+      EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) ∧
+      ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ t
+  outProofPass : ∀ {L E : Type} {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile},
+    OutProofRun t dir p 0 →
+    ∃ subject : FilePath, EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
+      (⟨.realPath dir, .ok subject⟩ : Event L E) ∈ t ∧
+      ∃ sysroot root log err name code details,
+        SysrootIs t sysroot ∧
+        (⟨.symlinkMetadata (subject / "lakefile.lean"), .error err⟩ : Event L E) ∈ t ∧
+        err = .noFileOrDirectory name code details ∧
+        (⟨.loadRoot sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ OutProofRoot dir t root
+  outProofExit : ∀ {L E : Type} {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile},
+    OutProofRun t dir p 0 →
+    ∃ (root : Root L) (f : Regula.Load.Facts) (roots : List Name), OutProofRoot dir t root ∧ BuildRead t root f roots ∧
       EnvForm f ∧ EnvFloor f p ∧ (∀ r ∈ roots, r ∈ f.claimed) ∧
       ∃ i, f.input roots p = .ok i ∧ (⟨.kernelReplay (f.replayConstants i), .ok ()⟩ : Event L E) ∈ t
   /-- {name}`full_exit_zero`: exit 0 of the full gate gives an admitted reading on {name}`Evidence`, the build ending with 0, the
@@ -198,6 +224,8 @@ theorem meaning : Meaning where
   routes := run_route
   plainPass := plainRun_pass
   plainExit := plain_exit_zero
+  outProofPass := outProofRun_pass
+  outProofExit := outProof_exit_zero
   fullExit := full_exit_zero
   cone := fun h => replayConstants_env (input_loaded h)
   claimedReplayed := fun h => claimed_theorem_replayed (input_loaded h)

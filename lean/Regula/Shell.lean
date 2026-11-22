@@ -88,6 +88,8 @@ sets the arguments of its lint driver, and has no key that sets a variable: Lake
 (`Lake/Config/Workspace.lean:417-431`) over it. So this is what whoever started the run asked about. -/
 abbrev fullVariable : String := "REGULA_FULL"
 
+abbrev proofVariable : String := "REGULA_PROOF"
+
 /-- The profile of a run of the Lean release `version` at `commit` with the arguments `args`, or why
 the run is `incomplete`: any other release, and any argument list other than one profile. So no argument names a directory. -/
 def profileOfRun (version commit : String) (args : List String) : Except String Profile :=
@@ -101,7 +103,8 @@ def profileOfRun (version commit : String) (args : List String) : Except String 
       | none => .error s!"{text} is no profile: {profileSpellings}"
     | _ =>
       .error s!"state one profile in `lintDriverArgs`: {profileSpellings}. No argument names a project: for a full \
-        verdict, from a checkout of Regula, run `{fullVariable}=DIR lake exe lint PROFILE`"
+        verdict, from a checkout of Regula, run `{fullVariable}=DIR lake exe lint PROFILE`, or for a proof verdict \
+        on a zero-dependency `lakefile.toml` package, `{proofVariable}=DIR lake exe lint PROFILE`"
 
 /-- Each of the modules `names`, in that order, with where Lean finds its `.olean` on the search path `path`. -/
 def readModules (path : List FilePath) (toolchainDir rootDir : FilePath) : (names : List Name) →
@@ -171,6 +174,24 @@ def loadTree (sysroot : String) (tree : FilePath) (profile : Profile) : Attempt 
   let root ← ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot dir)) fun r =>
     pure (loaded "the configuration" r))
   inputOf root profile
+
+def loadProof (target : FilePath) (profile : Profile) : Attempt L E (FilePath × Prepared) := do
+  if target.toString.isEmpty then
+    throw s!"{proofVariable} is empty, so no project directory was named"
+  else
+    let sysroot ← requireEnv "LEAN_SYSROOT"
+      "LEAN_SYSROOT is not set, so the toolchain of the build is not known: run the checker with \
+        `lake lint` or `lake exe lint`, which set it"
+    let dir ← realPath target
+    let shadowed ← existsByName (dir / "lakefile.lean")
+    if shadowed then
+      throw "something answers to `lakefile.lean` in the target directory, and out-of-tree proof mode reads only \
+        `lakefile.toml`: remove `lakefile.lean` or run `lake lint` from that directory"
+    else
+      let root ← ExceptT.mk (Prog.bind (Prog.call (.loadRoot sysroot dir)) fun r =>
+        pure (loaded "the configuration" r))
+      let prepared ← inputOf root profile
+      pure (dir, prepared)
 
 /-- What a load read, printed. -/
 def sayCoverage : Except String Prepared → Prog L E Unit
@@ -267,15 +288,27 @@ def runPlain (profile : Profile) : Prog L E UInt32 := do
     say (coverage prepared.input)
     finishPlain dir (decisionPrepared (.ok prepared))
 
+def runProof (profile : Profile) (target : FilePath) : Prog L E UInt32 := do
+  let result ← (loadProof target profile).run
+  match result with
+  | .error why => finishProof (decisionPrepared (.error why))
+  | .ok (dir, prepared) =>
+    say (coverage prepared.input)
+    finishPlain dir (decisionPrepared (.ok prepared))
+
 /-- What a run does on this Lean with these arguments: the profile, or a refusal, and then the variable says which run. -/
 def dispatch (version commit : String) (args : List String) : Prog L E UInt32 :=
   match profileOfRun version commit args with
   | .error why => finishProof (.incomplete why)
   | .ok profile =>
-    Prog.bind (Prog.call (.getEnv fullVariable)) fun project =>
-      match project with
-      | some dir => runFull profile (FilePath.mk dir)
-      | none => runPlain profile
+    Prog.bind (Prog.call (.getEnv fullVariable)) fun fullProject =>
+      Prog.bind (Prog.call (.getEnv proofVariable)) fun proofProject =>
+        match fullProject, proofProject with
+        | some _, some _ =>
+          finishProof (.incomplete s!"both {fullVariable} and {proofVariable} are set; set at most one")
+        | some dir, none => runFull profile (FilePath.mk dir)
+        | none, some dir => runProof profile (FilePath.mk dir)
+        | none, none => runPlain profile
 
 /-- The checker with the arguments of `lake lint` (`profileOfRun`), giving the verdict of `decisionPrepared`; or, with `fullVariable`
 set, the full gate on the project it names. -/

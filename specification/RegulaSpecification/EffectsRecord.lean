@@ -238,6 +238,16 @@ def PlainPreparation (t : List (Event L E)) : Prop :=
     | .ok (some root, _) => InputPreparation root rest
     | _ => Quiet rest
 
+def OutProofPreparation (target : FilePath) (t : List (Event L E)) : Prop :=
+  Quiet t ∨ ∃ before sysroot dir err name code details response rest,
+    t = before ++ ⟨.loadRoot sysroot dir, response⟩ :: rest ∧ Quiet before ∧
+    SysrootIs before sysroot ∧ (⟨.realPath target, .ok dir⟩ : Event L E) ∈ before ∧
+    (⟨.symlinkMetadata (dir / "lakefile.lean"), .error err⟩ : Event L E) ∈ before ∧
+    err = .noFileOrDirectory name code details ∧
+    match response with
+    | .ok (some root, _) => InputPreparation root rest
+    | _ => Quiet rest
+
 /-- Relevance to the requested build: its observations and copies, and each needed name's file or place in the
 toolchain. This relation alone does not order events. An operation outside these cases justifies nothing. -/
 inductive Needed (t : List (Event L E)) (dir treeDir : FilePath) : Op L E → Prop where
@@ -492,6 +502,15 @@ def TreeRoot (sysroot : String) (tree : FilePath) (t : List (Event L E)) (root :
     (⟨.realPath tree, .ok real⟩ : Event L E) ∈ t ∧
     (⟨.loadRoot sysroot real, .ok (some root, log)⟩ : Event L E) ∈ t
 
+def OutProofRoot (dir : FilePath) (t : List (Event L E)) (root : Root L) : Prop :=
+  dir.toString ≠ "" ∧
+  ∃ sysroot real err name code details log,
+    SysrootIs t sysroot ∧
+    (⟨.realPath dir, .ok real⟩ : Event L E) ∈ t ∧
+    (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t ∧
+    err = .noFileOrDirectory name code details ∧
+    (⟨.loadRoot sysroot real, .ok (some root, log)⟩ : Event L E) ∈ t
+
 /-- An operation that the load of the finished build of the workspace {name}`root` needs failed: the modules of a default
 library, the import of the modules of the default targets, or where Lean finds a module of that import. -/
 inductive BuildFailed (t : List (Event L E)) (root : Root L) : Prop where
@@ -538,6 +557,25 @@ inductive TreeReason (sysroot : String) (tree : FilePath) (t : List (Event L E))
   /-- The load of the finished build failed. -/
   | build {root} : TreeRoot sysroot tree t root → BuildFailed t root → TreeReason sysroot tree t
 
+inductive OutProofReason (dir : FilePath) (t : List (Event L E)) : Prop where
+  | emptyTarget : dir.toString = "" → OutProofReason dir t
+  | noSysroot : (⟨.getEnv "LEAN_SYSROOT", none⟩ : Event L E) ∈ t → OutProofReason dir t
+  | noDirectory {e} : dir.toString ≠ "" → (⟨.realPath dir, .error e⟩ : Event L E) ∈ t → OutProofReason dir t
+  | configShadowed {real metadata} : dir.toString ≠ "" →
+      (⟨.realPath dir, .ok real⟩ : Event L E) ∈ t →
+      (⟨.symlinkMetadata (real / "lakefile.lean"), .ok metadata⟩ : Event L E) ∈ t → OutProofReason dir t
+  | leanConfig {real r} : dir.toString ≠ "" →
+      (⟨.realPath dir, .ok real⟩ : Event L E) ∈ t →
+      (⟨.symlinkMetadata (real / "lakefile.lean"), r⟩ : Event L E) ∈ t →
+      Event.failed (⟨.symlinkMetadata (real / "lakefile.lean"), r⟩ : Event L E) → OutProofReason dir t
+  | load {sysroot real err name code details r} : dir.toString ≠ "" → SysrootIs t sysroot →
+      (⟨.realPath dir, .ok real⟩ : Event L E) ∈ t →
+      (⟨.symlinkMetadata (real / "lakefile.lean"), .error err⟩ : Event L E) ∈ t →
+      err = .noFileOrDirectory name code details →
+      (⟨.loadRoot sysroot real, r⟩ : Event L E) ∈ t →
+      Event.failed (⟨.loadRoot sysroot real, r⟩ : Event L E) → OutProofReason dir t
+  | build {root} : OutProofRoot dir t root → BuildFailed t root → OutProofReason dir t
+
 /-- What the run made of the loader's result on the facts {name}`f`: an error stays, and an input stands exactly when Lean's
 replay of the cone of its claim ({name}`Regula.Load.Facts.replayConstants`) answered with success. Any other answer of that replay is
 an error, the reason being what Lean's kernel answered about the build's own constants. -/
@@ -569,6 +607,11 @@ def EndsWith (t : List (Event L E)) (line : String) : Prop :=
 def Refusal (t : List (Event L E)) (c : UInt32) : Prop :=
   c = 2 ∧ EndsWith t (Regula.Closed.Verdict.proofLine .incomplete) ∧ ∀ e ∈ t, e.isOnlySaying = true
 
+def ConflictingRefusal (t : List (Event L E)) (c : UInt32) : Prop :=
+  ∃ v rf rp rest,
+    t = ⟨.leanVersion, v⟩ :: ⟨.getEnv "REGULA_FULL", some rf⟩ :: ⟨.getEnv "REGULA_PROOF", some rp⟩ :: rest ∧
+    Refusal rest c
+
 /-- A run of the proof verdict: its exit code and last line are the verdict's on what the load gave, with the
 loaded directory naming the subject on a pass, and it acts on nothing. -/
 def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
@@ -581,6 +624,21 @@ def PlainRun (t : List (Event L E)) (p : Regula.Closed.Profile) (c : UInt32) : P
           ∃ sysroot root log, (⟨.loadWorkspace sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ PlainRoot t root
       | v => EndsWith t v.proofLine) ∧
     (∀ e ∈ t, e.acted? = none) ∧ (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ PlainPreparation t
+
+def OutProofRun (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) (c : UInt32) : Prop :=
+  ∃ result, Loaded (OutProofRoot dir) (OutProofReason dir) t p result ∧
+    c = (Regula.Closed.decision result).verdict.exitCode ∧
+    (match (Regula.Closed.decision result).verdict with
+      | .pass => ∃ subject : FilePath,
+          EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
+          (⟨.realPath dir, .ok subject⟩ : Event L E) ∈ t ∧
+          ∃ sysroot root log err name code details,
+            SysrootIs t sysroot ∧
+            (⟨.symlinkMetadata (subject / "lakefile.lean"), .error err⟩ : Event L E) ∈ t ∧
+            err = .noFileOrDirectory name code details ∧
+            (⟨.loadRoot sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ OutProofRoot dir t root
+      | v => EndsWith t v.proofLine) ∧
+    (∀ e ∈ t, e.acted? = none) ∧ (c = 0 → ∀ e ∈ t, ¬ e.failed) ∧ OutProofPreparation dir t
 
 /-- Every act of a run lies in the tree: either the run acted only on the
 tree it was given, or it read their real paths and each act lies at or below the tree's. -/
@@ -678,10 +736,13 @@ def RunMeets (w : List String → Prog L E UInt32) : Prop :=
     match args with
     | [text] =>
       match Regula.Closed.Profile.ofSpelling? text with
-      | some p => OnPinnedLean t (fun t => ∃ v r rest, t = ⟨.leanVersion, v⟩ :: ⟨.getEnv "REGULA_FULL", r⟩ :: rest ∧
-          match r with
-          | none => PlainRun (⟨.leanVersion, v⟩ :: rest) p c
-          | some dir => FullRun rest (FilePath.mk dir) p c) c
+      | some p => OnPinnedLean t (fun t => ∃ v rf rp rest,
+          t = ⟨.leanVersion, v⟩ :: ⟨.getEnv "REGULA_FULL", rf⟩ :: ⟨.getEnv "REGULA_PROOF", rp⟩ :: rest ∧
+          match rf, rp with
+          | some _, some _ => Refusal rest c
+          | some dir, none => FullRun rest (FilePath.mk dir) p c
+          | none, some dir => OutProofRun rest (FilePath.mk dir) p c
+          | none, none => PlainRun (⟨.leanVersion, v⟩ :: rest) p c) c
       | none => Refusal t c
     | _ => Refusal t c
 

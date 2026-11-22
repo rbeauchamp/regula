@@ -105,7 +105,7 @@ def stepRequest (step : Step) : IO.Process.SpawnArgs where
   args := step.arguments.toArray
   cwd := some (System.FilePath.mk step.dir)
   stdin := .null
-  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", step.full)]
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", step.full), ("REGULA_PROOF", none)]
 
 def StepRan (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
   ∃ w₁ w₂, ∃ child : IO.Process.Child (stepRequest step).toStdioConfig,
@@ -999,7 +999,7 @@ def noCommentsRequestSpec (bin : System.FilePath) : IO.Process.SpawnArgs where
   args := noCommentsArgsSpec.toArray
   cwd := some (System.FilePath.mk ".")
   stdin := .null
-  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", none)]
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", none), ("REGULA_PROOF", none)]
 
 theorem noCommentsRequest_eq (bin : System.FilePath) :
     noCommentsRequest bin = noCommentsRequestSpec bin := by
@@ -1681,6 +1681,8 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
       exact absurd this (by decide)
 
 theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := by rfl
+
+theorem proofVariable_eq : proofVariable = Regula.Shell.proofVariable := by rfl
 
 theorem noCommentsVersion_eq : noCommentsVersion = "v0.2.0" := by rfl
 

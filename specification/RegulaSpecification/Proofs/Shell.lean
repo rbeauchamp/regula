@@ -283,6 +283,29 @@ theorem only_loadPlain (p : Regula.Closed.Profile) : OnlyAIn LoadOp (loadPlain p
   · exact onlyA_seq (only_inputOf _ _) fun _ => onlyA_pure _
   · exact onlyA_throw _
 
+theorem only_loadProof (target : FilePath) (p : Regula.Closed.Profile) :
+    OnlyAIn LoadOp (loadProof target p : Attempt L E _) := by
+  have henv (name why : String) : OnlyAIn LoadOp (requireEnv name why : Attempt L E _) := by
+    rw [requireEnv]
+    refine only_seq (only_call trivial) fun r => ?_
+    cases r <;> exact only_pure _
+  have hex (path : FilePath) : OnlyAIn LoadOp (existsByName path : Attempt L E Bool) := by
+    rw [existsByName]
+    refine only_seq (only_call trivial) fun r => ?_
+    cases r with
+    | ok _ => exact only_pure _
+    | error e => cases e <;> exact only_pure _
+  unfold loadProof
+  split
+  · exact onlyA_throw _
+  · refine onlyA_seq (henv _ _) fun sysroot => onlyA_seq (onlyA_attempt (only_call trivial)) fun dir =>
+      onlyA_seq (hex _) fun shadowed => ?_
+    try dsimp only
+    split
+    · exact onlyA_throw _
+    · exact onlyA_seq (only_seq (only_call trivial) fun _ => only_pure _) fun root =>
+        onlyA_seq (only_inputOf _ _) fun _ => onlyA_pure _
+
 theorem printed_of_load {α : Type} {x : Attempt L E α} (hx : OnlyAIn LoadOp x) {t : List (Event L E)}
     {b : Except String α} (h : Runs x.run t b) : printed t = [] := by
   have hn : t.filterMap Event.line? = [] := by
@@ -667,6 +690,96 @@ theorem runPlain_spec {p : Regula.Closed.Profile} {t : List (Event L E)} {c : UI
     · simpa [List.append_assoc] using hprep.appendQuiet
         ((quiet_of_saying hd.1).append (quiet_of_saying hsay))
 
+theorem runProof_spec {p : Regula.Closed.Profile} {target : FilePath} {t : List (Event L E)} {c : UInt32}
+    (h : Runs (runProof p target : Prog L E UInt32) t c) : OutProofRun t target p c := by
+  unfold runProof at h
+  obtain ⟨t₁, t₂, result, rfl, h₁, h₂⟩ := runs_seq_iff.mp h
+  have hsub : t₁.Sublist (t₁ ++ t₂) := List.sublist_append_left _ _
+  obtain ⟨l1, ls, hprep⟩ := loadProof_spec hsub h₁
+  have hmap : (result.map (·.2)).map (·.input) = result.map (·.2.input) := by
+    cases result <;> rfl
+  have hdec : Regula.Closed.decisionPrepared (result.map (·.2)) = Regula.Closed.decision (result.map (·.2.input)) := by
+    rw [← hmap]
+    refine Regula.Closed.decisionPrepared_eq fun prep hp => ?_
+    cases result with
+    | error why => cases hp
+    | ok x =>
+      simp only [Except.map, Except.ok.injEq] at hp
+      subst hp
+      exact (ls x.1 x.2 rfl).1
+  have honly := only_loadProof (L := L) (E := E) target p _ _ h₁
+  cases result with
+  | error why =>
+    obtain ⟨hc, hend, hsay⟩ := finishProof_spec h₂
+    have hv : (Regula.Closed.decision (.error why)).verdict = .incomplete :=
+      RegulaSpecification.Loader.decision_failed why
+    rw [show Regula.Closed.decisionPrepared (.error why) = _ from hdec] at hc hend
+    simp only [Except.map] at hc hend l1
+    refine ⟨.error why, l1, hc, ?_, fun e he => ?_, fun hzero => ?_, ?_⟩
+    · rw [hv] at hend ⊢
+      obtain ⟨pre, r, rfl, hn, hp⟩ := hend
+      refine ⟨t₁ ++ pre, r, by simp, hn, fun l hl => ?_⟩
+      have hl' : l ∈ printed (t₁ ++ pre) := hl
+      rw [printed_append, printed_of_load (only_loadProof _ _) h₁] at hl'
+      exact hp l (by simpa using hl')
+    · rcases List.mem_append.mp he with he | he
+      · have := honly e he
+        obtain ⟨o', r'⟩ := e
+        cases o' <;> first | rfl | exact this.elim
+      · exact acted_of_saying (hsay e he)
+    · rw [hv] at hc
+      exact absurd (hc.symm.trans hzero) (by decide)
+    · simpa [List.append_assoc] using hprep.appendQuiet (quiet_of_saying hsay)
+  | ok x =>
+    obtain ⟨dir, prepared⟩ := x
+    obtain ⟨-, hdir, hclean⟩ := ls dir prepared rfl
+    obtain ⟨t₃, t₄, u, rfl, h₃, h₄⟩ := runs_seq_iff.mp h₂
+    have hd := say_spec h₃
+    obtain ⟨hc, hend, hsay⟩ := finishPlain_spec h₄
+    rw [show Regula.Closed.decisionPrepared (.ok prepared) = _ from hdec] at hc hend
+    simp only [Except.map] at hc hend l1
+    have hend' : EndsWith (t₁ ++ (t₃ ++ t₄))
+        ((Regula.Closed.decision (.ok prepared.input)).verdict.proofLineOn dir.toString) := by
+      obtain ⟨pre, r, rfl, hn, hp⟩ := hend
+      refine ⟨t₁ ++ (t₃ ++ pre), r, by simp, hn, fun l hl => ?_⟩
+      have hl' : l ∈ printed (t₁ ++ (t₃ ++ pre)) := hl
+      rw [printed_append, printed_append, printed_of_load (only_loadProof _ _) h₁] at hl'
+      simp only [List.nil_append, List.mem_append] at hl'
+      rcases hl' with hl' | hl'
+      · exact hd.2 l hl'
+      · exact hp l hl'
+    refine ⟨.ok prepared.input, l1, hc, ?_, fun e he => ?_, fun _ e he => ?_, ?_⟩
+    · cases hv : (Regula.Closed.decision (.ok prepared.input)).verdict with
+      | pass =>
+        rw [hv] at hend'
+        exact ⟨dir, hend', hdir⟩
+      | fail =>
+        rw [hv] at hend'
+        exact hend'
+      | incomplete =>
+        rw [hv] at hend'
+        exact hend'
+    · rcases List.mem_append.mp he with he | he
+      · have := honly e he
+        obtain ⟨o', r'⟩ := e
+        cases o' <;> first | rfl | exact this.elim
+      · rcases List.mem_append.mp he with he | he
+        · exact acted_of_saying (hd.1 e he)
+        · exact acted_of_saying (hsay e he)
+    · rcases List.mem_append.mp he with he | he
+      · exact hclean e he
+      · rcases List.mem_append.mp he with he | he
+        · exact details_not_failed hd e he
+        · exact not_failed_of_saying (hsay e he)
+    · simpa [List.append_assoc] using hprep.appendQuiet
+        ((quiet_of_saying hd.1).append (quiet_of_saying hsay))
+
+theorem refusal_of_finish {why : String} {rest : List (Event L E)} {c : UInt32}
+    (h : Runs (finishProof (.incomplete why) : Prog L E UInt32) rest c) :
+    Refusal rest c := by
+  obtain ⟨hc, hend, hsay⟩ := finishProof_spec h
+  exact ⟨hc, hend, hsay⟩
+
 theorem supportsLean_iff (v : String × String) :
     supportsLean v.1 v.2 = true ↔ v = Regula.Closed.pinnedLean := by
   obtain ⟨a, b⟩ := v
@@ -743,12 +856,20 @@ theorem run_meets : RunMeets (Regula.Shell.run : List String → Prog L E UInt32
       refine ⟨(version, commit), t₂, rfl, fun hv => ?_, fun hv => ?_⟩
       · unfold dispatch at h₃
         rw [profileOfRun_ok' hv hp] at h₃
-        obtain ⟨t₄, t₅, r, rfl, h₄, h₅⟩ := runs_bind_iff.mp h₃
+        obtain ⟨t₄, t₅, rf, rfl, h₄, h₅⟩ := runs_bind_iff.mp h₃
         obtain rfl := runs_call_iff.mp h₄
-        refine ⟨(version, commit), r, t₅, rfl, ?_⟩
-        cases r with
-        | none => exact runPlain_spec h₅
-        | some dir => exact runFull_spec h₅
+        obtain ⟨t₆, t₇, rp, rfl, h₆, h₇⟩ := runs_bind_iff.mp h₅
+        obtain rfl := runs_call_iff.mp h₆
+        refine ⟨(version, commit), rf, rp, t₇, by simp [List.cons_append, List.nil_append], ?_⟩
+        cases rf with
+        | some dir =>
+          cases rp with
+          | some _ => exact refusal_of_finish h₇
+          | none => exact runFull_spec h₇
+        | none =>
+          cases rp with
+          | some dir => exact runProof_spec h₇
+          | none => exact runPlain_spec h₇
       · obtain ⟨why, hw⟩ := profileOfRun_lean (a := [text]) hv
         exact hrefuse hw h₃
   | [], h₃ =>
@@ -760,9 +881,13 @@ theorem run_meets : RunMeets (Regula.Shell.run : List String → Prog L E UInt32
 
 theorem run_subject {args : List String} {t : List (Event L E)} {c : UInt32}
     (h : Runs (Regula.Shell.run args : Prog L E UInt32) t c) :
-    Refusal t c ∨ ∃ p v rest,
-      (t = ⟨.leanVersion, v⟩ :: ⟨.getEnv fullVariable, none⟩ :: rest ∧ PlainRun (⟨.leanVersion, v⟩ :: rest) p c) ∨
-      ∃ dir, t = ⟨.leanVersion, v⟩ :: ⟨.getEnv fullVariable, some dir⟩ :: rest ∧ FullRun rest (FilePath.mk dir) p c := by
+    Refusal t c ∨ ConflictingRefusal t c ∨ ∃ p v rest,
+      (t = ⟨.leanVersion, v⟩ :: ⟨.getEnv fullVariable, none⟩ :: ⟨.getEnv proofVariable, none⟩ :: rest ∧
+        PlainRun (⟨.leanVersion, v⟩ :: rest) p c) ∨
+      (∃ dir, t = ⟨.leanVersion, v⟩ :: ⟨.getEnv fullVariable, none⟩ :: ⟨.getEnv proofVariable, some dir⟩ :: rest ∧
+        OutProofRun rest (FilePath.mk dir) p c) ∨
+      (∃ dir, t = ⟨.leanVersion, v⟩ :: ⟨.getEnv fullVariable, some dir⟩ :: ⟨.getEnv proofVariable, none⟩ :: rest ∧
+        FullRun rest (FilePath.mk dir) p c) := by
   have hm := run_meets (L := L) (E := E) _ _ _ h
   match args, hm with
   | [text], hm =>
@@ -775,11 +900,16 @@ theorem run_subject {args : List String} {t : List (Event L E)} {c : UInt32}
       rw [hp] at hm
       obtain ⟨v, rest, ht, hrun, href⟩ := hm
       by_cases hv : v = Regula.Closed.pinnedLean
-      · obtain ⟨v', r, rest', he, hf⟩ := hrun hv
-        refine .inr ⟨p, v', rest', ?_⟩
-        cases r with
-        | none => exact .inl ⟨he, hf⟩
-        | some dir => exact .inr ⟨dir, he, hf⟩
+      · obtain ⟨v', rf, rp, rest', he, hf⟩ := hrun hv
+        cases rf with
+        | some dir =>
+          cases rp with
+          | some rpDir => exact .inr (.inl ⟨v', dir, rpDir, rest', he, hf⟩)
+          | none => exact .inr (.inr ⟨p, v', rest', .inr (.inr ⟨dir, he, hf⟩)⟩)
+        | none =>
+          cases rp with
+          | some dir => exact .inr (.inr ⟨p, v', rest', .inr (.inl ⟨dir, he, hf⟩)⟩)
+          | none => exact .inr (.inr ⟨p, v', rest', .inl ⟨he, hf⟩⟩)
       · exact .inl (href hv)
   | [], hm => exact .inl hm
   | _ :: _ :: _, hm => exact .inl hm
@@ -801,5 +931,119 @@ theorem plainRun_pass {t : List (Event L E)} {p : Regula.Closed.Profile} (h : Pl
     (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm
   rw [hv] at he
   exact he
+
+theorem outProofRun_pass {t : List (Event L E)} {dir : FilePath} {p : Regula.Closed.Profile}
+    (h : OutProofRun t dir p 0) :
+    ∃ subject : FilePath, EndsWith t (Regula.Closed.Verdict.pass.proofLineOn subject.toString) ∧
+      (⟨.realPath dir, .ok subject⟩ : Event L E) ∈ t ∧
+      ∃ sysroot root log err name code details,
+        SysrootIs t sysroot ∧
+        (⟨.symlinkMetadata (subject / "lakefile.lean"), .error err⟩ : Event L E) ∈ t ∧
+        err = .noFileOrDirectory name code details ∧
+        (⟨.loadRoot sysroot subject, .ok (some root, log)⟩ : Event L E) ∈ t ∧ OutProofRoot dir t root := by
+  obtain ⟨result, -, hc, he, -⟩ := h
+  have hv : (Regula.Closed.decision result).verdict = .pass :=
+    (Regula.Closed.Verdict.exitCode_eq_zero_iff _).mp hc.symm
+  rw [hv] at he
+  exact he
+
+theorem outProof_empty_refused {t : List (Event L E)} {p : Regula.Closed.Profile} {c : UInt32}
+    (h : OutProofRun t (FilePath.mk "") p c) :
+    c = 2 ∧ EndsWith t (Regula.Closed.Verdict.proofLine .incomplete) ∧ (∀ e ∈ t, e.acted? = none) := by
+  obtain ⟨result, hl, hc, hend, hact, -⟩ := h
+  rcases hl with ⟨root, -, -, ⟨hne, -⟩, -⟩ | ⟨hw, why, rfl⟩
+  · exact absurd rfl hne
+  · have hv : (Regula.Closed.decision (.error why)).verdict = .incomplete :=
+      RegulaSpecification.Loader.decision_failed why
+    rw [hv] at hc hend
+    exact ⟨hc, hend, hact⟩
+
+theorem outProof_both_vars_refused {w : List String → Prog L E UInt32}
+    (hm : RunMeets w) {args : List String} {text : String} {p : Regula.Closed.Profile}
+    (hargs : args = [text]) (hp : Regula.Closed.Profile.ofSpelling? text = some p)
+    {t : List (Event L E)} {c : UInt32} (hr : Runs (w args) t c)
+    {rfDir rpDir : String}
+    (hboth : ∃ rest, t = ⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
+      ⟨.getEnv fullVariable, some rfDir⟩ :: ⟨.getEnv proofVariable, some rpDir⟩ :: rest) :
+    c = 2 ∧ EndsWith t (Regula.Closed.Verdict.proofLine .incomplete) := by
+  have hspec := hm args t c hr
+  rw [hargs] at hspec
+  dsimp only at hspec
+  rw [hp] at hspec
+  rcases hspec with ⟨v, rest0, hhead, hpin, _⟩
+  obtain ⟨rest1, ht1⟩ := hboth
+  rw [ht1] at hhead
+  have hv : v = Regula.Closed.pinnedLean := by cases hhead; rfl
+  obtain ⟨v', rf, rp, rest, ht2, hmatch⟩ := hpin hv
+  rw [ht1] at ht2
+  cases ht2
+  rcases hmatch with ⟨hc, ⟨pre, resp, hrest, hnl, hdet⟩, hsay⟩
+  refine ⟨hc, ?_⟩
+  refine ⟨⟨.leanVersion, Regula.Closed.pinnedLean⟩ ::
+    ⟨.getEnv fullVariable, some rfDir⟩ :: ⟨.getEnv proofVariable, some rpDir⟩ :: pre, resp, ?_, hnl, ?_⟩
+  · rw [ht1, hrest]
+    rfl
+  · intro l hl
+    simp only [printed, List.filterMap_cons, Event.line?] at hl
+    exact hdet l hl
+
+private theorem not_prefix9_of (a : String)
+    (hne : a.toList.take 9 ≠ "regula: p".toList) :
+    ¬ ("regula: proof verdict: ".toList <+: a.toList) := by
+  intro ⟨tail, ht⟩
+  have hp : "regula: p".toList <+: "regula: proof verdict: ".toList := by decide
+  obtain ⟨tail', hp'⟩ := hp
+  rw [← hp', List.append_assoc] at ht
+  have h1 := congrArg (List.take 9) ht
+  have hleft : List.take 9 ("regula: p".toList ++ (tail' ++ tail)) = "regula: p".toList :=
+    List.take_left' (by decide)
+  rw [hleft] at h1
+  exact hne h1.symm
+
+private theorem not_prefix9_append (a b : String)
+    (hle : 9 ≤ a.toList.length)
+    (hne : a.toList.take 9 ≠ "regula: p".toList) :
+    ¬ ("regula: proof verdict: ".toList <+: (a ++ b).toList) := by
+  refine not_prefix9_of (a ++ b) ?_
+  rw [String.toList_append, List.take_append_of_le_length hle]
+  exact hne
+
+theorem outProof_verdict_distinct_from_full (subject : String) (v : Regula.Closed.Verdict)
+    (r : Regula.Language.Report) (hr : r ≠ .incomplete) :
+    "regula: proof verdict: ".toList <+: (v.proofLineOn subject).toList ∧
+    ¬ ("regula: proof verdict: ".toList <+: (r.labelOn subject).toList) := by
+  refine ⟨?_, ?_⟩
+  · cases v with
+    | pass =>
+      simp only [Regula.Closed.Verdict.proofLineOn, Regula.Closed.Verdict.proofLine,
+        String.toList_append]
+      exact List.IsPrefix.trans (by decide) (List.prefix_append _ _)
+    | fail =>
+      simp only [Regula.Closed.Verdict.proofLineOn, Regula.Closed.Verdict.proofLine]
+      decide
+    | incomplete =>
+      simp only [Regula.Closed.Verdict.proofLineOn, Regula.Closed.Verdict.proofLine]
+      decide
+  · cases r with
+    | full v' =>
+      cases v' with
+      | pass =>
+        simp only [Regula.Language.Report.labelOn]
+        exact not_prefix9_append
+          ("regula: full verdict: pass, under the hypotheses H1 to H5 and the trusted base of its specification, at Lean 4.36.0" ++ ", on ")
+          (Regula.Closed.detailText subject) (by decide +kernel) (by decide +kernel)
+      | fail =>
+        simp only [Regula.Language.Report.labelOn, Regula.Language.Report.label, Regula.Closed.Verdict.label]
+        exact not_prefix9_of _ (by decide)
+      | incomplete =>
+        simp only [Regula.Language.Report.labelOn, Regula.Language.Report.label, Regula.Closed.Verdict.label]
+        exact not_prefix9_of _ (by decide)
+    | refused =>
+      simp only [Regula.Language.Report.labelOn, Regula.Language.Report.label]
+      exact not_prefix9_of _ (by decide)
+    | proofOnly =>
+      simp only [Regula.Language.Report.labelOn, Regula.Language.Report.label]
+      exact not_prefix9_of _ (by decide +kernel)
+    | incomplete => exact absurd rfl hr
 
 end RegulaSpecification.Effects

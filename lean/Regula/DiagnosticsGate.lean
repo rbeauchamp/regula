@@ -6,6 +6,8 @@ namespace Regula.DiagnosticsGate
 
 def fullVariable : String := "REGULA_FULL"
 
+def proofVariable : String := "REGULA_PROOF"
+
 def noCommentsVersion : String := "v0.2.0"
 
 def noCommentsArgs : List String := ["check"]
@@ -168,7 +170,7 @@ def noCommentsRequest (bin : System.FilePath) : IO.Process.SpawnArgs where
   cwd := some (System.FilePath.mk ".")
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-    ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, none)]
+    ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, none), (proofVariable, none)]
 
 def announceNoComments : IO Unit := do
   IO.println s!"local gate: no-comments {" ".intercalate noCommentsArgs} (in .)"
@@ -249,7 +251,7 @@ def runStep (step : Step) : IO UInt32 := do
     { cmd := "lake", args := step.arguments.toArray, cwd := some (System.FilePath.mk step.dir),
       stdin := .null,
       env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-        ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, step.full)] }
+        ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, step.full), (proofVariable, none)] }
   child.wait
 
 def regularFiles : List System.FilePath → IO (List System.FilePath)

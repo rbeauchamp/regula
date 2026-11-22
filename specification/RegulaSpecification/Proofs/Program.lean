@@ -80,26 +80,28 @@ theorem reason_nil {dir tree : FilePath} {o : Outcome} : ¬ Reason ([] : List (E
 def refuser (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
-      .ask .createTempDir fun r =>
-        match r with
-        | .error _ => .done 1
-        | .ok tree =>
-          .ask (.removeDirAll tree) fun _ =>
-            .ask (.println Report.refused.label) fun _ => .done 1
+      .ask (.getEnv Regula.Shell.proofVariable) fun _ =>
+        .ask .createTempDir fun r =>
+          match r with
+          | .error _ => .done 1
+          | .ok tree =>
+            .ask (.removeDirAll tree) fun _ =>
+              .ask (.println Report.refused.label) fun _ => .done 1
 
 theorem refuser_fails (tree : FilePath) :
     ¬ RunMeets (refuser : List String → Prog L E UInt32) := by
   intro h
   have hr : Runs (refuser ["standard-logical"] : Prog L E UInt32)
-      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv Regula.Shell.fullVariable, some "d"⟩, ⟨.createTempDir, .ok tree⟩,
+      [⟨.leanVersion, Regula.Closed.pinnedLean⟩, ⟨.getEnv Regula.Shell.fullVariable, some "d"⟩,
+        ⟨.getEnv Regula.Shell.proofVariable, none⟩, ⟨.createTempDir, .ok tree⟩,
         ⟨.removeDirAll tree, .ok ()⟩, ⟨.println Report.refused.label, .ok ()⟩] 1 :=
-    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _)))))
+    .ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.ask _ _ _ (.done _))))))
   have hm := h _ _ _ hr
   have hsp : Regula.Closed.Profile.ofSpelling? "standard-logical" = some .standardLogical := rfl
   simp only [hsp] at hm
   obtain ⟨v, rest, he, hp, -⟩ := hm
   cases he
-  obtain ⟨v', r, rest', he', hfull⟩ := hp rfl
+  obtain ⟨v', rf, rp, rest', he', hfull⟩ := hp rfl
   cases he'
   simp only at hfull
   rcases hfull with ⟨e, rest, hlist, -⟩ | ⟨tree', tRead, tGate, r, last, hlist, -, -, o, report, hdec, -⟩

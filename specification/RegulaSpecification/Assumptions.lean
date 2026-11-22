@@ -480,6 +480,7 @@ inductive Route where
   /-- {lit}`REGULA_FULL=DIR lake exe lint PROFILE` from the directory of a checkout of Regula built apart from the project, with
   no option of Lake's: the full gate on the project at {lit}`DIR`. -/
   | full
+  | outOfTreeProof
   deriving DecidableEq, Repr
 
 namespace Route
@@ -495,6 +496,7 @@ project's own Lake, so it holds only for a project that places no file or code a
 def relies : Route → List Assumption
   | proof => [lakeStart, compiler, ctorIdxTag, platform, lakeCommands]
   | full => [lakeStart, compiler, ctorIdxTag, platform]
+  | outOfTreeProof => [lakeStart, compiler, ctorIdxTag, platform, lakeCommands]
 
 /-- Each route relies on an entry. -/
 theorem relies_ne_nil (r : Route) : r.relies ≠ [] := by

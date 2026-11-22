@@ -156,6 +156,19 @@ theorem PlainPreparation.appendQuiet {t after : List (Event L E)}
       | none => exact hr.append hq
       | some root => exact hr.appendQuiet hq
 
+theorem OutProofPreparation.appendQuiet {t after : List (Event L E)} {target : FilePath}
+    (h : OutProofPreparation target t) (hq : Quiet after) : OutProofPreparation target (t ++ after) := by
+  rcases h with h | ⟨pre, sysroot, dir, err, name, code, details, response, rest, rfl, hp, hs, hd, hm, he, hr⟩
+  · exact .inl (h.append hq)
+  · refine .inr ⟨pre, sysroot, dir, err, name, code, details, response, rest ++ after, by simp, hp, hs, hd, hm, he, ?_⟩
+    cases response with
+    | error error => exact hr.append hq
+    | ok pair =>
+      obtain ⟨root, log⟩ := pair
+      cases root with
+      | none => exact hr.append hq
+      | some root => exact hr.appendQuiet hq
+
 theorem CopyStep.complete {tree path : FilePath} {text : String} {t : List (Event L E)} {c : Bool}
     (h : CopyStep tree path text t c) (hc : c = true) :
     (∃ before, t = before ++ [⟨.writeFile path text, .ok ()⟩] ∧ ∀ e ∈ before, ∃ d, e = (⟨.createDirAll d, .ok ()⟩ : Event L E)) ∧
