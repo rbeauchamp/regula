@@ -1,0 +1,10 @@
+# Weekly automated updates for SHA-pinned workflow dependencies under .github/workflows/.
+# Prefix commits and PR titles with `ci:` to match CONTRIBUTING.md's Conventional Commits format.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"

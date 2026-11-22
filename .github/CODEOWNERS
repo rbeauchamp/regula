@@ -1,0 +1,16 @@
+# Build/toolchain configuration, checker and gate sources, and GitHub/pipeline configuration.
+/lakefile.toml @rbeauchamp
+/lake-manifest.json @rbeauchamp
+/lean-toolchain @rbeauchamp
+/lean/ @rbeauchamp
+/.github/ @rbeauchamp
+/.no-mistakes.yaml @rbeauchamp
+
+# Specifications, engineering standard, and repository governance/instructions.
+/specification/ @rbeauchamp
+/STANDARD.md @rbeauchamp
+/AGENTS.md @rbeauchamp
+/SECURITY.md @rbeauchamp
+/CONTRIBUTING.md @rbeauchamp
+/CODE_OF_CONDUCT.md @rbeauchamp
+/LICENSE @rbeauchamp
