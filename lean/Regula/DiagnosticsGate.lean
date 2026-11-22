@@ -184,14 +184,14 @@ def runNoComments : IO UInt32 := do
     throw <| IO.userError s!"local gate: unsupported platform for no-comments {noCommentsVersion}: {System.Platform.target}"
   | some target =>
     let binPath ← resolveNoCommentsBin target
-    let realBin ← IO.FS.realPath binPath
-    let meta_ ← realBin.metadata
+    let meta_ ← binPath.metadata
     if meta_.type == .file then
+      let realBin ← IO.FS.realPath binPath
       announceNoComments
       verifySha256 target realBin
       runNoCommentsStep realBin
     else
-      throw <| IO.userError s!"local gate: no-comments path is not a regular file: {realBin}"
+      throw <| IO.userError s!"local gate: no-comments path is not a regular file: {binPath}"
 
 structure Step where
   arguments : List String
