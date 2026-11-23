@@ -5,8 +5,12 @@
 #
 # Permissions stay read-only at workflow level (`contents: read`), with `contents: write` scoped
 # solely to `publish-release`. All actions are pinned by immutable 40-hex commit SHA with
-# `persist-credentials: false`, and `publish-release` verifies `GITHUB_REF_TYPE`, checkout `HEAD`,
-# peeled remote tag resolution, and `origin/main` ancestry before calling `gh release create`.
+# `persist-credentials: false`, and `publish-release` verifies `GITHUB_REF_TYPE`, `GITHUB_REF_NAME`
+# (`v*`), checkout `HEAD`, `origin/main` ancestry, and peeled remote tag resolution via `git fetch`
+# before calling `gh release create --verify-tag`. Because `gh release create` publishes by tag name
+# (`--verify-tag` checks existence only) and GitHub's immutable-release protection starts only at
+# publication, preventing tag updates or deletions between verification and publication requires a
+# GitHub repository ruleset protecting `v*` tags.
 name: Release
 
 on:
@@ -70,22 +74,10 @@ jobs:
             echo "Tagged commit ${GITHUB_SHA} is not an ancestor of origin/main" >&2
             exit 1
           fi
-          ENCODED_TAG="$(jq -rn --arg tag "$TAG" '$tag | split("/") | map(@uri) | join("/")')"
-          REF_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ENCODED_TAG}")"
-          REF_NAME="$(printf '%s' "$REF_JSON" | jq -r '.ref')"
-          OBJ_TYPE="$(printf '%s' "$REF_JSON" | jq -r '.object.type')"
-          OBJ_SHA="$(printf '%s' "$REF_JSON" | jq -r '.object.sha')"
-          if [ "$REF_NAME" != "refs/tags/${TAG}" ]; then
-            echo "Expected ref refs/tags/${TAG}, got ${REF_NAME}" >&2
-            exit 1
-          fi
-          while [ "$OBJ_TYPE" = "tag" ]; do
-            TAG_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${OBJ_SHA}")"
-            OBJ_TYPE="$(printf '%s' "$TAG_JSON" | jq -r '.object.type')"
-            OBJ_SHA="$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')"
-          done
-          if [ "$OBJ_TYPE" != "commit" ] || [ "$OBJ_SHA" != "${GITHUB_SHA}" ]; then
-            echo "Remote tag '${TAG}' resolves to ${OBJ_TYPE}:${OBJ_SHA}, expected commit:${GITHUB_SHA}" >&2
+          git fetch --no-tags origin "refs/tags/${TAG}"
+          REMOTE_COMMIT="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+          if [ "$REMOTE_COMMIT" != "${GITHUB_SHA}" ]; then
+            echo "Remote tag '${TAG}' resolves to commit:${REMOTE_COMMIT}, expected commit:${GITHUB_SHA}" >&2
             exit 1
           fi
           gh release create "$TAG" --repo "${GITHUB_REPOSITORY}" --title "$TAG" --generate-notes --verify-tag

@@ -1,9 +1,11 @@
 # Runs the local gate (lean/Regula/DiagnosticsGate.lean) on a machine of GitHub's: for each pull
 # request, for each push to main, when called by another workflow (workflow_call), and when someone
 # starts it by hand. It is the command that the no-mistakes validation runs as its Test step
-# (.no-mistakes.yaml, `commands.test`). This file adds no check of its own but that of the
-# toolchain's digest, and decides nothing else: its job has a checkout, an `origin/main` ref check
-# for tag-triggered callers, one step that installs Lean, and one that runs the gate.
+# (.no-mistakes.yaml, `commands.test`). Beyond the local gate, this file adds only one verification
+# check—the toolchain archive's SHA-256 digest—and one ref-presence condition that fetches
+# `origin/main` when `origin/main^{commit}` is absent after checkout, deciding nothing else: its
+# job has a checkout, that conditional `origin/main` fetch, one step that installs Lean, and one
+# that runs the gate.
 #
 # Why it is here: the gate starts with `lean --run` of a file of the change, so running it on a
 # change from outside the repository runs that change's code. Here it can run on a runner that
@@ -22,15 +24,16 @@
 # The digest is that of the archive as downloaded on 2026-11-20, whose Lean reports the release and
 # the commit that the checker reads (`Regula.Closed.pinnedLean`).
 #
-# The job fetches full history (`fetch-depth: 0`) and fetches `origin/main` when absent so
-# `git merge-base HEAD origin/main` in the `no-comments` ratchet check
-# (`lean/Regula/DiagnosticsGate.lean`) resolves cleanly on pull requests and tag-triggered
-# `workflow_call` runs.
+# The job fetches full history (`fetch-depth: 0`) and, when `origin/main^{commit}` is absent,
+# fetches `origin/main` so `git merge-base HEAD origin/main` in the `no-comments` ratchet check
+# (`lean/Regula/DiagnosticsGate.lean`) resolves cleanly on pull requests, tag-triggered
+# `workflow_call` runs, and other non-`main` checkouts.
 # The job sets no time limit of its own, as the gate sets none, so GitHub's limit for a job applies.
 # The token can only read the repository (`permissions`), and the checkout keeps no credential
-# (`persist-credentials`). The event is `pull_request` and never `pull_request_target`, which GitHub
-# documents as running with the base repository's token and secrets. The action is pinned by its
-# commit.
+# (`persist-credentials`). For direct pull-request runs, the event is `pull_request` and never
+# `pull_request_target`, which GitHub documents as running with the base repository's token and
+# secrets (other triggers are `push` to `main`, `workflow_call`, and `workflow_dispatch`). The
+# action is pinned by its commit.
 name: gate
 
 on:
