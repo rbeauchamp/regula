@@ -1,12 +1,14 @@
 # Runs the local gate (lean/Regula/DiagnosticsGate.lean) on a machine of GitHub's: for each pull
 # request, for each push to main, when called by another workflow (workflow_call), and when someone
 # starts it by hand. It is the command that the no-mistakes validation runs as its Test step
-# (.no-mistakes.yaml, `commands.test`). Beyond the local gate, this file adds only one verification
-# check—the toolchain archive's SHA-256 digest—and one conditional fetch step that checks whether
-# `refs/remotes/origin/main` exists as a commit and fetches `refs/heads/main` into
-# `refs/remotes/origin/main` when absent (stopping the job before installing Lean if that fetch
-# fails), deciding nothing else: its job has a checkout, that conditional fetch, one step that
-# installs Lean, and one that runs the gate.
+# (.no-mistakes.yaml, `commands.test`). Beyond the local gate, this file checks the toolchain
+# archive's SHA-256 digest and runs one conditional fetch step that checks whether
+# `refs/remotes/origin/main` exists as a commit and, when absent, verifies `origin`'s unique exact
+# `refs/heads/main` ref via `git ls-remote`, fetches `refs/heads/main` (`--no-tags`), verifies that
+# `FETCH_HEAD` came from exact `branch 'main' of ` with the same OID and resolves to a commit, and
+# writes `refs/remotes/origin/main` via `git update-ref --no-deref` (stopping the job before
+# installing Lean if any check or fetch fails), deciding nothing else: its job has a checkout, that
+# conditional fetch, one step that installs Lean, and one that runs the gate.
 #
 # Why it is here: the gate starts with `lean --run` of a file of the change, so running it on a
 # change from outside the repository runs that change's code. Here it can run on a runner that
@@ -26,8 +28,8 @@
 # the commit that the checker reads (`Regula.Closed.pinnedLean`).
 #
 # The job fetches full history (`fetch-depth: 0`) and, when `refs/remotes/origin/main` is absent or
-# not a commit, fetches `refs/heads/main:refs/remotes/origin/main` so
-# `lean/Regula/DiagnosticsGate.lean` can pass `--base-ref refs/remotes/origin/main` to
+# not a commit, populates `refs/remotes/origin/main` from `origin`'s verified exact `refs/heads/main`
+# ref so `lean/Regula/DiagnosticsGate.lean` can pass `--base-ref refs/remotes/origin/main` to
 # `no-comments check` for `git merge-base HEAD refs/remotes/origin/main` on pull requests,
 # tag-triggered `workflow_call` runs, and other non-`main` checkouts.
 # The job sets no time limit of its own, as the gate sets none, so GitHub's limit for a job applies.
@@ -57,9 +59,38 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Ensure refs/remotes/origin/main exists for merge-base check
+        shell: bash
         run: |
+          set -euo pipefail
           if ! git show-ref --verify --quiet refs/remotes/origin/main || ! git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' >/dev/null; then
-            git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+            LS_REMOTE_OUT="$(git ls-remote --heads --refs origin refs/heads/main)"
+            MAIN_OID=""
+            MAIN_COUNT=0
+            while IFS=$'\t' read -r oid ref; do
+              if [ "$ref" = "refs/heads/main" ]; then
+                MAIN_OID="$oid"
+                MAIN_COUNT=$((MAIN_COUNT + 1))
+              fi
+            done <<< "$LS_REMOTE_OUT"
+            if [ "$MAIN_COUNT" -ne 1 ] || [ -z "$MAIN_OID" ]; then
+              echo "Expected unique refs/heads/main on origin" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin refs/heads/main
+            FETCH_HEAD_PATH="$(git rev-parse --git-path FETCH_HEAD)"
+            if [ "$(wc -l < "$FETCH_HEAD_PATH")" -ne 1 ]; then
+              echo "Expected single entry in FETCH_HEAD for refs/heads/main" >&2
+              exit 1
+            fi
+            IFS= read -r FETCH_HEAD_LINE < "$FETCH_HEAD_PATH"
+            FETCH_OID="$(git rev-parse --verify FETCH_HEAD)"
+            EXPECTED_FETCH_PREFIX="${MAIN_OID}"$'\t\t'"branch 'main' of "
+            if [ "$FETCH_OID" != "$MAIN_OID" ] || [ "${FETCH_HEAD_LINE:0:${#EXPECTED_FETCH_PREFIX}}" != "$EXPECTED_FETCH_PREFIX" ]; then
+              echo "Fetched object did not resolve from exact refs/heads/main" >&2
+              exit 1
+            fi
+            MAIN_COMMIT="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+            git update-ref --no-deref refs/remotes/origin/main "$MAIN_COMMIT"
           fi
       - name: Install the Lean that lean-toolchain names, by the SHA-256 of its archive
         run: |
