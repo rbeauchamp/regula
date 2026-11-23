@@ -2,10 +2,11 @@
 # request, for each push to main, when called by another workflow (workflow_call), and when someone
 # starts it by hand. It is the command that the no-mistakes validation runs as its Test step
 # (.no-mistakes.yaml, `commands.test`). Beyond the local gate, this file adds only one verification
-# check—the toolchain archive's SHA-256 digest—and one ref-presence condition that fetches
-# `origin/main` when `origin/main^{commit}` is absent after checkout, deciding nothing else: its
-# job has a checkout, that conditional `origin/main` fetch, one step that installs Lean, and one
-# that runs the gate.
+# check—the toolchain archive's SHA-256 digest—and one conditional fetch step that checks whether
+# `refs/remotes/origin/main` exists as a commit and fetches `refs/heads/main` into
+# `refs/remotes/origin/main` when absent (stopping the job before installing Lean if that fetch
+# fails), deciding nothing else: its job has a checkout, that conditional fetch, one step that
+# installs Lean, and one that runs the gate.
 #
 # Why it is here: the gate starts with `lean --run` of a file of the change, so running it on a
 # change from outside the repository runs that change's code. Here it can run on a runner that
@@ -24,10 +25,11 @@
 # The digest is that of the archive as downloaded on 2026-11-20, whose Lean reports the release and
 # the commit that the checker reads (`Regula.Closed.pinnedLean`).
 #
-# The job fetches full history (`fetch-depth: 0`) and, when `origin/main^{commit}` is absent,
-# fetches `origin/main` so `git merge-base HEAD origin/main` in the `no-comments` ratchet check
-# (`lean/Regula/DiagnosticsGate.lean`) resolves cleanly on pull requests, tag-triggered
-# `workflow_call` runs, and other non-`main` checkouts.
+# The job fetches full history (`fetch-depth: 0`) and, when `refs/remotes/origin/main` is absent or
+# not a commit, fetches `refs/heads/main:refs/remotes/origin/main` so
+# `lean/Regula/DiagnosticsGate.lean` can pass `--base-ref refs/remotes/origin/main` to
+# `no-comments check` for `git merge-base HEAD refs/remotes/origin/main` on pull requests,
+# tag-triggered `workflow_call` runs, and other non-`main` checkouts.
 # The job sets no time limit of its own, as the gate sets none, so GitHub's limit for a job applies.
 # The token can only read the repository (`permissions`), and the checkout keeps no credential
 # (`persist-credentials`). For direct pull-request runs, the event is `pull_request` and never
@@ -54,10 +56,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Ensure origin/main ref exists for merge-base check
+      - name: Ensure refs/remotes/origin/main exists for merge-base check
         run: |
-          if ! git rev-parse --verify --quiet 'origin/main^{commit}'; then
-            git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git show-ref --verify --quiet refs/remotes/origin/main || ! git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' >/dev/null; then
+            git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           fi
       - name: Install the Lean that lean-toolchain names, by the SHA-256 of its archive
         run: |

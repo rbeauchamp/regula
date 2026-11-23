@@ -10,7 +10,11 @@ def proofVariable : String := "REGULA_PROOF"
 
 def noCommentsVersion : String := "v0.2.0"
 
-def noCommentsArgs : List String := ["check"]
+def noCommentsRemoteBaseRef : String := "refs/remotes/origin/main"
+
+def noCommentsLocalBaseRef : String := "refs/heads/main"
+
+def noCommentsArgs (baseRef : String) : List String := ["check", "--base-ref", baseRef]
 
 inductive NoCommentsTarget where
   | darwinArm64
@@ -164,20 +168,49 @@ def resolveNoCommentsBin (target : NoCommentsTarget) : IO System.FilePath := do
   | none =>
     resolveCachedNoCommentsBin target
 
-def noCommentsRequest (bin : System.FilePath) : IO.Process.SpawnArgs where
+def gitShowRefRequest (fullRef : String) : IO.Process.SpawnArgs where
+  cmd := "git"
+  args := #["show-ref", "--verify", "--quiet", fullRef]
+  cwd := some (System.FilePath.mk ".")
+  stdin := .null
+
+def gitRevParseCommitRequest (fullRef : String) : IO.Process.SpawnArgs where
+  cmd := "git"
+  args := #["rev-parse", "--verify", "--quiet", fullRef ++ "^{commit}"]
+  cwd := some (System.FilePath.mk ".")
+  stdin := .null
+
+def hasCommitRef (fullRef : String) : IO Bool := do
+  let showOut ← IO.Process.output (gitShowRefRequest fullRef)
+  if showOut.exitCode != 0 then
+    pure false
+  else
+    let revOut ← IO.Process.output (gitRevParseCommitRequest fullRef)
+    pure (revOut.exitCode == 0)
+
+def resolveNoCommentsBaseRef : IO String := do
+  if ← hasCommitRef noCommentsRemoteBaseRef then
+    pure noCommentsRemoteBaseRef
+  else if ← hasCommitRef noCommentsLocalBaseRef then
+    pure noCommentsLocalBaseRef
+  else
+    throw <| IO.userError
+      s!"local gate: neither '{noCommentsRemoteBaseRef}' nor '{noCommentsLocalBaseRef}' exists as a commit"
+
+def noCommentsRequest (bin : System.FilePath) (baseRef : String) : IO.Process.SpawnArgs where
   cmd := bin.toString
-  args := noCommentsArgs.toArray
+  args := (noCommentsArgs baseRef).toArray
   cwd := some (System.FilePath.mk ".")
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
     ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, none), (proofVariable, none)]
 
-def announceNoComments : IO Unit := do
-  IO.println s!"local gate: no-comments {" ".intercalate noCommentsArgs} (in .)"
+def announceNoComments (baseRef : String) : IO Unit := do
+  IO.println s!"local gate: no-comments {" ".intercalate (noCommentsArgs baseRef)} (in .)"
   (← IO.getStdout).flush
 
-def runNoCommentsStep (bin : System.FilePath) : IO UInt32 := do
-  let child ← IO.Process.spawn (noCommentsRequest bin)
+def runNoCommentsStep (bin : System.FilePath) (baseRef : String) : IO UInt32 := do
+  let child ← IO.Process.spawn (noCommentsRequest bin baseRef)
   child.wait
 
 def runNoComments : IO UInt32 := do
@@ -185,13 +218,14 @@ def runNoComments : IO UInt32 := do
   | none =>
     throw <| IO.userError s!"local gate: unsupported platform for no-comments {noCommentsVersion}: {System.Platform.target}"
   | some target =>
+    let baseRef ← resolveNoCommentsBaseRef
     let binPath ← resolveNoCommentsBin target
     let meta_ ← binPath.metadata
     if meta_.type == .file then
       let realBin ← IO.FS.realPath binPath
-      announceNoComments
+      announceNoComments baseRef
       verifySha256 target realBin
-      runNoCommentsStep realBin
+      runNoCommentsStep realBin baseRef
     else
       throw <| IO.userError s!"local gate: no-comments path is not a regular file: {binPath}"
 
@@ -291,7 +325,7 @@ def sayNoCommentsResult (steps : List Step) (ncCode : UInt32) : IO Unit :=
   if ncCode == 0 then
     sayResult steps none
   else
-    IO.eprintln s!"local gate: no-comments {" ".intercalate noCommentsArgs} ended with \
+    IO.eprintln s!"local gate: no-comments check ended with \
       exit code {ncCode}, so the local gate refuses the change"
 
 def runIn (target root : String) : IO UInt32 := do

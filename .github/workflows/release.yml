@@ -6,11 +6,11 @@
 # Permissions stay read-only at workflow level (`contents: read`), with `contents: write` scoped
 # solely to `publish-release`. All actions are pinned by immutable 40-hex commit SHA with
 # `persist-credentials: false`, and `publish-release` verifies `GITHUB_REF_TYPE`, `GITHUB_REF_NAME`
-# (`v*`), checkout `HEAD`, `origin/main` ancestry, and peeled remote tag resolution via `git fetch`
-# before calling `gh release create --verify-tag`. Because `gh release create` publishes by tag name
-# (`--verify-tag` checks existence only) and GitHub's immutable-release protection starts only at
-# publication, preventing tag updates or deletions between verification and publication requires a
-# GitHub repository ruleset protecting `v*` tags.
+# (`v*`), checkout `HEAD`, `refs/remotes/origin/main` ancestry, and peeled remote tag resolution via
+# `git fetch` before calling `gh release create --verify-tag`. Because `gh release create` publishes
+# by tag name (`--verify-tag` checks existence only) and GitHub's immutable-release protection
+# starts only at publication, preventing tag updates or deletions between verification and
+# publication requires a GitHub repository ruleset protecting `v*` tags.
 name: Release
 
 on:
@@ -39,12 +39,12 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Ensure origin/main ref exists for ancestry check
+      - name: Ensure refs/remotes/origin/main exists for ancestry check
         shell: bash
         run: |
           set -euo pipefail
-          if ! git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}'; then
-            git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git show-ref --verify --quiet refs/remotes/origin/main || ! git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' >/dev/null; then
+            git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           fi
 
       - name: Verify tag ancestry and publish GitHub Release
