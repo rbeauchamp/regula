@@ -1,0 +1,142 @@
+# Publishes a source-only GitHub Release when a v* tag is pushed, after the tag passes the full
+# gate workflow (.github/workflows/gate.yml) and tag/ancestry checks on ubuntu-24.04. Regula ships as
+# pure Lean source with no prebuilt release binaries, so no artifact upload/download or third-party
+# release action is used.
+#
+# Permissions stay read-only at workflow level (`contents: read`), with `contents: write` scoped
+# solely to `publish-release`. All actions are pinned by immutable 40-hex commit SHA with
+# `persist-credentials: false`, and `publish-release` verifies `GITHUB_REF_TYPE`, `GITHUB_REF_NAME`
+# (`v*`), valid tag ref format, checkout `HEAD`, `refs/remotes/origin/main` ancestry (populating
+# missing/non-commit `refs/remotes/origin/main` from `origin`'s verified exact `refs/heads/main`),
+# and exact remote tag binding (`git ls-remote` + `git fetch --no-tags` + `FETCH_HEAD` exact-ref/OID
+# check) with `FETCH_HEAD^{commit}` peeling before calling `gh release create --verify-tag`. Because
+# `gh release create` publishes by tag name (`--verify-tag` checks existence only) and GitHub's
+# immutable-release protection starts at publication, preventing tag updates or deletions between
+# verification and publication requires a GitHub repository ruleset protecting `v*` tags.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-gate:
+    name: Verify Gate
+    uses: ./.github/workflows/gate.yml
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: verify-gate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Ensure refs/remotes/origin/main exists for ancestry check
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git show-ref --verify --quiet refs/remotes/origin/main || ! git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' >/dev/null; then
+            LS_REMOTE_OUT="$(git ls-remote --heads --refs origin refs/heads/main)"
+            MAIN_OID=""
+            MAIN_COUNT=0
+            while IFS=$'\t' read -r oid ref; do
+              if [ "$ref" = "refs/heads/main" ]; then
+                MAIN_OID="$oid"
+                MAIN_COUNT=$((MAIN_COUNT + 1))
+              fi
+            done <<< "$LS_REMOTE_OUT"
+            if [ "$MAIN_COUNT" -ne 1 ] || [ -z "$MAIN_OID" ]; then
+              echo "Expected unique refs/heads/main on origin" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin refs/heads/main
+            FETCH_HEAD_PATH="$(git rev-parse --git-path FETCH_HEAD)"
+            if [ "$(wc -l < "$FETCH_HEAD_PATH")" -ne 1 ]; then
+              echo "Expected single entry in FETCH_HEAD for refs/heads/main" >&2
+              exit 1
+            fi
+            IFS= read -r FETCH_HEAD_LINE < "$FETCH_HEAD_PATH"
+            FETCH_OID="$(git rev-parse --verify FETCH_HEAD)"
+            EXPECTED_FETCH_PREFIX="${MAIN_OID}"$'\t\t'"branch 'main' of "
+            if [ "$FETCH_OID" != "$MAIN_OID" ] || [ "${FETCH_HEAD_LINE:0:${#EXPECTED_FETCH_PREFIX}}" != "$EXPECTED_FETCH_PREFIX" ]; then
+              echo "Fetched object did not resolve from exact refs/heads/main" >&2
+              exit 1
+            fi
+            MAIN_COMMIT="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+            git update-ref --no-deref refs/remotes/origin/main "$MAIN_COMMIT"
+          fi
+
+      - name: Verify tag ancestry and publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-}"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ] || [ -z "$TAG" ] || [ -z "${GITHUB_SHA:-}" ]; then
+            echo "Expected tag push with GITHUB_REF_NAME and GITHUB_SHA set" >&2
+            exit 1
+          fi
+          case "$TAG" in
+            v*) ;;
+            *)
+              echo "Expected tag matching v*, got ${TAG}" >&2
+              exit 1
+              ;;
+          esac
+          EXACT_REF="refs/tags/${TAG}"
+          if ! git check-ref-format "$EXACT_REF"; then
+            echo "Invalid tag ref format: ${EXACT_REF}" >&2
+            exit 1
+          fi
+          if [ "$HEAD_SHA" != "${GITHUB_SHA}" ]; then
+            echo "Expected tag checkout at ${GITHUB_SHA}, got HEAD=${HEAD_SHA}" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "Tagged commit ${GITHUB_SHA} is not an ancestor of origin/main" >&2
+            exit 1
+          fi
+          LS_REMOTE_OUT="$(git ls-remote --tags --refs origin "$EXACT_REF")"
+          TAG_OID=""
+          TAG_COUNT=0
+          while IFS=$'\t' read -r oid ref; do
+            if [ "$ref" = "$EXACT_REF" ]; then
+              TAG_OID="$oid"
+              TAG_COUNT=$((TAG_COUNT + 1))
+            fi
+          done <<< "$LS_REMOTE_OUT"
+          if [ "$TAG_COUNT" -ne 1 ] || [ -z "$TAG_OID" ]; then
+            echo "Expected unique ${EXACT_REF} on origin" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "$EXACT_REF"
+          FETCH_HEAD_PATH="$(git rev-parse --git-path FETCH_HEAD)"
+          if [ "$(wc -l < "$FETCH_HEAD_PATH")" -ne 1 ]; then
+            echo "Expected single entry in FETCH_HEAD for ${EXACT_REF}" >&2
+            exit 1
+          fi
+          IFS= read -r FETCH_HEAD_LINE < "$FETCH_HEAD_PATH"
+          FETCH_OID="$(git rev-parse --verify FETCH_HEAD)"
+          EXPECTED_FETCH_PREFIX="${TAG_OID}"$'\t\t'"tag '${TAG}' of "
+          if [ "$FETCH_OID" != "$TAG_OID" ] || [ "${FETCH_HEAD_LINE:0:${#EXPECTED_FETCH_PREFIX}}" != "$EXPECTED_FETCH_PREFIX" ]; then
+            echo "Fetched object did not resolve from exact ${EXACT_REF}" >&2
+            exit 1
+          fi
+          REMOTE_COMMIT="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+          if [ "$REMOTE_COMMIT" != "${GITHUB_SHA}" ]; then
+            echo "Remote tag '${TAG}' resolves to commit:${REMOTE_COMMIT}, expected commit:${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          gh release create "$TAG" --repo "${GITHUB_REPOSITORY}" --title "$TAG" --generate-notes --verify-tag
