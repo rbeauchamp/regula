@@ -1,0 +1,91 @@
+# Publishes a source-only GitHub Release when a v* tag is pushed, after the tag passes the full
+# gate workflow (.github/workflows/gate.yml) and tag/ancestry checks on ubuntu-24.04. Regula ships as
+# pure Lean source with no prebuilt release binaries, so no artifact upload/download or third-party
+# release action is used.
+#
+# Permissions stay read-only at workflow level (`contents: read`), with `contents: write` scoped
+# solely to `publish-release`. All actions are pinned by immutable 40-hex commit SHA with
+# `persist-credentials: false`, and `publish-release` verifies `GITHUB_REF_TYPE`, checkout `HEAD`,
+# peeled remote tag resolution, and `origin/main` ancestry before calling `gh release create`.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-gate:
+    name: Verify Gate
+    uses: ./.github/workflows/gate.yml
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: verify-gate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Ensure origin/main ref exists for ancestry check
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}'; then
+            git fetch --no-tags origin main:refs/remotes/origin/main
+          fi
+
+      - name: Verify tag ancestry and publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-}"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ] || [ -z "$TAG" ] || [ -z "${GITHUB_SHA:-}" ]; then
+            echo "Expected tag push with GITHUB_REF_NAME and GITHUB_SHA set" >&2
+            exit 1
+          fi
+          case "$TAG" in
+            v*) ;;
+            *)
+              echo "Expected tag matching v*, got ${TAG}" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$HEAD_SHA" != "${GITHUB_SHA}" ]; then
+            echo "Expected tag checkout at ${GITHUB_SHA}, got HEAD=${HEAD_SHA}" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "Tagged commit ${GITHUB_SHA} is not an ancestor of origin/main" >&2
+            exit 1
+          fi
+          ENCODED_TAG="$(jq -rn --arg tag "$TAG" '$tag | split("/") | map(@uri) | join("/")')"
+          REF_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${ENCODED_TAG}")"
+          REF_NAME="$(printf '%s' "$REF_JSON" | jq -r '.ref')"
+          OBJ_TYPE="$(printf '%s' "$REF_JSON" | jq -r '.object.type')"
+          OBJ_SHA="$(printf '%s' "$REF_JSON" | jq -r '.object.sha')"
+          if [ "$REF_NAME" != "refs/tags/${TAG}" ]; then
+            echo "Expected ref refs/tags/${TAG}, got ${REF_NAME}" >&2
+            exit 1
+          fi
+          while [ "$OBJ_TYPE" = "tag" ]; do
+            TAG_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${OBJ_SHA}")"
+            OBJ_TYPE="$(printf '%s' "$TAG_JSON" | jq -r '.object.type')"
+            OBJ_SHA="$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')"
+          done
+          if [ "$OBJ_TYPE" != "commit" ] || [ "$OBJ_SHA" != "${GITHUB_SHA}" ]; then
+            echo "Remote tag '${TAG}' resolves to ${OBJ_TYPE}:${OBJ_SHA}, expected commit:${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          gh release create "$TAG" --repo "${GITHUB_REPOSITORY}" --title "$TAG" --generate-notes --verify-tag
