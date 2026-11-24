@@ -16,7 +16,7 @@ def requiredGateFile : String := "RequiredGate.lean"
 
 def builtModulesFileName : String := "specification-built-modules.json"
 
-def noCommentsVersion : String := "v0.2.0"
+def noCommentsVersion : String := "v0.3.1"
 
 def noCommentsRemoteBaseRef : String := "refs/remotes/origin/main"
 
@@ -34,8 +34,8 @@ def NoCommentsTarget.asset : NoCommentsTarget → String
   | .linuxX86_64 => "no-comments-linux-x86_64"
 
 def NoCommentsTarget.sha256 : NoCommentsTarget → String
-  | .darwinArm64 => "4c610e1b0f0f93f54e89f33acb13c5120ed4e7ecfc3bb5db85e562aba637fe2a"
-  | .linuxX86_64 => "f1a5d5cee2214515f9d36d3bb7245beee3856c06a85f6593ac0b23c4a0c6941e"
+  | .darwinArm64 => "1af3bddf3725aec455eedc6d5769e12860981b536a97b26cac71169ccc9e531c"
+  | .linuxX86_64 => "bfa4ecf223bb6d921a10023b82075d4378f63d640767fe29cfc2819c7c70dd3f"
 
 def NoCommentsTarget.url (t : NoCommentsTarget) : String :=
   s!"https://github.com/rbeauchamp/lean-no-comments/releases/download/{noCommentsVersion}/{t.asset}"
@@ -310,7 +310,7 @@ def requiredQueryRequest : IO.Process.SpawnArgs where
 
 def requiredCheckRequest (builtPath : System.FilePath) : IO.Process.SpawnArgs where
   cmd := "lake"
-  args := #["env", "lean", "-DwarningAsError=true", requiredGateFile]
+  args := #["env", "lean", "-DwarningAsError=true", "--run", requiredGateFile]
   cwd := some (System.FilePath.mk "specification")
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
@@ -322,7 +322,7 @@ def announceRequiredQuery : IO Unit := do
   (← IO.getStdout).flush
 
 def announceRequiredCheck : IO Unit := do
-  IO.println s!"local gate: lake env lean -DwarningAsError=true {requiredGateFile} (in specification)"
+  IO.println s!"local gate: lake env lean -DwarningAsError=true --run {requiredGateFile} (in specification)"
   (← IO.getStdout).flush
 
 def runRequiredCheckStep (builtPath : System.FilePath) : IO UInt32 := do

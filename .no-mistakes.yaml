@@ -31,9 +31,28 @@
 # attestation.
 #
 # Memory. The gate's Lake builds run as many jobs as the machine has cores and its Lean processes run
-# with no memory limit, so nothing bounds its peak, and no measurement of the present gate is recorded
-# here. So the step takes the machine's whole heavy-work budget (16 GiB on the 24 GiB Mac that runs it,
-# which keeps 8 GiB in reserve). Measure the gate before the bound is lowered.
+# with no memory limit, so nothing bounds its peak. Measured on 2026-11-24 on an 18-core, 128 GiB
+# Apple silicon Mac (macOS 27.2.1, Lean v4.36.0) across two complete clean runs of the present gate
+# (9 Lake steps, RequiredGate.lean --run, and pinned no-comments v0.3.1) under `no-mistakes admit
+# --memory 16GiB`, sampling descendant `proc_pid_rusage` (`RUSAGE_INFO_V4.ri_phys_footprint` and
+# `ri_resident_size`) at 4 Hz (0.25 s) cross-checked every 2 s by macOS `footprint` (deduplicated
+# tree summary) and `vm_stat`/`vm.swapusage`. Both runs exited 0 with 0 compressions, 0 pageouts,
+# 0 swapouts, and flat swap (Run 1 started with 0 other admitted jobs: 333.57 s wall, peak summed
+# tree physical footprint 10.101 GiB, peak deduplicated footprint 9.937 GiB, peak summed RSS
+# 11.723 GiB, largest single-process peak 6.651 GiB; Run 2: 359.88 s wall, peak summed tree physical
+# footprint 10.125 GiB, peak deduplicated footprint 9.909 GiB, peak summed RSS 11.734 GiB, largest
+# single-process peak 6.651 GiB). Summed resident sets bound physical footprint only when
+# compression and swap do not grow, and otherwise overcount shared `.olean` pages while omitting
+# compressed and swapped pages. Step 3 (`lake exe lint standard-logical`, the full gate, 53.12 s /
+# 56.44 s) holds the peak because `lint` keeps its 6.651 GiB parser environment live while spawning
+# concurrent `lake build --wfail` child `lean` processes (up to 11 processes); the next highest
+# steps are `lake build --wfail` in `.` (6.187 / 6.201 GiB) and `lake build lint` in the temporary
+# tree (6.161 / 6.167 GiB), followed by `lake lint` in `specification` (2.745 / 2.747 GiB), `lake
+# lint` in `.` (2.707 / 2.714 GiB), `no-comments` v0.3.1 across 86 files (1.555 / 1.639 GiB phys,
+# 3.411 / 3.661 GiB RSS, 70.12 s / 71.52 s), `lake build --wfail` in `specification` (1.521 GiB),
+# and `RequiredGate.lean` (1.200 / 1.203 GiB, 1.28 s / 1.92 s). `heavy_steps.test.memory` stays at
+# 16GiB (~1.58x / +58% headroom over the 10.125 GiB measured peak) because nothing enforces a limit
+# on Lake's parallel builds, so lowering the bound is not supported by this measurement.
 #
 # Tests are not evidence. Regula establishes the claims of a change by types, constructions,
 # contracts, machine-checked proofs and derivation, as CONTRIBUTING.md states. The pipeline tells
@@ -80,7 +99,7 @@ commands:
 heavy_steps:
   test:
     memory: 16GiB
-    limit: none; the whole heavy-work budget, because nothing bounds the peak of the gate's builds
+    limit: none; measured peak 10.125 GiB physical footprint (9.937 GiB deduplicated), nothing bounds the peak of the gate's builds
 test:
   instructions: |
     Regula's product is its checker, `lake lint` on a project that sets `lintDriver := "regula/lint"`, so this repository does have a product to drive, whatever the note on `no-surface` says. The local gate has already run the checker on Regula's own build and on `specification/`. Those runs must pass, so they show only that those builds are admitted; they never show a report or a refusal on a build that violates a rule.
