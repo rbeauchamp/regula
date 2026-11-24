@@ -4,19 +4,6 @@ public import Lake.Load.Workspace
 public import Lake.Toml.Load
 public import Regula.Table
 
-/-!
-# The calls of Lake
-
-The rows of `Regula.Effect.LakeCalls`: direct calls of Lake and nothing else. What decides anything from their
-results is in `Regula.Reader` and `Regula.Shell`, which are in a default target.
-
-This module is in the library `Regula`, which is no default target. Lake declares each entry of its
-open families of data types as an axiom, such as `Lake.DataType.bool` (`Lake/Util/Family.lean`,
-`Lake/Config/Kinds.lean` at v4.36.0). So a constant that calls Lake's load depends on axioms that no
-profile admits, and the rules refuse a claimed constant that reaches them (RG1003, RG1005).
-Lake's load is trusted.
--/
-
 public section
 
 namespace Regula.Load
@@ -24,14 +11,11 @@ namespace Regula.Load
 open System (FilePath)
 open Regula.Effect
 
-/-- The Lake environment of the toolchain at `sysroot`, with the Lake installed beside its Lean and no
-inherited search path. -/
 def lakeEnvironment (sysroot : String) : EIO String Lake.Env := do
   let lean ← Lake.LeanInstall.get sysroot (collocated := true)
   let env ← Lake.Env.compute (Lake.LakeInstall.ofLean lean) lean (← Lake.findElanInstall?)
   return { env with initLeanPath := [], initLeanSrcPath := [] }
 
-/-- What the reader and the shell read of Lake's load, each field a projection of it. -/
 def rootOf (ws : Lake.Workspace) : Root Lake.LeanLib where
   sourceDirs :=
     ws.root.srcDir :: (ws.root.leanLibs.map (·.srcDir)).toList ++ (ws.root.leanExes.map (·.root.lib.srcDir)).toList
@@ -46,11 +30,9 @@ def rootOf (ws : Lake.Workspace) : Root Lake.LeanLib where
   leanLib := ws.lakeEnv.lean.leanLibDir
   rootLib := ws.root.leanLibDir
 
-/-- The messages of a log. -/
 def messagesOf (log : Lake.Log) : List String :=
   (log.entries.map (·.message)).toList
 
-/-- The rows that call Lake. -/
 def lakeCalls : LakeCalls Lake.LeanLib where
   parseToml := fun input => (Lake.Toml.loadToml input).toBaseIO
   lakeInstall := fun sysroot => do
