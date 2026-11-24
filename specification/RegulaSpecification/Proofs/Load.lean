@@ -20,30 +20,6 @@ import all Regula.Shell
 import all Regula.Tables
 import all Regula.Verdict
 
-/-!
-# The loader, against the environment
-
-{name}`Regula.Load.Facts.input` is the pure function that fills the closed input from a loaded environment, and
-{name}`Regula.Closed.Input.report` the verdict that the checker gives on that input. {lit}`pass_iff` relates the two to
-the environment: for every environment and {name (full := Regula.Load.Facts)}`Facts` on which the loader gives an input, a pass is exactly
-{lit}`EnvForm` and {lit}`EnvFloor`, two statements that mention no field of the input. Each constant is read from
-`Environment.constants.map₁` by name. What a name mentions, and whether it names an axiom, is read from
-the fields of that {name (full := Lean.ConstantInfo)}`ConstantInfo` and of each constant of the name that any loaded module's own data states
-({lit}`EnvMentions`, {lit}`EnvAxiom`, {lit}`mem_usesIn`), and {lit}`mem_stated` anchors those in `header.moduleData`. So an
-axiom or a chain of mentions that Lean's import drops still counts. On a pass, each axiom reached that way
-from a constant of a claimed module is one that the profile admits, and each claimed module is a {lit}`module`
-file by the data of its {lit}`.olean` ({lit}`EnvFloor`, {lit}`EnvModuleFile`). {lit}`pass_held` states a pass
-of each constant that {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants` lists, as that module's own {lit}`.olean` states it, also when
-Lean's import replaced it.
-
-So a loader that dropped a constant, a field or a mention would fail these proofs in the gate's build of
-this package. What they leave assumed is Lean's and Lake's behaviour: that {name (full := Lean.SMap.map₁)}`map₁` holds the constants that
-{name}`Lean.importModules` keeps and `header.moduleData` what each {lit}`.olean` states, what each query of the
-environment returns, that {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists each constant of an expression, that {name (full := Lean.findOLean)}`findOLean`
-finds each {lit}`.olean`, and that Lake names the modules of the default targets and the two library directories.
-The specification's trusted base lists them.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -56,10 +32,6 @@ namespace Loader
 variable {f : Regula.Load.Facts} {roots : List Name} {p : Regula.Closed.Profile}
   {i : Regula.Closed.Input}
 
-/-- What a constant mentions, read from the fields of its {name}`ConstantInfo`: what Lean's kernel checks it against when
-Lean replays it. That is the type of each constant, the value of a definition, theorem or opaque constant, the
-constructors and the other types of an inductive type's block, the inductive type of a constructor, the types of a
-recursor's block, and {lit}`Eq` for a quotient, whose check in the kernel reads it. -/
 def Mentions : ConstantInfo → Name → Prop
   | .axiomInfo v, u => u ∈ v.type.getUsedConstants
   | .defnInfo v, u => u ∈ v.type.getUsedConstants ∨ u ∈ v.value.getUsedConstants
@@ -70,7 +42,6 @@ def Mentions : ConstantInfo → Name → Prop
   | .recInfo v, u => u ∈ v.type.getUsedConstants ∨ u ∈ v.all
   | .inductInfo v, u => u ∈ v.type.getUsedConstants ∨ u ∈ v.ctors ∨ u ∈ v.all
 
-/-- What the value of a constant mentions, and nothing of a constant that has no value. -/
 def ValueMentions : ConstantInfo → Name → Prop
   | .defnInfo v, u => u ∈ v.value.getUsedConstants
   | .thmInfo v, u => u ∈ v.value.getUsedConstants
@@ -152,51 +123,33 @@ theorem mem_stated {n : Name} {v : ConstantInfo} :
   simpa [Regula.Load.Facts.stated, Array.foldl_toList, Array.mem_toList_iff] using
     mem_statedData f.env.header.moduleData.toList {} n v
 
-/-- A constant is an axiom, by the constructor of its {name}`ConstantInfo`. -/
 def AxiomInfo (k : ConstantInfo) : Prop := ∃ w, k = .axiomInfo w
 
-/-- What the name {name}`c` mentions in the environment: what the constant that the environment keeps
-mentions, and what each constant of that name that a loaded module's own data states mentions. -/
 def EnvMentions (f : Regula.Load.Facts) (c u : Name) : Prop :=
   ∃ k, f.env.constants.map₁[c]? = some k ∧
     (Mentions k u ∨ ∃ v ∈ f.stated.getD c [], Mentions v u)
 
-/-- The name {name}`a` names an axiom in the environment: the constant that the environment keeps is one,
-or a constant of that name that a loaded module's own data states is one. -/
 def EnvAxiom (f : Regula.Load.Facts) (a : Name) : Prop :=
   ∃ k, f.env.constants.map₁[a]? = some k ∧
     (AxiomInfo k ∨ ∃ v ∈ f.stated.getD a [], AxiomInfo v)
 
-/-- {lit}`c` reaches {lit}`e` through what the names of the environment mention. -/
 inductive EnvReaches (f : Regula.Load.Facts) : Name → Name → Prop
-  /-- A constant reaches itself. -/
   | refl (c : Name) : EnvReaches f c c
-  /-- A constant reaches what a constant that it mentions reaches. -/
   | step {c u e : Name} : EnvMentions f c u → EnvReaches f u e → EnvReaches f c e
 
-/-- The closed form of the input, in the terms of the environment: each constant that a name
-mentions is held, and at least one module is claimed. -/
 structure EnvForm (f : Regula.Load.Facts) : Prop where
-  /-- Each mentioned constant is held. -/
   closed : ∀ n u, EnvMentions f n u → ∃ info', f.env.constants.map₁[u]? = some info'
-  /-- At least one module is claimed. -/
   claims : f.claimed ≠ []
 
-/-- The constant {name}`a` is one of the toolchain's: the module that holds it lies in its library. -/
 def EnvToolchain (f : Regula.Load.Facts) (a : Name) : Prop :=
   ∃ m, f.info? a = some m ∧ m.inToolchain = true
 
-/-- Profile {name}`p` admits the axiom {lit}`a` of the environment: one of Lean's three, the toolchain's own
-constant of that name, and in the profile's set. -/
 def EnvAdmits (f : Regula.Load.Facts) : Regula.Closed.Profile → Name → Prop
   | .kernelOnly, _ => False
   | .choiceFree, a => (a = ``propext ∨ a = ``Quot.sound) ∧ EnvToolchain f a
   | .standardLogical, a =>
     (a = ``propext ∨ a = ``Quot.sound ∨ a = ``Classical.choice) ∧ EnvToolchain f a
 
-/-- The form of a recursion helper: a partial, safe-flagged constant `b._unsafe_rec` with no
-{attr}`@[implemented_by]` and not {attr}`@[extern]`, beside a safe, total definition {lit}`b` of its module of which
-the same two hold, and of whose name no loaded module states an axiom. -/
 def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
     Lean.Compiler.getImplementedBy? f.env n = none ∧ Lean.isExtern f.env n = false ∧
@@ -206,20 +159,15 @@ def EnvHelper (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? f.env b = none ∧ Lean.isExtern f.env b = false
 
-/-- The fifteen types with builtin runtime support ({lit}`Lean.Compiler.LCNF.builtinRuntimeTypes`,
-{lit}`Lean/Compiler/LCNF/Util.lean:40-47` at v4.36.0), stated as a literal apart from the checker's list. -/
 def RuntimeBuiltinTypes : List Name :=
   [`String, `UInt8, `UInt16, `UInt32, `UInt64, `USize, `Float, `Float32,
    `Thunk, `Task, `Array, `ByteArray, `FloatArray, `Nat, `Int]
 
-/-- Strips {lit}`k` leading forall binders from an expression, returning the remaining body. -/
 def stripForallsSpec : Nat → Lean.Expr → Option Lean.Expr
   | 0, e => some e
   | k + 1, .forallE _ _ b _ => stripForallsSpec k b
   | _ + 1, _ => none
 
-/-- Independent {name}`Lean.Kernel.whnf`-reducing inductive-type stripper, stated apart from
-{lit}`Regula.Load`. -/
 def stripIndTypeGoSpec (env : Lean.Environment) :
     Nat → Lean.LocalContext → Array Lean.Expr → Lean.Expr → Option (List Lean.Expr × Lean.Level)
   | 0, lctx, _, e =>
@@ -245,49 +193,36 @@ def stripIndTypeGoSpec (env : Lean.Environment) :
       | none => none
     | _ => none
 
-/-- Derives the {lit}`n` parameter/index binder domains and result universe level of {lit}`e`
-via {name}`Lean.Kernel.whnf`. -/
 def stripIndTypeSpec (env : Lean.Environment) (n : Nat) (e : Lean.Expr) :
     Option (List Lean.Expr × Lean.Level) :=
   stripIndTypeGoSpec env n {} #[] e
 
-/-- Strips leading forall binders whose domains match {lit}`doms` by {lit}`Expr.eqv` ({lit}`==`). -/
 def stripForallsWithDomainsSpec : List Lean.Expr → Lean.Expr → Option Lean.Expr
   | [], e => some e
   | d :: ds, .forallE _ td b _ =>
     if td == d then stripForallsWithDomainsSpec ds b else none
   | _ :: _, _ => none
 
-/-- Strips leading lambda binders whose domains match {lit}`doms` by {lit}`Expr.eqv` ({lit}`==`). -/
 def stripLamsWithDomainsSpec : List Lean.Expr → Lean.Expr → Option Lean.Expr
   | [], e => some e
   | d :: ds, .lam _ vd b _ =>
     if vd == d then stripLamsWithDomainsSpec ds b else none
   | _ :: _, _ => none
 
-/-- Strips {lit}`k` leading lambda binders from {lit}`val` and {lit}`k` leading forall binders from
-{lit}`ty` in lockstep, checking {lit}`Expr.eqv` ({lit}`==`) on each lambda domain against the
-head-beta-reduced forall domain. -/
 def stripLamMatchingForallSpec : Nat → Lean.Expr → Lean.Expr → Option (Lean.Expr × Lean.Expr)
   | 0, v, t => some (v, t)
   | k + 1, .lam _ vd vb _, .forallE _ td tb _ =>
     if vd == td.headBeta then stripLamMatchingForallSpec k vb tb else none
   | _ + 1, _, _ => none
 
-/-- The list of {lit}`n` consecutive bound variables down to {lit}`offset`. -/
 def bvarListSpec : Nat → Nat → List Lean.Expr
   | 0, _ => []
   | n + 1, offset => .bvar (n + offset) :: bvarListSpec n offset
 
-/-- Lifts outer parameter bound variables ({lit}`≥ depth`) in each index domain by {lit}`shift`. -/
 def liftIdxDomainsSpec (shift : Nat) : Nat → List Lean.Expr → List Lean.Expr
   | _, [] => []
   | depth, d :: ds => d.liftLooseBVars depth shift :: liftIdxDomainsSpec shift (depth + 1) ds
 
-/-- Independent check that {lit}`ind.casesOn` is a safe definition matching
-{name}`Lean.mkCasesOnImp` on {name (full := Lean.Environment.toKernelEnv)}`toKernelEnv` with an
-extra universe parameter ({lit}`Lean/Meta/Constructions/CasesOn.lean:17`,
-{lit}`Lean/Meta/Constructions/CtorIdx.lean:87`). -/
 def checkCasesOnSpec (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal) : Bool :=
   match env.find? (.str ind "casesOn"), Lean.mkCasesOnImp env.toKernelEnv ind with
   | some (.defnInfo cv), .ok (.defnDecl d) =>
@@ -295,9 +230,6 @@ def checkCasesOnSpec (env : Lean.Environment) (ind : Name) (indInfo : Lean.Induc
       cv.levelParams == d.levelParams && cv.type == d.type && cv.value == d.value
   | _, _ => false
 
-/-- Checks that each branch matches its constructor's field domains derived from {lit}`cInfo.type`
-after stripping and instantiating {lit}`np` parameters, and ends in the index literal
-{lit}`cInfo.cidx`. -/
 def checkCtorAltsSpec (env : Lean.Environment) (ind : Name) (np ni : Nat) :
     List Name → List Lean.Expr → Bool
   | [], [] => true
@@ -316,8 +248,6 @@ def checkCtorAltsSpec (env : Lean.Environment) (ind : Name) (np ni : Nat) :
     | _ => false
   | _, _ => false
 
-/-- Independent specification of the structural shape of Lean's safe {lit}`ind.ctorIdx` definition
-({lit}`Lean/Meta/Constructions/CtorIdx.lean:77-141` at v4.36.0), stated apart from {lit}`Regula.Load`. -/
 def ctorIdxDefShape (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal)
     (d : Lean.DefinitionVal) : Bool :=
   let np := indInfo.numParams
@@ -355,9 +285,6 @@ def ctorIdxDefShape (env : Lean.Environment) (ind : Name) (indInfo : Lean.Induct
         | none => false
     | none => false
 
-/-- Independent specification of the structural shape of Lean's unsafe {lit}`ind.ctorIdx._impl`
-implementation ({lit}`Lean/Meta/Constructions/CtorIdx.lean:40-69` at v4.36.0), stated apart from
-{lit}`Regula.Load`. -/
 def ctorIdxImplShape (env : Lean.Environment) (ind : Name) (indInfo : Lean.InductiveVal)
     (dDef d : Lean.DefinitionVal) : Bool :=
   let n := indInfo.numParams + indInfo.numIndices
@@ -379,9 +306,6 @@ def ctorIdxImplShape (env : Lean.Environment) (ind : Name) (indInfo : Lean.Induc
         | _ => false
     | none => false
 
-/-- Independent classification of a constant {name}`n` with {name}`info` in {name}`env` as
-{lit}`CtorIdxForm.defn`, {lit}`CtorIdxForm.impl`, or {lit}`CtorIdxForm.none`, stated without naming
-{lit}`Regula.Load`. -/
 def ctorIdxShape (env : Lean.Environment) (n : Name) (info : ConstantInfo) : CtorIdxForm :=
   match n, info with
   | .str (.str ind "ctorIdx") "_impl", .defnInfo d =>
@@ -396,9 +320,6 @@ def ctorIdxShape (env : Lean.Environment) (n : Name) (info : ConstantInfo) : Cto
     | _ => .none
   | _, _ => .none
 
-/-- Lean's own runtime-builtin predicate agrees with the specification's literal list
-{name}`RuntimeBuiltinTypes`. A toolchain that changes {lit}`Lean.Compiler.LCNF.builtinRuntimeTypes`
-fails this proof. -/
 theorem isRuntimeBuiltinType_eq (n : Name) :
     Lean.Compiler.LCNF.isRuntimeBuiltinType n = RuntimeBuiltinTypes.contains n := by
   rw [Bool.eq_iff_iff]
@@ -566,9 +487,6 @@ theorem ctorIdxFormOf_eq_iff (env : Lean.Environment) (n : Name) (k v : Constant
       ctorIdxShape env n k = ctorIdxShape env n v := by
   rw [← ctorIdxForm_inj, ctorIdxFormOf_eq_shape, ctorIdxFormOf_eq_shape]
 
-/-- The compiler-generated {lit}`T.ctorIdx` / {lit}`T.ctorIdx._impl` pair for safe inductive
-{name}`ind` in module {name}`m`, stated over raw {lit}`f.env`, {lit}`f.modules`, and
-{lit}`f.toolchainDir` without calling {lit}`Regula.Load` functions. -/
 def EnvCtorIdxPair (f : Regula.Load.Facts) (ind : Name) (defv implv : Lean.DefinitionVal)
     (m : Name) : Prop :=
   let defName := Name.str ind "ctorIdx"
@@ -606,37 +524,24 @@ def EnvCtorIdxPair (f : Regula.Load.Facts) (ind : Name) (defv implv : Lean.Defin
   Lean.isExtern f.env implName = false ∧
   Lean.getInitFnNameFor? f.env implName = none
 
-/-- The safe half {lit}`T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair in the loaded
-environment. -/
 def EnvCtorIdxDef (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   ∃ ind defv implv, n = Name.str ind "ctorIdx" ∧ info = .defnInfo defv ∧
     EnvCtorIdxPair f ind defv implv m
 
-/-- The unsafe half {lit}`T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair in the
-loaded environment. -/
 def EnvCtorIdxImpl (f : Regula.Load.Facts) (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   ∃ ind defv implv, n = Name.str (Name.str ind "ctorIdx") "_impl" ∧ info = .defnInfo implv ∧
     EnvCtorIdxPair f ind defv implv m
 
-/-- The environment holds {name}`u` as a theorem: the constant that it keeps is one, and no loaded module
-states an axiom of that name. -/
 def EnvTheorem (f : Regula.Load.Facts) (u : Name) : Prop :=
   ∃ v, f.env.constants.map₁[u]? = some (.thmInfo v) ∧ ∀ w ∈ f.stated.getD u [], ¬ AxiomInfo w
 
-/-- {name}`u` is a panic form in the terms of the environment: one of Lean's four panic functions, or a name
-that {name}`BangNamed` admits and that the environment does not hold as a theorem. -/
 def EnvPanic (f : Regula.Load.Facts) (u : Name) : Prop :=
   u ∈ panicFunctions ∨ (BangNamed u ∧ ¬ EnvTheorem f u)
 
-/-- The module {name}`m` of the environment is a {lit}`module` file: the data that the environment holds of its
-{lit}`.olean` says so ({name (full := Lean.ModuleData.isModule)}`ModuleData.isModule`). It names no function of the
-checker. -/
 def EnvModuleFile (env : Lean.Environment) (m : Name) : Prop :=
   ∃ (k : Nat) (data : Lean.ModuleData), env.header.moduleNames[k]? = some m ∧
     env.header.moduleData[k]? = some data ∧ data.isModule = true
 
-/-- An exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entry of module {name}`m` in {name}`env`
-names the theorem {name}`thm`. -/
 def ModuleCSimp (env : Lean.Environment) (m thm : Name) : Prop :=
   ∃ idx, env.getModuleIdx? m = some idx ∧
     ∃ e : Lean.Compiler.CSimp.Entry,
@@ -644,28 +549,9 @@ def ModuleCSimp (env : Lean.Environment) (m thm : Name) : Prop :=
         ∃ ns, Lean.ScopedEnvExtension.Entry.scoped ns e ∈ Lean.Compiler.CSimp.ext.ext.getModuleEntries env idx) ∧
       e.thmName = thm
 
-/-- Module {name}`m` has an index in {name}`env`, and each theorem that an exported {attr}`@[csimp]` entry
-of {name}`m` names ({name}`ModuleCSimp`) meets {name}`Claimed`. A missing module index is never treated as
-empty entries. -/
 def ModuleCSimpIn (env : Lean.Environment) (Claimed : Name → Prop) (m : Name) : Prop :=
   (∃ idx, env.getModuleIdx? m = some idx) ∧ ∀ thm, ModuleCSimp env m thm → Claimed thm
 
-/-- What the rules state, in the terms of the environment. Each claimed module is a {lit}`module` file (RG1013),
-and has a module index whose exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entries each name a
-constant declared in some claimed module's own {lit}`.olean` data (RG1011, with a missing index refused as
-RG2001). And what RG1001 to RG1006, RG1011 and RG1012 state of each constant of a claimed module: no loaded
-module states an axiom of its name (RG1001). When it is unsafe or partial, or
-has a recursion helper's name, it has an exempted form ({name}`EnvHelper` or {name}`EnvCtorIdxImpl`, RG1006),
-its value mentions no loop construct of Lean (RG1006), and, when it is a definition or an opaque constant,
-its value does not mention {name}`Lean.Order.fix` (RG1006). Each axiom that it reaches, through what any loaded
-module's own
-data states, is one that the profile admits (RG1005), which also excludes {name}`sorryAx` (RG1002), a
-native proof's axiom (RG1004) and every other axiom (RG1003): {name}`rg1005_of_hole`,
-{name}`rg1005_of_compiler`, {name}`rg1005_of_unknown`. The environment gives it no constant by
-{attr}`@[implemented_by]` (unless it is the safe half of a verified {lit}`ctorIdx` pair,
-{name}`EnvCtorIdxDef`), does not mark it {attr}`@[extern]` and, when it is a definition, names no
-initialization function for it (RG1011). When it is a definition or an
-opaque constant, its value mentions no panic form (RG1012). -/
 def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   (∀ m ∈ f.claimed, EnvModuleFile f.env m) ∧
   (∀ m ∈ f.claimed, ModuleCSimpIn f.env (fun thm => ∃ cm info, (cm, thm, info) ∈ f.claimedConstants) m) ∧
@@ -681,8 +567,6 @@ def EnvFloor (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
     ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? f.env n = none) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ EnvPanic f u)
 
-/-- The module's own attribute entries contain neither replacement attribute for this name,
-including when another module's constant has the same name. -/
 def ModuleUnreplaced (env : Lean.Environment) (m n : Name) : Prop :=
   ∃ idx, env.getModuleIdx? m = some idx ∧
     (∀ entry ∈ Lean.Compiler.implementedByAttr.ext.getModuleEntries env idx, entry.1 ≠ n) ∧
@@ -695,9 +579,6 @@ theorem unreplaced_iff (m n : Name) :
     simp only [Option.some.injEq, reduceCtorEq, false_and, exists_false, Bool.false_eq_true,
       exists_eq_left', Bool.and_eq_true, Array.all_eq_true_iff_forall_mem, bne_iff_ne]
 
-/-- Module {name}`m`'s own replacement entries for {name}`n` are solely the compiler-generated
-{lit}`(n, n._impl)` entry for a constant whose expression has shape {lit}`CtorIdxForm.defn`,
-with no {attr}`@[extern]` entry and no other {attr}`@[implemented_by]` entry. -/
 def ModuleCtorIdxEntryOnly (env : Lean.Environment) (m n : Name) (info : ConstantInfo) : Prop :=
   (∃ ind, ctorIdxShape env n info = .defn ind) ∧
   ∃ idx, env.getModuleIdx? m = some idx ∧
@@ -721,8 +602,6 @@ theorem ctorIdxEntryOnly_iff (m n : Name) (info : ConstantInfo) :
         Option.some.injEq, exists_eq_left', Bool.and_eq_true,
         Array.all_eq_true_iff_forall_mem, Bool.or_eq_true, bne_iff_ne, beq_iff_eq, hor]
 
-/-- The module's own entries of {attr}`@[init]` and {attr}`@[builtin_init]` name no initialization function
-for this name: each of its entries for the name holds the anonymous name, the form that names none. -/
 def ModuleUninitialized (env : Lean.Environment) (m n : Name) : Prop :=
   ∃ idx, env.getModuleIdx? m = some idx ∧
     (∀ entry ∈ Lean.regularInitAttr.ext.getModuleEntries env idx, entry.1 = n → entry.2 = .anonymous) ∧
@@ -829,29 +708,18 @@ theorem safetyOf_unsafe (info : ConstantInfo) :
     Regula.Load.safetyOf info = .unsafe ↔ info.isUnsafe = true := by
   unfold Regula.Load.safetyOf; cases info.isUnsafe <;> cases info.isPartial <;> decide
 
-/-- What the loader gives, in the terms of the environment. -/
 structure Loaded (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile)
     (i : Regula.Closed.Input) : Prop where
-  /-- The profile is the one that the shell read. -/
   profile : i.profile = p
-  /-- The claimed modules are those of the facts. -/
   modules : i.modules = f.claimed
-  /-- The modules that are {lit}`module` files are those of the facts. -/
   moduleFiles : i.moduleFiles = f.moduleFiles
-  /-- Every claimed module has an index in the loaded environment. -/
   indexed : ∀ m ∈ f.claimed, ∃ idx, f.env.getModuleIdx? m = some idx
-  /-- Of the names that the exported {attr}`@[csimp]` entries give, the input holds those that
-  {name (full := Regula.Load.Facts.claimedConstants)}`Facts.claimedConstants` lists for a claimed module. -/
   claimedConstants : ∀ c, c ∈ i.claimedConstants ↔
     (∃ e ∈ i.csimps, e.thm = c) ∧ ∃ cm info, (cm, c, info) ∈ f.claimedConstants
-  /-- The exported ({lit}`global` or {lit}`scoped`) {attr}`@[csimp]` entries are exactly those of the claimed modules. -/
   csimps : ∀ e, e ∈ i.csimps ↔ e.module ∈ f.claimed ∧ ModuleCSimp f.env e.module e.thm
-  /-- Each module of {name}`roots` is claimed. -/
   roots : ∀ r ∈ roots, r ∈ f.claimed
-  /-- Each constant of the input is a constant of the environment, with the fields it gives. -/
   sound : ∀ d ∈ i.decls, ∃ info m, f.env.constants.map₁[d.name]? = some info ∧
     f.info? d.name = some m ∧ d = f.declIn d.name m info (f.stated.getD d.name [])
-  /-- Each constant of the environment is in the input. -/
   whole : ∀ n info, f.env.constants.map₁[n]? = some info →
     ∃ m, f.info? n = some m ∧ f.declIn n m info (f.stated.getD n []) ∈ i.decls
 
@@ -1169,8 +1037,6 @@ theorem kind_theorem {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantI
     ((kindIn_eq_of_ne_axiom (by decide)).trans (and_congr_left fun _ => by
       cases info with | thmInfo v => exact ⟨fun _ => ⟨v, rfl⟩, fun _ => rfl⟩ | _ => exact ⟨(fun h => by cases h), (by rintro ⟨_, h⟩; cases h)⟩))
 
-/-- A constant of no stated axiom is a definition or an opaque constant in the input exactly when its
-{name}`ConstantInfo` is one. -/
 theorem kind_runs {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantInfo}
     {s : List ConstantInfo} (hs : ∀ w ∈ s, ¬ AxiomInfo w) :
     ((decl (f.declIn n m info s)).kind = .definition ∨ (decl (f.declIn n m info s)).kind = .opaque) ↔
@@ -1387,8 +1253,6 @@ theorem flagged_iff {n : Name} {m : Regula.Load.LoadedModule} {info : ConstantIn
     rw [ne_eq, safety_safe]; cases info.isUnsafe <;> cases info.isPartial <;> decide
   rw [hs, or_assoc]; rfl
 
-/-- What every rule of the registry states, rule by rule: the statement that {name}`EnvFloor` restates in the terms of the
-environment. A rule added to the registry makes this false until {name}`EnvFloor` and this theorem state it too. -/
 theorem allHold_iff (i : Input) : AllHold i ↔
     (∀ c, ¬ Violates1001 i c) ∧ (∀ c, ¬ Violates1002 i c) ∧ (∀ c, ¬ Violates1003 i c) ∧
       (∀ c, ¬ Violates1004 i c) ∧ (∀ c, ¬ Violates1005 i c) ∧ (∀ c, ¬ Violates1006 i c) ∧
@@ -1646,34 +1510,23 @@ theorem profileOf_eq_some {text : String} {q : Regula.Closed.Profile}
   have hs := Regula.Closed.Profile.ofSpelling?_eq_some.mp h
   subst hs; cases q <;> simp only [Regula.Closed.Profile.spelling, true_and, true_or, or_true]
 
-/-- {name (full := Regula.Load.below)}`below` is a test on components: the directory's are a proper prefix of the path's. It does not resolve `..`, and it does not
-tell an absolute path from a relative one. -/
 theorem below_iff (dir path : System.FilePath) :
     Regula.Load.below dir path = true ↔
       Regula.Load.parts dir <+: Regula.Load.parts path ∧
         Regula.Load.parts dir ≠ Regula.Load.parts path := by
   simp only [Regula.Load.below, Bool.and_eq_true, List.isPrefixOf_iff_prefix, bne_iff_ne]
 
-/-- {name (full := Regula.Load.exactBelow)}`exactBelow` is a test on the components of the three paths: the real path's are the path's, and the directory's are a prefix of them,
-so at or below. It does not tell an absolute path from a relative one. -/
 theorem exactBelow_iff (dir path real : System.FilePath) :
     Regula.Load.exactBelow dir path real = true ↔
       Regula.Load.parts real = Regula.Load.parts path ∧
         Regula.Load.parts dir <+: Regula.Load.parts path := by
   simp only [Regula.Load.exactBelow, Bool.and_eq_true, beq_iff_eq, List.isPrefixOf_iff_prefix]
 
-/-- A path with a `..` passes {name (full := Regula.Load.exactBelow)}`exactBelow` against no real path that has none, so a `..` needs no test of
-its own. That {name}`IO.FS.realPath` gives a path with no `..` is the operating system's. -/
 theorem exactBelow_no_parent (dir path real : System.FilePath)
     (h : Regula.Load.exactBelow dir path real = true) (hr : ".." ∉ Regula.Load.parts real) :
     ".." ∉ Regula.Load.parts path :=
   ((exactBelow_iff dir path real).mp h).1 ▸ hr
 
-/-- What the loader asks of each constant of a claimed module's own {lit}`.olean` that the environment does not show to the rules
-({name (full := Regula.Load.Facts.shown)}`Facts.shown`), in the terms of the environment: a safe theorem with neither replacement attribute
-in its own module and no recursion helper's name, whose value mentions no
-loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. Lean's import
-replaces such a constant ({name (full := Regula.Load.Facts.stated)}`Facts.stated`), so no rule reads it as a subject. -/
 def EnvUnshown (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
   ∀ x ∈ f.claimedConstants, f.shown x = false →
     ModuleUnreplaced f.env x.1 x.2.1 ∧
@@ -1682,19 +1535,11 @@ def EnvUnshown (f : Regula.Load.Facts) (p : Regula.Closed.Profile) : Prop :=
     ∀ u, Mentions x.2.2 u → (∃ k, f.env.constants.map₁[u]? = some k) ∧
       ∀ a, EnvReaches f u a → EnvAxiom f a → EnvAdmits f p a
 
-/-- What a build must be for the loader and the rules to pass it, in the terms of the {name (full := Regula.Load.Facts)}`Facts` and the roots:
-each module of {name}`roots` is claimed, each constant has a module, and the environment has {name}`EnvForm`, {name}`EnvFloor` and
-{name}`EnvUnshown`. -/
 structure LoadFloor (f : Regula.Load.Facts) (roots : List Name) (p : Regula.Closed.Profile) : Prop where
-  /-- Each module of {name}`roots` is claimed. -/
   roots : ∀ r ∈ roots, r ∈ f.claimed
-  /-- Each constant has a module. -/
   placed : ∀ n info, f.env.constants.map₁[n]? = some info → ∃ m, f.info? n = some m
-  /-- The closed form. -/
   form : EnvForm f
-  /-- The floor of the rules. -/
   floor : EnvFloor f p
-  /-- What the environment does not show. -/
   unshown : EnvUnshown f p
 
 theorem unread_none_of {i : Regula.Closed.Input}
@@ -1769,28 +1614,18 @@ theorem pass_iff_floor :
       (input_kept hi hx).elim (fun ht => absurd (hs.symm.trans ht) Bool.false_ne_true) (fitsUnshown_iff hl x).mp⟩
   · intro h; obtain ⟨i, hi⟩ := input_of_floor h; exact hi ▸ (pass_iff hi).mpr ⟨h.form, h.floor⟩
 
-/-! ## The cone that Lean's kernel replays -/
-
-/-- The constants that Lean's kernel builds into a term that it checks, read from its source at v4.36.0: the types of a
-literal, what it unfolds a number and a string literal to, and the values of its arithmetic on numbers
-({lit}`Lean/Expr.lean:622-624`, {lit}`src/kernel/inductive.cpp:1347-1390`, {lit}`src/kernel/type_checker.cpp:665`,
-{lit}`src/library/constants.cpp:12-15`). It is stated here as a literal, apart from the checker's list. -/
 def KernelNames : List Name :=
   [`Nat, `String, `Nat.zero, `Nat.succ, `String.ofList, `List.cons, `List.nil, `Char, `Char.ofNat, `Bool.true,
     `Bool.false]
 
-/-- The checker's list is this one, so a change of either fails this proof. -/
 theorem kernelNames_eq : Regula.Closed.Input.kernelNames = KernelNames := by rfl
 
-/-- What the constant of a name mentions in the input, and nothing for a name that the input does not hold. -/
 def inputMentions (i : Regula.Closed.Input) (n : Name) : List Name :=
   ((i.index[n]?).map (·.uses)).getD []
 
-/-- Where the checker's cone starts: each constant of a claimed module, and each of {name}`seeds`. -/
 def inputSeeds (i : Regula.Closed.Input) (seeds : List Name) : List Name :=
   i.claimedDecls.map (·.name) ++ seeds
 
-/-- The checker's cone is the search over what each constant of the input mentions, from those seeds. -/
 theorem cone_eq (i : Regula.Closed.Input) (seeds : List Name) :
     i.cone seeds = Regula.Closed.reach (inputMentions i) (i.decls.map (·.uses.length)).sum (inputSeeds i seeds) := by rfl
 
@@ -1822,7 +1657,6 @@ theorem reach_inputMentions_iff (i : Regula.Closed.Input) {s x : Name} :
    fun h => by induction h with | refl => exact .refl | step _ hd hn hu _ ih =>
      subst hn; exact reach_cons ih ((inputMentions_name i hd).symm ▸ hu)⟩
 
-/-- **The checker's search gives exactly what its seeds reach** through what each constant of the input mentions. -/
 theorem mem_cone (i : Regula.Closed.Input) (seeds : List Name) (x : Name) :
     (i.cone seeds).contains x = true ↔ ∃ s ∈ inputSeeds i seeds, i.Reaches s x := by
   rw [cone_eq, Regula.Closed.mem_reach (i.decls.map (·.name)) (inputSeeds i seeds)]
@@ -1837,18 +1671,13 @@ theorem mem_cone (i : Regula.Closed.Input) (seeds : List Name) (x : Name) :
   · rw [List.map_map]
     exact Nat.le_of_eq (congrArg List.sum (List.map_congr_left fun d hd => by simp [inputMentions_name i hd]))
 
-/-- Where the cone of a claim starts, in the terms of the environment: a constant of a claimed module, a name that a claimed
-module's own data states ({name}`mem_claimedConstants`), or one of {name}`KernelNames`. -/
 def ConeSeed (f : Regula.Load.Facts) (s : Name) : Prop :=
   (∃ info m, f.env.constants.map₁[s]? = some info ∧ f.moduleOf? s = some m ∧ m ∈ f.claimed) ∨
     (∃ m info, (m, s, info) ∈ f.claimedConstants) ∨ s ∈ KernelNames
 
-/-- The cone of the claim, in the terms of the environment: each name that a seed reaches through what the names of the
-environment mention ({name}`EnvMentions`). -/
 def InCone (f : Regula.Load.Facts) (n : Name) : Prop :=
   ∃ s, ConeSeed f s ∧ EnvReaches f s n
 
-/-- The cone is closed under what its names mention. -/
 theorem inCone_mentions {n u : Name} (h : InCone f n) (hm : EnvMentions f n u) : InCone f u := by
   obtain ⟨s, hs, hr⟩ := h
   exact ⟨s, hs, by clear hs; induction hr with | refl => exact .step hm (.refl u) | step h₁ _ ih => exact .step h₁ (ih hm)⟩
@@ -1872,12 +1701,10 @@ theorem mem_inputSeeds (hl : Loaded f roots p i) (s : Name) : s ∈ inputSeeds i
     rw [hlm] at hlm'; cases hlm'
     exact ⟨_, ⟨hmem, hl.modules.symm ▸ hc⟩, rfl⟩
 
-/-- **The cone that the checker computes is the cone of the claim**, in the terms of the environment. -/
 theorem mem_cone_env (hl : Loaded f roots p i) (n : Name) : (i.cone f.coneSeeds).contains n = true ↔ InCone f n := by
   rw [mem_cone]
   exact exists_congr fun s => and_congr (mem_inputSeeds hl s) (Link.reaches_iff.trans (reaches_env hl s n))
 
-/-- Which constants Lean's replay is given, in other terms than the checker's test: each but a quotient's companion. -/
 theorem replays_iff (info : ConstantInfo) :
     Regula.Load.replays info = true ↔ ∀ v, info = .quotInfo v → v.kind = .type := by
   cases info with
@@ -1910,7 +1737,6 @@ theorem replayFold_get (M : Std.HashMap Name ConstantInfo) (n : Name) (info : Co
     simp only [or_and_right, eq_comm (a := x)]
     rw [or_left_comm, ← or_assoc]
 
-/-- The part of the replay's map that the cone gives. -/
 def coneConstants (f : Regula.Load.Facts) (i : Regula.Closed.Input) : Std.HashMap Name ConstantInfo :=
   (i.cone f.coneSeeds).toList.foldl (Regula.Load.replayStep f.env.constants.map₁) {}
 
@@ -1921,7 +1747,6 @@ theorem mem_coneConstants (f : Regula.Load.Facts) (i : Regula.Closed.Input) (n :
   rw [coneConstants, replayFold_get _ n info _ {} (by simp only [Std.HashMap.getElem?_empty, reduceCtorEq, false_implies, implies_true])]
   simp only [Std.HashSet.mem_toList, Std.HashSet.contains_iff_mem, Std.HashMap.getElem?_empty, reduceCtorEq, or_false]
 
-/-- The entries of the copies, each under its name. -/
 def copyEntries (f : Regula.Load.Facts) : List (Name × ConstantInfo) :=
   f.copies.zipIdx.map (Regula.Load.copyAt (Regula.Load.copyRoot f.env.constants.map₁))
 
@@ -1957,7 +1782,6 @@ theorem depth_le_fold (l : List Name) (init : Nat) :
     exact ⟨Nat.le_trans (Nat.le_max_left _ _) h1,
       fun x hx => (List.mem_cons.mp hx).elim (fun h => by subst h; exact Nat.le_trans (Nat.le_max_right _ _) h1) (h2 x)⟩
 
-/-- **No constant of the environment has the name of a copy**: the root of those names is deeper than each of its names. -/
 theorem copy_name_fresh (f : Regula.Load.Facts) (k : Nat) :
     Name.num (Regula.Load.copyRoot f.env.constants.map₁) k ∉ f.env.constants.map₁ := by
   intro hmem
@@ -1965,7 +1789,6 @@ theorem copy_name_fresh (f : Regula.Load.Facts) (k : Nat) :
   simp only [Regula.Load.copyRoot, Regula.Load.depth, depth_zeros] at hk
   omega
 
-/-- The copies have distinct names. -/
 theorem copyEntries_nodup (f : Regula.Load.Facts) : ((copyEntries f).map (·.1)).Nodup := by
   have heq : (copyEntries f).map (·.1) =
       (List.range' 0 f.copies.length).map (Name.num (Regula.Load.copyRoot f.env.constants.map₁)) := by
@@ -1974,8 +1797,6 @@ theorem copyEntries_nodup (f : Regula.Load.Facts) : ((copyEntries f).map (·.1))
   rw [heq]
   exact List.Pairwise.map _ (fun a b hab heq => hab (Name.num.inj heq).2) List.nodup_range'
 
-/-- **What Lean's replay is given**, in the terms of the environment: the constants of the cone of the claim, each as the
-environment keeps it, but the companions of {lit}`Quot`, which the kernel adds with it, and the copies, each under a name of its own. -/
 theorem replayConstants_env (hl : Loaded f roots p i) (n : Name) (info : ConstantInfo) :
     (f.replayConstants i)[n]? = some info ↔
       (f.env.constants.map₁[n]? = some info ∧ InCone f n ∧ ∀ v, info = .quotInfo v → v.kind = .type) ∨
@@ -1992,8 +1813,6 @@ theorem replayConstants_env (hl : Loaded f roots p i) (n : Name) (info : Constan
         rw [h2]; rfl))
     · exact .inl h
 
-/-- **Each theorem of a claimed module is checked**: as its own module's data states it, it is, by {lit}`==`, the constant of its
-name that the environment keeps, or the replay is given it under a name of its own, with its type and its value. -/
 theorem claimed_theorem_replayed (hl : Loaded f roots p i) {m n : Name} {v : Lean.TheoremVal}
     (hx : (m, n, .thmInfo v) ∈ f.claimedConstants) :
     (f.env.constants.map₁[n]? == some (.thmInfo v)) = true ∨
@@ -2006,7 +1825,6 @@ theorem claimed_theorem_replayed (hl : Loaded f roots p i) {m n : Name} {v : Lea
     exact .inr ⟨k, (replayConstants_env hl _ _).mpr
       (.inr (List.mem_map.mpr ⟨(v, k), List.mem_zipIdx_iff_getElem?.mpr hk', rfl⟩))⟩
 
-/-- Each constant of a claimed module is in the cone, so the replay is given it unless it is a quotient's companion. -/
 theorem claimed_inCone {n m : Name} {info : ConstantInfo} (hn : f.env.constants.map₁[n]? = some info)
     (hm : f.moduleOf? n = some m) (hc : m ∈ f.claimed) : InCone f n :=
   ⟨n, .inl ⟨info, m, hn, hm, hc⟩, .refl n⟩
