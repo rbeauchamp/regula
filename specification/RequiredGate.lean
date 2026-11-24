@@ -12,7 +12,6 @@ unsafe def main (args : List String) : IO UInt32 := do
   let built ← match LeanIntent.Required.Read.queryModules (← IO.FS.readFile path) with
     | .ok built => pure built
     | .error e => throw <| IO.userError s!"the build's module list cannot be read: {e}"
-  Lean.initSearchPath (← Lean.findSysroot)
   Lean.enableInitializersExecution
   let env ← Lean.importModules
     #[{ module := `RegulaSpecification, importAll := true }] {} (loadExts := true) (level := .private)
