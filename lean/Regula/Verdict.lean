@@ -1,26 +1,15 @@
 module
 
-/-!
-# The verdict
-
-The three verdicts of a run of the checker, and the exit code and the word of each.
--/
-
 public section
 
 namespace Regula.Closed
 
-/-- The verdict of a run. -/
 inductive Verdict where
-  /-- The input has the closed form, and no rule reports a subject. -/
   | pass
-  /-- A rule reports a subject. -/
   | fail
-  /-- The build could not be loaded, or the input does not have the closed form. -/
   | incomplete
   deriving DecidableEq, Repr
 
-/-- The exit code of each verdict. -/
 def Verdict.exitCode : Verdict → UInt32
   | .pass => 0
   | .fail => 1
@@ -33,12 +22,9 @@ theorem Verdict.exitCode_injective : Function.Injective Verdict.exitCode := by
 theorem Verdict.exitCode_eq_zero_iff (v : Verdict) : v.exitCode = 0 ↔ v = .pass := by
   cases v <;> decide
 
-/-- The one Lean release that this revision of Regula reads, by its version and commit. The rules read a name
-form, a recursion helper's form and a `ctorIdx` pair's form that this release gives. -/
 def pinnedLean : String × String :=
   ("4.36.0", "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9")
 
-/-- The word of each verdict, which the last line of a run prints. -/
 def Verdict.label : Verdict → String
   | .pass => "pass"
   | .fail => "fail"
@@ -48,19 +34,15 @@ theorem Verdict.label_injective : Function.Injective Verdict.label := by
   intro a b h
   cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
 
-/-- The words that state the proof verdict `v`: a function of the verdict alone. -/
 def Verdict.proofLine : Verdict → String
   | .pass => "regula: proof verdict: pass, which says nothing about what ran during the build"
   | .fail => "regula: proof verdict: fail"
   | .incomplete => "regula: proof verdict: incomplete (RG2001)"
 
-/-- Diagnostic text on one physical line: display LF and CR as escapes, preserving other characters. -/
 def detailText (text : String) : String :=
   String.ofList (text.toList.flatMap fun c =>
     if c == '\n' then ['\\', 'n'] else if c == '\r' then ['\\', 'r'] else [c])
 
-/-- The last line of a run with the proof verdict `v` on the workspace at `subject`: a pass says what it audited, on one
-physical line and at the end of the line, so that no path can change the words that state the verdict. -/
 def Verdict.proofLineOn (subject : String) : Verdict → String
   | .pass => Verdict.pass.proofLine ++ ", on " ++ detailText subject
   | v => v.proofLine

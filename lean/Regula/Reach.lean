@@ -2,29 +2,15 @@ module
 
 public import Std.Data.HashSet
 
-/-!
-# Reachability over names
-
-The one search of the rules over the closed input (`Regula.Tables`): from each axiom, backwards through the
-constants that mention it (`Input.axiomReach`). `reach` is total, and its fuel is an argument, not a guess:
-each step of the search takes one name off its work list, and adds to it only what `next` gives for a name
-that it has not seen, so the sum of the work list and of what `next` gives for the unseen names falls by at
-least one at each step (`unseenWeight_insert`).
--/
-
 public section
 
 namespace Regula.Closed
 open Lean (Name)
 
-/-- `e` is `s`, or a name that `next` gives from a name that `s` reaches. -/
 inductive Reach (next : Name → List Name) (s : Name) : Name → Prop
-  /-- `s` reaches itself. -/
   | refl : Reach next s s
-  /-- `s` reaches what `next` gives for a name that it reaches. -/
   | step {b c : Name} : Reach next s b → c ∈ next b → Reach next s c
 
-/-- The search: `seen` holds the names it has visited, and `work` those it has still to visit. -/
 def reachGo (next : Name → List Name) : Nat → Std.HashSet Name → List Name → Std.HashSet Name
   | 0, seen, _ => seen
   | _ + 1, seen, [] => seen
@@ -32,7 +18,6 @@ def reachGo (next : Name → List Name) : Nat → Std.HashSet Name → List Name
     if seen.contains n then reachGo next k seen rest
     else reachGo next k (seen.insert n) (next n ++ rest)
 
-/-- What `next` gives for the names of `us` that are not in `seen`. -/
 def unseenWeight (next : Name → List Name) (us : List Name) (seen : Std.HashSet Name) : Nat :=
   ((us.filter fun n => !seen.contains n).map fun n => (next n).length).sum
 
@@ -190,8 +175,6 @@ theorem unseenWeight_le (next : Name → List Name) (us : List Name) (seen : Std
     simp only [List.filter_cons, List.map_cons, List.sum_cons]
     split <;> (try simp only [List.map_cons, List.sum_cons]) <;> omega
 
-/-- Every name that `seeds` reach through `next`, by a search with `weight` for what `next` gives
-over all names (`mem_reach`). -/
 def reach (next : Name → List Name) (weight : Nat) (seeds : List Name) : Std.HashSet Name :=
   reachGo next (seeds.length + weight) {} seeds
 
