@@ -1,0 +1,47 @@
+name: Auto-assign issue
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  assign:
+    name: Auto-assign opened issue
+    if: ${{ github.event.issue.assignee == null && github.event.issue.assignees[0] == null }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Assign issue to collaborator creator or fallback owner
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
+          USER_TYPE: ${{ github.event.issue.user.type }}
+          CREATOR: ${{ github.event.issue.user.login }}
+          FALLBACK_OWNER: ${{ vars.DEFAULT_ISSUE_OWNER || github.repository_owner }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid issue number: ${ISSUE_NUMBER}" >&2
+            exit 1
+          fi
+          assignee="$FALLBACK_OWNER"
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER|MEMBER|COLLABORATOR)
+              if [[ "$USER_TYPE" == "User" ]]; then
+                assignee="$CREATOR"
+              fi
+              ;;
+          esac
+          if [[ ! "$assignee" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]]; then
+            echo "Invalid resolved assignee login: ${assignee}" >&2
+            exit 1
+          fi
+          jq -n --arg a "$assignee" '{assignees: [$a]}' \
+            | gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/assignees" --method POST --input - >/dev/null
