@@ -20,28 +20,22 @@ namespace RegulaSpecification.Required
 open Lean (Name Environment)
 open LeanIntent
 
-def plainGloss (req rulesOut allows freedom : String) : Gloss where
-  requires := req
-  rulesOut := rulesOut
-  allows := allows
-  freedom := freedom
-
 def ruleExplanation (rule : String) (V : Input → Name → Prop) (summary : String) :
     Explanation (ruleRecord rule V) where
-  shape := plainGloss
+  shape := Gloss.mk
     s!"Pure rule checker from admitted closed inputs to reported {rule} subjects."
     "Impure checks or reading outside the admitted closed input."
     "Any total list of subjects per admitted closed input."
     "Order and multiplicity of reported subjects."
   dom := []
-  props := [plainGloss
+  props := [Gloss.mk
     s!"Reports a subject on an admitted closed input iff {summary}."
     s!"Missing a {rule} violation or reporting a non-violating subject."
     "Different orderings or duplicate entries of the same violating subjects."
     "Order and multiplicity of reported subjects (SameReports)."]
   vocab := [
-    plainGloss "Well-formed closed input." "Open mentions or empty claims." "Any closed non-empty claim." "Representation of closed inputs.",
-    plainGloss s!"{rule} violation predicate." "Unviolated subjects." "Any violating subject." "None beyond predicate extension."]
+    Gloss.mk "Well-formed closed input." "Open mentions or empty claims." "Any closed non-empty claim." "Representation of closed inputs.",
+    Gloss.mk s!"{rule} violation predicate." "Unviolated subjects." "Any violating subject." "None beyond predicate extension."]
   restatement := .unconfirmed
   consequences := []
 
@@ -49,85 +43,85 @@ def rg1001Explanation : Explanation rg1001 :=
   ruleExplanation "RG1001" Violates1001 "it is an axiom declared in a claimed module"
 
 def rg1002Explanation : Explanation rg1002 :=
-  ruleExplanation "RG1002" Violates1002 "it is a claimed constant reaching sorryAx"
+  ruleExplanation "RG1002" Violates1002 "it is a claimed constant reaching the axiom sorryAx"
 
 def rg1003Explanation : Explanation rg1003 :=
-  ruleExplanation "RG1003" Violates1003 "it is a claimed constant reaching a non-standard non-sorry non-native axiom"
+  ruleExplanation "RG1003" Violates1003 "it is a claimed constant reaching an axiom other than a known toolchain logical axiom, sorryAx, a native-proof axiom, or a compiler-trust axiom"
 
 def rg1004Explanation : Explanation rg1004 :=
-  ruleExplanation "RG1004" Violates1004 "it is a claimed constant reaching a native-proof axiom"
+  ruleExplanation "RG1004" Violates1004 "it is a claimed constant reaching a native-proof or compiler-trust axiom"
 
 def rg1005Explanation : Explanation rg1005 :=
-  ruleExplanation "RG1005" Violates1005 "it is a claimed constant reaching an axiom outside the configured profile"
+  ruleExplanation "RG1005" Violates1005 "it is a claimed constant reaching an axiom not admitted by the configured profile"
 
 def rg1006Explanation : Explanation rg1006 :=
-  ruleExplanation "RG1006" Violates1006 "it is a claimed unsafe, partial, helper-named, loop-mentioning, or Lean.Order.fix-mentioning constant without an exempted form"
+  ruleExplanation "RG1006" Violates1006 "it is a claimed constant that is unsafe, partial, or helper-named without an exempted form (HelperForm or CtorIdxImpl), a claimed constant whose value directly mentions a loop construct, or a claimed definition or opaque constant whose value directly mentions Lean.Order.fix"
 
 def rg1011Explanation : Explanation rg1011 :=
-  ruleExplanation "RG1011" Violates1011 "it is a claimed constant with unexempted replacement or init attributes or a claimed foreign exported csimp entry"
+  ruleExplanation "RG1011" Violates1011 "it is a claimed constant with @[implemented_by] without the exempted CtorIdxDef form or with @[extern], a claimed definition with an initialization function (@[init] or @[builtin_init]), or a constant named by an exported @[csimp] entry of a claimed module that no claimed module declares"
 
 def rg1012Explanation : Explanation rg1012 :=
-  ruleExplanation "RG1012" Violates1012 "it is a claimed definition or opaque constant whose value mentions a panic form"
+  ruleExplanation "RG1012" Violates1012 "it is a claimed definition or opaque constant whose value directly mentions a panic form"
 
 def rg1013Explanation : Explanation rg1013 :=
-  ruleExplanation "RG1013" Violates1013 "it is a claimed module whose source file is not a module file"
+  ruleExplanation "RG1013" Violates1013 "it is a claimed module not recorded as a module file"
 
 def gateExplanation : Explanation gateRecord where
-  shape := plainGloss
+  shape := Gloss.mk
     "Total verdict function from an optional closed input to pass, fail, or incomplete."
     "Partial or effectful verdict computation."
     "Three-valued verdict classification."
     "None."
   dom := []
   props := [
-    plainGloss "An unloadable build yields incomplete (RG2001)." "Passing or failing an unloadable build." "None." "None.",
-    plainGloss "An ill-formed input yields incomplete." "Passing or failing an ill-formed input." "None." "None.",
-    plainGloss "A well-formed input is complete and passes iff every registered rule holds." "Returning incomplete or disagreeing with AllHold." "None." "None."]
+    Gloss.mk "An unloadable build yields incomplete (RG2001)." "Passing or failing an unloadable build." "None." "None.",
+    Gloss.mk "An ill-formed input yields incomplete." "Passing or failing an ill-formed input." "None." "None.",
+    Gloss.mk "A well-formed input is complete and passes iff every registered rule holds." "Returning incomplete or disagreeing with AllHold." "None." "None."]
   vocab := [
-    plainGloss "Well-formed closed input." "Open mentions or empty claims." "Any closed non-empty claim." "None."]
+    Gloss.mk "Well-formed closed input." "Open mentions or empty claims." "Any closed non-empty claim." "None."]
   restatement := .unconfirmed
   consequences := []
 
 def languageExplanation : Explanation Language.languageRecord where
-  shape := plainGloss
+  shape := Gloss.mk
     "Total pre-build language decision from a Reading to Outcome."
     "Compiling before deciding or partial decision."
     "Four-valued Outcome classification."
     "None."
   dom := []
   props := [
-    plainGloss "Unclosed configuration is refused." "Admitting unclosed toolchain, lakefile.lean, open paths, or disallowed keys." "None." "None.",
-    plainGloss "Closed configuration with unread files is incomplete." "Admitting or refusing an incomplete read." "None." "None.",
-    plainGloss "Closed full reading with require dependency yields proofOnly." "Running full gate on a package with require." "None." "None.",
-    plainGloss "Closed full reading without require reaching Mathlib yields proofOnly." "Running full gate on Mathlib imports." "None." "None.",
-    plainGloss "Uncovered reading without dependencies yields incomplete." "Admitting empty claims or unclosed module names." "None." "None.",
-    plainGloss "Covered reading with disallowed syntax is refused." "Admitting disallowed syntax or attributes." "None." "None.",
-    plainGloss "Reading wholly inside the closed language is admitted." "Refusing an inside reading." "None." "None."]
+    Gloss.mk "An unclosed configuration is refused." "Returning anything other than refused for an unclosed toolchain, lakefile.lean, open path, or disallowed non-require key." "None." "None.",
+    Gloss.mk "A closed configuration with unread files is incomplete." "Returning anything other than incomplete for a closed configuration with unread files." "None." "None.",
+    Gloss.mk "A closed full reading with a require dependency yields proofOnly." "Returning anything other than proofOnly for a closed full reading with a require key." "None." "None.",
+    Gloss.mk "A closed full reading without require that reaches Mathlib yields proofOnly." "Returning anything other than proofOnly for a closed full reading without require that reaches Mathlib." "None." "None.",
+    Gloss.mk "A closed full reading without require or Mathlib that is not covered yields incomplete." "Returning anything other than incomplete for an uncovered closed full reading without require or Mathlib." "None." "None.",
+    Gloss.mk "A closed full covered reading without require or Mathlib whose files are not all admitted is refused." "Returning anything other than refused when a file fails parsing, lacks a module header, is truncated, or holds disallowed syntax or attributes." "None." "None.",
+    Gloss.mk "A closed full covered reading without require or Mathlib whose files are all admitted is admitted." "Returning anything other than admitted when every prerequisite and file check holds." "None." "None."]
   vocab := [
-    plainGloss "Closed configuration." "Unclosed keys, toolchain, lakefile.lean, or open paths." "Closed TOML packages." "None.",
-    plainGloss "Complete reading." "Failed or partial reads." "All needed reads complete." "None.",
-    plainGloss "Dependency requirement." "Zero-dependency packages." "Packages with require keys." "None.",
-    plainGloss "Mathlib import reachability." "Non-Mathlib imports." "Imports rooted at Mathlib." "None.",
-    plainGloss "Covered module graph." "Missing roots, unread reached modules, or unclosed module names." "Fully covered closed module graphs." "None.",
-    plainGloss "All files admitted." "Any file outside the closed language." "All files in the closed language." "None.",
-    plainGloss "Single file admitted." "Disallowed syntax, non-module headers, or truncated parses." "Admitted module files." "None.",
-    plainGloss "Closed module name." "Path traversal or non-ASCII components." "ASCII module names." "None."]
+    Gloss.mk "Closed configuration." "Unclosed non-require keys, wrong toolchain, lakefile.lean, or open paths." "Closed TOML packages (with or without require keys)." "None.",
+    Gloss.mk "Complete reading." "Failed or partial reads (non-empty unread)." "Readings with empty unread." "None.",
+    Gloss.mk "Dependency requirement." "Zero-dependency packages." "Packages with require keys." "None.",
+    Gloss.mk "Mathlib import reachability." "Non-Mathlib imports." "Reached modules rooted at Mathlib." "None.",
+    Gloss.mk "Covered module graph." "Empty roots, unreached roots, unread reached modules, or unclosed module names." "Fully covered closed module graphs." "None.",
+    Gloss.mk "All files admitted." "Any file outside FileAdmitted." "Readings whose files are all admitted." "None.",
+    Gloss.mk "Single file admitted." "Failed parses, non-module headers, truncated parses, or disallowed syntax." "Admitted module files." "None.",
+    Gloss.mk "Closed module name." "Empty components, numeric components, or characters outside ASCII alphanumerics, _, and '." "Non-empty string-component module names over ASCII alphanumerics, _, and '." "None."]
   restatement := .unconfirmed
   consequences := []
 
 def fullGateExplanation : Explanation Language.fullGateRecord where
-  shape := plainGloss
+  shape := Gloss.mk
     "Total full-gate sequencer mapping language outcome, build exit status, and rule verdict to report and step trace."
     "Running build or rules on non-admitted outcomes."
     "Exact report and step trace per case."
     "None."
   dom := []
   props := [
-    plainGloss "Refused reading compiles nothing." "Running build or rules after refusal." "None." "None.",
-    plainGloss "Incomplete reading compiles nothing." "Running build or rules after incomplete reading." "None." "None.",
-    plainGloss "Proof-only reading compiles nothing." "Running build or rules when only proof verdict applies." "None." "None.",
-    plainGloss "Admitted reading with passing build reports the rules verdict after read, build, and rules." "Skipping build or rules." "Any rules verdict." "None.",
-    plainGloss "Admitted reading with failing build reports full failure after read and build." "Running rules or passing after failed build." "None." "None."]
+    Gloss.mk "Refused reading compiles nothing." "Running build or rules after refusal." "None." "None.",
+    Gloss.mk "Incomplete reading compiles nothing." "Running build or rules after incomplete reading." "None." "None.",
+    Gloss.mk "Proof-only reading compiles nothing." "Running build or rules when only proof verdict applies." "None." "None.",
+    Gloss.mk "Admitted reading with passing build reports the rules verdict after read, build, and rules." "Skipping build or rules." "Any rules verdict." "None.",
+    Gloss.mk "Admitted reading with failing build reports full failure after read and build." "Running rules or passing after failed build." "None." "None."]
   vocab := []
   restatement := .unconfirmed
   consequences := []
@@ -136,20 +130,20 @@ def programRecordUnitEnv : IntentRecord (List String → Regula.Effect.Prog Unit
   Effects.programRecord Unit Environment
 
 def programExplanation : Explanation programRecordUnitEnv where
-  shape := plainGloss
+  shape := Gloss.mk
     "Pure effect-tree checker program from CLI arguments to exit code."
     "Unmodeled IO decisions outside the closed Op set."
     "Any Prog trace satisfying RunMeets."
     "Independent read order and non-verdict detail wording."
   dom := []
   props := [
-    plainGloss "Every trace over every external response follows the pinned-Lean route, preparation, read-back, replay, refusal, and verdict-line contract (RunMeets)."
+    Gloss.mk "Every trace over every external response follows the pinned-Lean route, preparation, read-back, replay, refusal, and verdict-line contract (RunMeets)."
     "Unprepared operations, unjudged writes, missing replay, forged verdict lines, or untrue refusals."
     "Independent read order and detail-line wording."
     "Widest freedom between compliant traces."]
   vocab := [
-    plainGloss "Non-verdict two-space detail line." "Lines that can forge a verdict line." "Any escaped detail line." "Exact wording.",
-    plainGloss "Reading wholly inside the closed language." "Readings outside the closed set." "Admitted closed-language readings." "None."]
+    Gloss.mk "Non-verdict two-space detail line." "Lines not starting with two spaces." "Any line starting with two spaces." "Exact wording.",
+    Gloss.mk "Reading wholly inside the closed language." "Readings outside the closed set." "Admitted closed-language readings." "None."]
   restatement := .unconfirmed
   consequences := []
 
@@ -488,6 +482,10 @@ def programRequired : LeanIntent.Required programDeliverable where
     ⟨@Effects.plain_exit_zero⟩,
     ⟨@Effects.outProof_exit_zero⟩,
     ⟨@Effects.full_exit_zero⟩,
+    ⟨@Effects.outProofRun_pass⟩,
+    ⟨@Effects.loadProof_spec⟩,
+    ⟨Effects.outProof_model⟩,
+    ⟨Effects.outProof_shadowed_model⟩,
     ⟨@Effects.outProof_empty_refused⟩,
     ⟨@Effects.outProof_both_vars_refused⟩,
     ⟨@Effects.outProof_verdict_distinct_from_full⟩,
