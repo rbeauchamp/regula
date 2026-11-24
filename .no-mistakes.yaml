@@ -63,8 +63,9 @@
 # that the listing of its base does not print is blocked at the Test step, at publication and on CI
 # repairs.
 #
-# The listing is lean/Regula/TestListing.lean, whose module docstring states what it reads and
-# what it trusts. The library name in the command is macOS's: on another system the command fails.
+# The listing is lean/Regula/TestListing.lean; specification/README.md#the-repositorys-programs
+# states what it reads and what it trusts. The library name in the command is macOS's: on another
+# system the command fails.
 #
 # Memory of the listing. Measured on 2026-10-27 on a checkout with no .lake directory: `lake env`
 # peaked at 0.75 GB resident and the program at 1.9 GB resident, most of it Lean's and Lake's .olean
