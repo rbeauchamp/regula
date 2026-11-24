@@ -4,10 +4,6 @@ public import RegulaSpecification.CasesGate
 import all Regula.Input
 import all Regula.Rules
 
-/-!
-# The verdict, against its statement
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -17,12 +13,6 @@ open LeanIntent
 
 open Link
 
-/-- The verdict of a reading, by the admission that the checker runs on it and {name}`Regula.Closed.decision` on what
-the admission gives. A real run admits the draft inside {lit}`Regula.Load.Facts.prepare`, checks unshown constants,
-replays the claim's cone ({lit}`Regula.Shell.replayed`), and evaluates {name}`Regula.Closed.decisionPrepared` on that
-final load result; {name}`Regula.Closed.decisionPrepared_eq` proves {name}`Regula.Closed.decisionPrepared` equal to
-{name}`Regula.Closed.decision` on the corresponding input-or-error result when its tables are
-{name}`Regula.Closed.Input.tables` of its input. -/
 def run (d : Regula.Closed.Draft) : Regula.Closed.Report :=
   Regula.Closed.decision d.admit
 
@@ -93,14 +83,11 @@ theorem run_pass_iff {d : Regula.Closed.Draft} :
   · rintro ⟨hw, ha⟩
     exact (run_complete hw).2.mpr ha
 
-/-- The verdict of the checker in the specification. -/
 def verdict : Regula.Closed.Verdict → Verdict
   | .pass => .pass
   | .fail => .fail
   | .incomplete => .incomplete
 
-/-- The checker's verdict over the specification's input, with {name}`none` for a build that the shell
-cannot load. -/
 def runChecker : Option Input → Verdict
   | none => .incomplete
   | some s => verdict (run (ofSpec s)).verdict

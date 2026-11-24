@@ -5,15 +5,6 @@ public import RegulaSpecification.Rules.RG1003
 public import RegulaSpecification.Rules.RG1004
 public import RegulaSpecification.Rules.RG1005
 
-/-!
-# RG1002 to RG1004 refine RG1005
-
-The four rules refine one refusal: each axiom that RG1002, RG1003 or RG1004 names also violates RG1005 for
-every profile, so a wrong choice among them changes the reported rule, never the verdict. The statement of what
-a pass means in the terms of Lean's environment ({lit}`EnvFloor`, in {lit}`Proofs/Load.lean`) states RG1005 alone
-for the first three by these theorems. This module relates rules, so it is no rule's module.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
