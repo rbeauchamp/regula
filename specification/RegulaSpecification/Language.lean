@@ -8,22 +8,6 @@ public import Regula.LanguageSet
 import all Init.Meta.Defs
 import all Regula.LanguageSet
 
-/-!
-# The language check
-
-What the check that reads a project before anything of it is compiled must decide, stated over Lean's own
-{name (full := Lean.Syntax)}`Syntax` and independently of the function that decides it. It imports the closed set, which is data, and no
-function of Regula.
-
-The owner's confirmed restatement, the status of each consequence and the second reading are in
-`confirmation.md`; `README.md` gives the plain words.
-
-What this module cannot state is that a file the decision admits runs no code of the project when Lean
-compiles it, because no model of Lean's elaborator exists in Lean. {lit}`LeanBehaviour` names that as two
-hypotheses, H1 and H2, about Lean at one version, and each theorem that needs them takes them as an
-argument.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Language
@@ -32,48 +16,29 @@ open Lean (Name Syntax)
 open Regula.Language
 open LeanIntent
 
-/-- {lit}`s` is a position of the tree {lit}`t` that the check reads: {lit}`t` itself, or a position of a child of a
-node whose kind holds a construct and not open text. -/
 inductive Occurs : Syntax → Syntax → Prop where
-  /-- A tree is a position of itself. -/
   | self (t : Syntax) : Occurs t t
-  /-- A position of a child is a position of the node. -/
   | child {s c : Syntax} {i : Lean.SourceInfo} {k : Name} {as : Array Syntax} :
       k ∉ leafKinds → c ∈ as → Occurs s c → Occurs s (.node i k as)
 
-/-- A name that a project may not write, because Lean or its compiler reads that form itself: a
-component that starts with {lit}`_`, other than a first component {lit}`_root_`, or the component {name}`autoParam`,
-whose second argument Lean evaluates. -/
 inductive ReservedName : Name → Prop where
-  /-- The last component starts with {lit}`_`. -/
   | underscore {p : Name} {s : String} : s.front = '_' → (p, s) ≠ (.anonymous, "_root_") →
       ReservedName (.str p s)
-  /-- The last component is {name}`autoParam`. -/
   | autoParam {p : Name} : ReservedName (.str p "autoParam")
-  /-- A component before the last is reserved. -/
   | str {p : Name} {s : String} : ReservedName p → ReservedName (.str p s)
-  /-- A component before a number is reserved. -/
   | num {p : Name} {n : Nat} : ReservedName p → ReservedName (.num p n)
 
-/-- {name}`n` is an argument of a `namespace` or {lit}`open` command: a direct child, or a child of a direct {lit}`null`
-node, of what the parser gives for those commands. -/
 def TargetOf (as : Array Syntax) (n : Name) : Prop :=
   ∃ i r p, Syntax.ident i r n p ∈ as ∨
     ∃ i' xs, Syntax.node i' `null xs ∈ as ∧ Syntax.ident i r n p ∈ xs
 
-/-- The components of a target of `namespace` or {lit}`open`, with any leading {lit}`_root_` removed. -/
 def targetComponents (n : Name) : List Name :=
   n.components.dropWhile (· = `_root_)
 
-/-- From some namespace, a command with the target {name}`n` can activate the namespace {name}`N`: Lean tries the
-target under each enclosing and open namespace, and {lit}`namespace A.B` enters {lit}`A` first. So some non-empty
-start of the target is an end of {name}`N`, by whole components. -/
 def CanActivate (N n : Name) : Prop :=
   ∃ i, 0 < i ∧ i ≤ (targetComponents n).length ∧
     (targetComponents n).take i <:+ N.components
 
-/-- What one node may be: its kind is in the closed set, and each kind that names something Lean reads
-as code or as parser state names only what its own table holds. -/
 def NodeAdmitted (scopedParsers : List Name) (k : Name) (as : Array Syntax) : Prop :=
   (k ∈ kinds ∨ k ∈ leafKinds) ∧
   (k = `Lean.Parser.Attr.simple →
@@ -88,99 +53,66 @@ def NodeAdmitted (scopedParsers : List Name) (k : Name) (as : Array Syntax) : Pr
   ((k = `Lean.Parser.Command.namespace ∨ k = `Lean.Parser.Command.openSimple) →
     ∀ n, TargetOf as n → ∀ N ∈ scopedParsers, ¬ CanActivate N n)
 
-/-- What one position may be. A position of Lean's parser that it could not fill is never admitted. -/
 def PositionAdmitted (scopedParsers : List Name) : Syntax → Prop
   | .missing => False
   | .atom _ v => v ∈ atoms
   | .ident _ _ n _ => ¬ ReservedName n
   | .node _ k as => NodeAdmitted scopedParsers k as
 
-/-- Every position of the tree is admitted. -/
 def TreeAdmitted (scopedParsers : List Name) (t : Syntax) : Prop :=
   ∀ s, Occurs s t → PositionAdmitted scopedParsers s
 
-/-- The header starts with {lit}`module`, so Lean itself refuses to evaluate a constant of the project that
-is not `meta`, and nothing admitted can declare one. -/
 def ModuleFile (header : Syntax) : Prop :=
   ∃ i as, Occurs (.node i `Lean.Parser.Module.moduleTk as) header
 
-/-- The reader reached the end of the file: the last tree is the parser's end of input. -/
 def ReadToEnd (commands : List Syntax) : Prop :=
   ∃ i as, commands.getLast? = some (.node i `Lean.Parser.Command.eoi as)
 
-/-- One file is in the closed language. -/
 def FileAdmitted (f : FileRead) : Prop :=
   f.parsed = true ∧ ModuleFile f.header ∧ ReadToEnd f.commands ∧
     TreeAdmitted f.scopedParsers f.header ∧ ∀ c ∈ f.commands, TreeAdmitted f.scopedParsers c
 
-/-- A key of `lakefile.toml` is in the closed set: a key of the table, or an option of {name}`options` under
-{lit}`leanOptions`. -/
 def ConfigKeyAdmitted (k : Name) : Prop :=
   k ∈ configKeys ∨ ∃ o ∈ options, k = `leanOptions ++ o
 
-/-- The project's own configuration is closed: the pinned toolchain, no `lakefile.lean`, nothing
-that {name (full := Regula.Language.Reading.openPaths)}`openPaths` names, and each key whose root is not {lit}`require` in the closed set. A key
-with the root {lit}`require` is not read here: {lit}`RequiresDependency` states what it gives. -/
 def ConfigClosed (r : Reading) : Prop :=
   r.toolchainFile = some leanToolchain ∧ r.leanConfig = false ∧ r.openPaths = [] ∧
     ∀ k ∈ r.configKeys, k.getRoot ≠ `require → ConfigKeyAdmitted k
 
-/-- Everything was read. What lies under the project's
-{lit}`.lake` is nothing the gate uses: each child process works in a tree the checker made, from what it read. -/
 def ReadInFull (r : Reading) : Prop :=
   r.unread = []
 
-/-- {name}`rel` is what {name}`path` holds below {name}`base`, and no component of it starts with {lit}`.`, so that joining {name}`rel`
-to either the project or the checker's tree stays below it, whatever a project named. -/
 def TreeRelative (base path rel : List String) : Prop :=
   path = base ++ rel ∧ ∀ c ∈ rel, c ≠ "" ∧ c.front ≠ '.'
 
-/-- The project's configuration has a dependency: some key has the root {lit}`require`, which is the one key
-Lake decodes a dependency from ({lit}`Lake/Load/Toml.lean:499` at v4.36.0). The key walk gives every TOML form
-of it such a key. -/
 def RequiresDependency (r : Reading) : Prop :=
   ∃ k ∈ r.configKeys, k.getRoot = `require
 
-/-- Mathlib is in the build's imports. -/
 def MathlibReached (r : Reading) : Prop :=
   ∃ m ∈ r.reached, m.getRoot = `Mathlib
 
-/-- A character of a closed module name: an ASCII letter or digit (Lean's {name}`Char.isAlphanum`), {lit}`_` or
-`'`. None of them separates or names a part of a path. -/
 def ClosedChar (c : Char) : Prop :=
   c.isAlphanum = true ∨ c = '_' ∨ c = '\''
 
 instance : DecidablePred ClosedChar := fun _ => inferInstanceAs (Decidable (_ ∨ _ ∨ _))
 
-/-- A component of a closed module name: not empty, and of closed characters only. -/
 def ClosedComponent (s : String) : Prop :=
   s ≠ "" ∧ ∀ c ∈ s.toList, ClosedChar c
 
 instance : DecidablePred ClosedComponent := fun _ => inferInstanceAs (Decidable (_ ∧ _))
 
-/-- The closed domain of module names: at least one component, each a string component that
-{name}`ClosedComponent` admits. {lit}`modToFilePath` joins each component onto a directory, and {name (full := System.FilePath.join)}`FilePath.join`
-discards its base for an absolute component, so a name in this domain selects a path below that directory
-and a quoted name such as {lit}`«/abs/vendor/Evil»` or {lit}`«..»` is outside it. -/
 inductive ClosedModuleName : Name → Prop where
-  /-- One closed component. -/
   | one {s : String} : ClosedComponent s → ClosedModuleName (.str .anonymous s)
-  /-- A closed name, and one more closed component. -/
   | more {p : Name} {s : String} : ClosedModuleName p → ClosedComponent s →
       ClosedModuleName (.str p s)
 
-/-- There is a claim, each root is reached, each module reached has a name in the closed domain, and each
-has its file read. -/
 def Covered (r : Reading) : Prop :=
   r.roots ≠ [] ∧ (∀ m ∈ r.roots, m ∈ r.reached) ∧ (∀ m ∈ r.reached, ClosedModuleName m) ∧
     ∀ m ∈ r.reached, ∃ f ∈ r.files, f.module = m
 
-/-- Each file read is in the closed language. -/
 def FilesAdmitted (r : Reading) : Prop :=
   ∀ f ∈ r.files, FileAdmitted f
 
-/-- The contract of the decision. Each clause names what its outcome rests on, and the clauses together
-fix the outcome of every reading ({lit}`language_o5`). -/
 def languageRecord : IntentRecord (Reading → Outcome) where
   shape := .function Reading (fun _ => Outcome)
   dom := []
@@ -228,13 +160,10 @@ theorem language_meets_iff (d : Reading → Outcome) :
         Covered r → FilesAdmitted r → d r = .admitted) := by
   simp [IntentRecord.Meets, IntentRecord.Dom, IntentRecord.Props, languageRecord]
 
-/-- The property the check is for, read off the record: it admits a reading exactly when everything read is in
-the closed set, and nothing is left out. -/
 def Inside (r : Reading) : Prop :=
   ConfigClosed r ∧ ReadInFull r ∧ ¬ RequiresDependency r ∧ ¬ MathlibReached r ∧ Covered r ∧
     FilesAdmitted r
 
-/-- A decision that meets the record, stated by cases on the predicates. -/
 noncomputable def modelDecision (r : Reading) : Outcome :=
   open Classical in
   if ¬ ConfigClosed r then .refused
@@ -275,20 +204,16 @@ theorem language_o5 : O5 languageRecord .eq := by
 
 theorem language_o4 : O4 languageRecord := o4_function _ rfl
 
-/-- The smallest header of a {lit}`module` file. -/
 def moduleHeader : Syntax :=
   .node .none `Lean.Parser.Module.moduleTk #[.atom .none "module"]
 
-/-- The parser's end of input. -/
 def endOfInput : Syntax :=
   .node .none `Lean.Parser.Command.eoi #[.atom .none ""]
 
-/-- A file in the closed language. -/
 def goodFile : FileRead :=
   { module := `Good, header := moduleHeader, commands := [endOfInput], parsed := true,
     scopedParsers := [] }
 
-/-- A project of one such file. -/
 def goodReading : Reading :=
   { toolchainFile := some leanToolchain, leanConfig := false,
     configKeys := [`name], openPaths := [], roots := [`Good], reached := [`Good],
@@ -351,24 +276,18 @@ theorem goodReading_inside : Inside goodReading :=
       fun m hm => ⟨goodFile, by simp [goodReading], (by simpa [goodReading] using hm : m = `Good).symm⟩⟩,
     fun f hf => (by simpa [goodReading] using hf : f = goodFile) ▸ goodFile_admitted⟩
 
-/-- {name}`goodReading` with a `lakefile.lean`. -/
 def leanConfigReading : Reading := { goodReading with leanConfig := true }
 
-/-- {name}`goodReading` with a module left unread. -/
 def unreadReading : Reading := { goodReading with unread := [(`Good, "unread")] }
 
-/-- {name}`goodReading` with a dependency. -/
 def requireReading : Reading := { goodReading with configKeys := [`name, `require.name] }
 
-/-- {name}`goodReading` with no claim. -/
 def noClaimReading : Reading :=
   { goodReading with roots := [], reached := [], files := [] }
 
-/-- {name}`goodReading`, importing Mathlib. -/
 def mathlibReading : Reading :=
   { goodReading with reached := [`Good, `Mathlib.Tactic] }
 
-/-- {name}`goodReading` whose file holds a position the parser could not fill. -/
 def badFileReading : Reading :=
   { goodReading with files := [{ goodFile with commands := [.missing, endOfInput] }] }
 
@@ -459,14 +378,6 @@ theorem constant_fails (o : Outcome) : ¬ languageRecord.Meets (fun _ => o) := f
   have hb := ((language_meets_iff _).mp h).1 leanConfigReading leanConfig_not_closed
   rw [ha] at hb; cases hb
 
-/-! ## The closed set against the families of what the owner's words refuse
-
-{lit}`Proofs/Owner.lean` states what the owner's words name, over the decision and with literal expected values. These read a table, and they
-hold the other names of those families out of it. -/
-
-/-- The kinds of the constructs the owner's words name, and the others of their families, read from
-{lit}`Init/Tactics.lean`, {lit}`Lean/Parser/Command.lean`, {lit}`Lean/Parser/Syntax.lean` and `Lean/Elab/` at Lean
-v4.36.0. -/
 def refusedKinds : List Name :=
   [`Lean.runCmd, `Lean.Parser.Command.eval, `Lean.Parser.Command.evalBang,
     `Lean.Parser.Command.guardCmd, `Lean.guardMsgsCmd, `Lean.runElab, `Lean.runMeta,
@@ -486,7 +397,6 @@ def refusedKinds : List Name :=
 
 theorem refusedKinds_outside : ∀ k ∈ refusedKinds, k ∉ kinds ∧ k ∉ leafKinds := by decide +kernel
 
-/-- What {lit}`@[name]` must not name: each evaluates the named definition or replaces compiled code. -/
 theorem refused_attributes :
     ∀ a ∈ [`implemented_by, `extern, `csimp, `macro_inline, `init, `builtin_init, `export,
       `command_elab, `term_elab, `tactic, `macro, `simproc, `cbv_simproc],
@@ -497,7 +407,6 @@ theorem refused_options :
       `compiler.extract_closed, `doc.verso],
     o ∉ options := by decide +kernel
 
-/-- What a project's `lakefile.toml` must not set: each loads or runs something at build time. -/
 theorem refused_config_keys :
     ∀ k ∈ [`plugins, `dynlibs, `moreLeanArgs, `weakLeanArgs, `moreServerOptions, `needs,
       `extraDepTargets, `precompileModules, `moreLinkObjs, `moreLinkLibs, `moreLinkArgs, `buildDir,
@@ -506,7 +415,6 @@ theorem refused_config_keys :
       `lean_exe.needs, `lean_exe.moreLeanArgs, `testDriver, `packagesDir],
     k ∉ configKeys ∧ ∀ o ∈ options, k ≠ `leanOptions ++ o := by decide +kernel
 
-/-- A {lit}`srcDir` on a target is outside the closed set of keys. The owner named this refusal on 2026-11-01. -/
 theorem refused_target_srcDir :
     `lean_lib.srcDir ∉ configKeys ∧ `lean_exe.srcDir ∉ configKeys ∧
       ∀ o ∈ options, `lean_lib.srcDir ≠ `leanOptions ++ o ∧ `lean_exe.srcDir ≠ `leanOptions ++ o := by decide +kernel
@@ -533,11 +441,8 @@ theorem lean_config_refused {d : Reading → Outcome} (h : languageRecord.Meets 
     have := hc.2.1
     simp [hr] at this
 
-/-- What the gate does and reports, given what the check decided, whether the build ended
-with 0, and the verdict from loading, replay and the rules on the finished build. -/
 abbrev GateRun : Type := Outcome → Bool → Regula.Closed.Verdict → Report × List Step
 
-/-- The contract of the gate. -/
 def fullGateRecord : IntentRecord GateRun where
   shape := .function Outcome (fun _ => Bool → Regula.Closed.Verdict → Report × List Step)
   dom := []
@@ -602,29 +507,12 @@ theorem full_needs_no_mathlib {d : Reading → Outcome} {g : GateRun} (hd : lang
     cases ho : d r <;> rw [ho] at hf <;> cases b <;> simp_all
   exact ((admitted_iff hd r).mp ha).2.2.2.1
 
-/-- What Lean does at one version, which no proof in Lean can reach, because `Lean.Parser.parseCommand`
-is `partial` and Lean's elaborator has no model here. These are hypotheses, never axioms: the theorem
-that uses them names them, and they are re-read at each Lean upgrade (`README.md`, "H1 and H2").
-
-- {lit}`h1`: the tree the reader got is the tree Lean's frontend elaborates, for a file of a reading that
-  the check admits.
-- {lit}`h2`: Lean's elaboration of such trees runs no code written in the project and installs nothing that
-  replaces what the compiler runs for a definition, apart from Lean's own compiler-generated
-  {lit}`T.ctorIdx` replacement ({lit}`ctorIdxTag`). -/
 structure LeanBehaviour where
-  /-- Lean's frontend elaborates these trees for this file. -/
   Elaborates : FileRead → List Syntax → Prop
-  /-- Elaborating these trees runs no code that the project wrote and replaces no compiled code,
-  apart from Lean's own compiler-generated {lit}`T.ctorIdx` replacement ({lit}`ctorIdxTag`). -/
   NoProjectCode : List Syntax → Prop
-  /-- H1. -/
   h1 : ∀ r, Inside r → ∀ f ∈ r.files, Elaborates f f.commands
-  /-- H2. -/
   h2 : ∀ scopedParsers (ts : List Syntax), (∀ t ∈ ts, TreeAdmitted scopedParsers t) → NoProjectCode ts
 
-/-- What an admitted reading means, under H1 and H2 and no more: for each file, the trees Lean elaborates are
-ones that run no project code. The proved part is {name}`admitted_iff`; this theorem only composes it with the
-hypotheses. -/
 theorem admitted_runs_no_project_code (L : LeanBehaviour) {d : Reading → Outcome}
     (hd : languageRecord.Meets d) (r : Reading) (ha : d r = .admitted) :
     ∀ f ∈ r.files, ∃ ts, L.Elaborates f ts ∧ L.NoProjectCode ts := by

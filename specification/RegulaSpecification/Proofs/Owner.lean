@@ -14,23 +14,6 @@ import all Regula.Language
 import all Regula.LanguageSet
 import all Regula.Verdict
 
-/-!
-# What the owner confirmed, stated apart from the code's own values
-
-The owner's restatement (`confirmation.md`) names what the language check refuses and admits, and that a run's output says which
-verdict it gave. Each statement here holds its expected value as a literal, and none reads a table or a function under proof for it:
-each is about {name (full := Regula.Language.decision)}`decision`, or about the text of {name (full := Regula.Language.Report.labelOn)}`Report.labelOn` and {name (full := Regula.Closed.Verdict.proofLineOn)}`Verdict.proofLineOn`, the definitions that run, and of {name (full := Regula.Language.Report.label)}`Report.label` and {name (full := Regula.Closed.Verdict.proofLine)}`Verdict.proofLine`, from which they are made. So a table or a
-sentence replaced by a constant fails this module's build. A theorem whose expected value came from the table could show only that the
-table agrees with itself.
-
-An example is stated over the parser's node kinds or the decision's input. The kinds and the shapes of the trees below are what Lean's
-own {lit}`parseCommand` and {lit}`parseHeader` gave for the owner's examples at v4.36.0 (`README.md`, "What was measured"). That those trees are what
-the parser gives for a project's real text is H1, which these theorems do not reach. Admitting Regula's own core cannot be stated this way:
-it is the gate's run of the full gate on this checkout, an observation of the files themselves, its Lake configuration among them. No
-definition here stands for what those files hold, since no build would compare the two: {lit}`configurationKeys` is a list for an
-example, and {lit}`admits_configuration_keys` is about that list.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Owner
@@ -39,7 +22,6 @@ open Lean (Name Syntax)
 open Regula.Language
 open RegulaSpecification.Language
 
-/-- {name}`s` is at a position that the check reads of some file of the reading. -/
 def Holds (r : Reading) (s : Syntax) : Prop :=
   ∃ f ∈ r.files, ∃ t, (t = f.header ∨ t ∈ f.commands) ∧ Occurs s t
 
@@ -48,12 +30,9 @@ theorem unread_kinds_are_open_text :
       `Lean.Parser.Command.docComment, `Lean.Parser.Command.moduleDoc, `Lean.Parser.Command.eoi] := by
   decide +kernel
 
-/-- Everything that the decision reads before it reads the files is in order, so what it says is about the files. -/
 def Reached (r : Reading) : Prop :=
   ConfigClosed r ∧ ReadInFull r ∧ ¬ RequiresDependency r ∧ ¬ MathlibReached r ∧ Covered r
 
-/-- What refusing a construct is: the reading is never admitted, and once everything before the files is in order the outcome is
-{lean (type := "Regula.Language.Outcome")}`.refused`. Earlier in the decision it can be another refusal to admit, such as {lean (type := "Regula.Language.Outcome")}`.proofOnly` for a project with a dependency. -/
 def Refuses (r : Reading) : Prop :=
   decision r ≠ .admitted ∧ (Reached r → decision r = .refused)
 
@@ -67,8 +46,6 @@ theorem refuses_of_position {r : Reading} {f : FileRead} {s t : Syntax} (hf : f 
   · exact absurd (h6 r c g k m v o) hne
   · exact h5 r c g k m v o
 
-/-- The kinds that Lean's parser gives for {lit}`run_cmd`, `#eval`, {lit}`#guard`, {tactic}`run_tac`, {lit}`by_elab`, {tactic}`native_decide`, `macro`, `syntax`,
-`notation`, `elab`, `initialize` and the `macro` of {attr}`@[local macro k]`, in that order. -/
 def namedKinds : List Name :=
   [`Lean.runCmd, `Lean.Parser.Command.eval, `Lean.Parser.Command.guardCmd, `Lean.Parser.Tactic.runTac,
     `Lean.byElab, `Lean.Parser.Tactic.nativeDecide, `Lean.Parser.Command.macro, `Lean.Parser.Command.syntax,
@@ -99,7 +76,6 @@ theorem not_closed_refused (r : Reading) (h : ¬ ConfigClosed r) : decision r = 
 theorem refuses_lakefile_lean (r : Reading) (h : r.leanConfig = true) : decision r = .refused :=
   not_closed_refused r fun hc => by simp [hc.2.1] at h
 
-/-- The keys of Lake's TOML that hold a plugin, at each table that can hold one. -/
 def pluginKeys : List Name := [`plugins, `lean_lib.plugins, `lean_exe.plugins]
 
 theorem pluginKeys_outside :
@@ -114,23 +90,17 @@ theorem refuses_plugin_key (r : Reading) {k : Name} (hk : k ∈ pluginKeys) (h :
   · exact hn hm
   · exact ho o hm he
 
-/-- A node of the kind {name}`k` with the children {name}`xs`, for the examples below. -/
 abbrev n (k : Name) (xs : List Syntax) : Syntax := .node .none k ⟨xs⟩
 
-/-- The token {name}`v`. -/
 abbrev a (v : String) : Syntax := .atom .none v
 
-/-- The identifier {name}`m`. -/
 abbrev i (m : Name) : Syntax := .ident .none default m []
 
-/-- The empty node that the parser gives for an absent optional part. -/
 abbrev e : Syntax := n `null []
 
-/-- The modifiers of a declaration whose attributes are {name}`attrs`, with every other part absent. -/
 abbrev mods (attrs : Syntax) : Syntax :=
   n `Lean.Parser.Command.declModifiers [e, attrs, e, e, e, e, e]
 
-/-- The command {lit}`example : True := by tac`, for the tactic {name}`tac`. -/
 abbrev byExample (tac : Syntax) : Syntax :=
   n `Lean.Parser.Command.declaration [mods e,
     n `Lean.Parser.Command.example [a "example",
@@ -140,12 +110,9 @@ abbrev byExample (tac : Syntax) : Syntax :=
           n `Lean.Parser.Tactic.tacticSeq [n `Lean.Parser.Tactic.tacticSeq1Indented [n `null [tac]]]],
         n `Lean.Parser.Termination.suffix [e, e], e]]]
 
-/-- A tactic's configuration with the one item {lit}`+item`. -/
 abbrev plusItem (item : Name) : Syntax :=
   n `Lean.Parser.Tactic.optConfig [n `null [n `Lean.Parser.Tactic.configItem [n `Lean.Parser.Tactic.posConfigItem [a "+", i item]]]]
 
-/-- The library code that the owner's words name, and one attribute of the form {lit}`@[name]`: {lit}`by simp`, {lit}`by omega`,
-{lit}`by decide +kernel`, {lit}`variable (n : Nat)`, {lit}`inductive T where | a deriving DecidableEq` and {lit}`@[expose] def f : Nat := 1`. -/
 def libraryCode : List Syntax :=
   [byExample (n `Lean.Parser.Tactic.simp [a "simp", n `Lean.Parser.Tactic.optConfig [e], e, e, e, e]),
     byExample (n `Lean.Parser.Tactic.omega [a "omega", n `Lean.Parser.Tactic.optConfig [e]]),
@@ -164,14 +131,11 @@ def libraryCode : List Syntax :=
         n `Lean.Parser.Command.optDeclSig [e, n `null [n `Lean.Parser.Term.typeSpec [a ":", i `Nat]]],
         n `Lean.Parser.Command.declValSimple [a ":=", n `num [a "1"], n `Lean.Parser.Termination.suffix [e, e], e], e]]]
 
-/-- The key paths of the example below: keys at the top level, keys below {lit}`leanOptions`, and keys of the tables {lit}`lean_lib` and
-{lit}`lean_exe`. The list restates no file. -/
 def configurationKeys : List Name :=
   [`name, `version, `description, `keywords, `license, `licenseFiles, `srcDir, `defaultTargets, `lintDriver, `lintDriverArgs,
     `leanOptions.warningAsError, `leanOptions.autoImplicit, `leanOptions.relaxedAutoImplicit, `leanOptions.linter.missingDocs,
     `lean_lib.name, `lean_lib.roots, `lean_lib.globs, `lean_exe.name, `lean_exe.root, `lean_exe.supportInterpreter]
 
-/-- A project of one {lit}`module` file that holds {name}`commands`, with the pinned toolchain and the key paths {name}`keys`. -/
 def readingOf (keys : List Name) (commands : List Syntax) : Reading where
   toolchainFile := some "leanprover/lean4:v4.36.0"
   leanConfig := false
@@ -189,8 +153,6 @@ def readingOf (keys : List Name) (commands : List Syntax) : Reading where
 theorem admits_library_code : decision (readingOf [`name] libraryCode) = .admitted := by
   decide +kernel
 
-/-- The project of {name}`readingOf` with those key paths and no command is admitted. This is about the list, and about no file: that
-Regula's own `lakefile.toml` is admitted is observed, by the gate, with the rest of its core. -/
 theorem admits_configuration_keys : decision (readingOf configurationKeys []) = .admitted := by
   decide +kernel
 

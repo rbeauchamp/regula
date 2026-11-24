@@ -5,14 +5,6 @@ public import Regula.Rules.RG1001
 import all Regula.Rule
 import all Regula.Rules.RG1001
 
-/-!
-# RG1001: project axioms
-
-A constant of a claimed module has the kind {lit}`axiom`, the axiom of a native proof included. RG1001 alone
-reports an axiom that nothing uses. {name (full := Regula.Rules.RG1001.check)}`Regula.Rules.RG1001.check` is the
-function that the checker runs.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -20,19 +12,15 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- RG1001: a claimed module declares an axiom, the axiom of a native proof included. -/
 def Violates1001 (i : Input) (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧ d.kind = .axiom
 
-/-- The intent record of RG1001. -/
 def rg1001 := ruleRecord "RG1001" Violates1001
 
 namespace Witnesses
 
-/-- An axiom of a claimed module. -/
 def ax : Decl := plain `Good.ax `Good .axiom []
 
-/-- The cases of RG1001. -/
 def w1001 : Witnessed Violates1001 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -84,12 +72,10 @@ theorem rg1001_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1001 with its statement, its proofs and its cases, for the registry. -/
 def rg1001Proved : Proved :=
   ⟨Regula.Rules.RG1001.rule, Violates1001, Link.rg1001_exact, Witnesses.w1001,
     fun t _ hv => .inl ⟨by decide, Link.rg1001_subject t hv⟩⟩
 
-/-- The function of RG1001 over the specification's input. -/
 def rg1001Checker : Checker Input Name := rg1001Proved.checker
 
 theorem rg1001_meets : rg1001.Meets rg1001Checker := rg1001Proved.meets "RG1001"

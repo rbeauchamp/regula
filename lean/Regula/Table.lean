@@ -6,14 +6,6 @@ public import Lean.Util.Path
 public import Lean.Replay
 import Lean.Parser.Extension
 
-/-!
-# The one table of effects
-
-`table` answers each operation of `Regula.Effect.Op` by a straight line of calls of Lean or of the operating system's
-function as Lean gives it, or by a row of `LakeCalls`, which `Regula.Workspace` fills. A lookup or an import takes its search path as an argument, and its row sets `Lean.searchPathRef` to it first, because `Lean.findOLean` and `Lean.importModules` read that reference and take no path (`Lean/Util/Path.lean:138-139`, `Lean/Environment.lean:2443-2444` at v4.36.0). Nothing here tests a result: a row
-passes on what the calls give. `table_rows` in `specification/RegulaSpecification/Proofs/Program.lean` states each row.
--/
-
 public section
 
 namespace Regula.Effect
@@ -22,44 +14,28 @@ open Lean (Name Syntax Environment Import MessageLog)
 open Lean.Parser (InputContext ModuleParserState)
 open System (FilePath)
 
-/-- The rows that call Lake, which `Regula.Workspace` fills, because a constant that calls Lake's load depends on
-axioms that no profile admits. -/
 structure LakeCalls (L : Type) where
-  /-- Lake's TOML parser. -/
   parseToml : InputContext → BaseIO (Except MessageLog Lake.Toml.Table)
-  /-- The Lake beside the Lean of a system root: its program and library directory. -/
   lakeInstall : String → BaseIO (FilePath × FilePath)
-  /-- Lake's load of a workspace with its dependencies. -/
   loadWorkspace : String → FilePath → BaseIO (Except String (Option (Root L) × List String))
-  /-- Lake's load of a root package's `lakefile.toml` alone. -/
   loadRoot : String → FilePath → BaseIO (Except String (Option (Root L) × List String))
-  /-- The modules of a library, with the file Lake compiles for each. -/
   libModules : L → BaseIO (Except IO.Error (Array (Name × FilePath)))
 
-/-- The namespaces that hold a scoped parser entry in `env`. -/
 def scopedParsersOf (env : Environment) : List Name :=
   (Lean.Parser.parserExtension.ext.getState env).scopedEntries.map.toList.map (·.1)
 
-/-- A Lake command in a directory, with the standard streams of this process and a closed environment: `env -i` starts it with these two variables and no other, so no
-variable that a Lake before this checker composed, or that this process inherited, reaches its lookups of a program or a library. `IO.Process.SpawnArgs.inheritEnv := false` would say this
-directly, and it ends with a segmentation fault on macOS at v4.35.0. Lake takes `lean` and its own tools from the toolchain's directory, so the search path is only for what it asks of the system, such
-as `which` and `git`. Lake's artifact cache is off: nothing is restored without being compiled. -/
 def spawnLake (program cwd : FilePath) (args : List String) : IO UInt32 := do
   let child ← IO.Process.spawn
     { cmd := "/usr/bin/env", args := #["-i", "PATH=/usr/bin:/bin", "LAKE_ARTIFACT_CACHE=false", program.toString] ++ args.toArray,
       cwd := some cwd, stdin := .null }
   child.wait
 
-/-- `enable` is Lean's `enableInitializersExecution`, which is `unsafe` and which must run before each import of
-Lean's parsers (`Lean/ImportingFlag.lean`), at the level the frontend uses for a `module` file
-(`Lean/Elab/Import.lean:141-149`). -/
 def importParsers (enable : BaseIO Unit) (modules : List Name) : IO (Environment × List Name) := do
   enable
   let env ← Lean.importModules (modules.toArray.map ({ module := · })) {} (loadExts := true)
     (level := .exported)
   return (env, scopedParsersOf env)
 
-/-- Each operation, by its row. -/
 def table {L : Type} (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o)
   | .leanVersion => pure (Lean.versionString, Lean.githash)
   | .getEnv name => IO.getEnv name

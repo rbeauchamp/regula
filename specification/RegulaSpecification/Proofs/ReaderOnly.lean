@@ -3,10 +3,6 @@ module
 public import RegulaSpecification.Proofs.Reader
 import all Regula.Reader
 
-/-!
-# What the reader never asks
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -18,16 +14,13 @@ open Regula.Reader
 
 variable {L E α β : Type}
 
-/-- An operation that the reader may ask. -/
 def ReadOp : Op L E → Prop
   | .runLake .. | .importForRules .. | .println _ | .flush | .createTempDir | .removeDirAll _ | .leanVersion => False
   | _ => True
 
-/-- On every response, a program asks only operations of {name}`P`. -/
 def OnlyIn (P : Op L E → Prop) (p : Prog L E α) : Prop :=
   ∀ t a, Runs p t a → ∀ e ∈ t, P e.op
 
-/-- On every response, a program asks only what the reader may. -/
 abbrev Only (p : Prog L E α) : Prop :=
   OnlyIn ReadOp p
 
@@ -46,11 +39,9 @@ theorem only_seq {p : Prog L E α} {f : α → Prog L E β} (hp : OnlyIn P p) (h
   · exact hp _ _ h₁ e he
   · exact hf a _ _ h₂ e he
 
-/-- An attempt's program asks only operations of {name}`P`. -/
 def OnlyAIn (P : Op L E → Prop) (x : Attempt L E α) : Prop :=
   OnlyIn P x.run
 
-/-- An attempt's program asks only what the reader may. -/
 abbrev OnlyA (x : Attempt L E α) : Prop :=
   OnlyAIn ReadOp x
 
@@ -73,7 +64,6 @@ theorem onlyA_attempt {step : Prog L E (Except IO.Error α)} (hp : OnlyIn P step
     OnlyAIn P (attempt step) := fun _ _ h e he =>
   let ⟨_, h₁, _⟩ := runs_attempt_iff.mp h; hp _ _ h₁ e he
 
-/-- Each step of a program whose operations the reader may ask, by its structure. -/
 macro "only_steps" : tactic =>
   `(tactic| repeat' first
     | exact only_pure _ | exact onlyA_pure _ | exact onlyA_throw _

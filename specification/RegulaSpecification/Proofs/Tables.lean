@@ -4,15 +4,6 @@ public import Regula.Tables
 public import RegulaSpecification.Proofs.Link
 import all Regula.Tables
 
-/-!
-# What the rules' tables hold
-
-A value of {lit}`Regula.Closed.Tables i` carries what each of its tables holds of the input {lit}`i`. These
-theorems state that in terms of the specification's input: the constants by name, the constants of
-claimed modules and the axiom set of each constant. Each holds of every value of {lit}`Tables i`, so no
-theorem about a rule has a hypothesis about the tables it reads.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -73,8 +64,6 @@ theorem kind_axiom_iff (d : Regula.Closed.Decl) :
     d.kind = .axiom ↔ (decl d).kind = .axiom := by
   cases hd : d.kind <;> simp [decl, constKind, hd]
 
-/-- The set that the rules read is exactly the axiom set that the specification states. No field of
-the input holds it, so no hypothesis about a reader stands behind this. -/
 theorem axiomSet_iff (t : Regula.Closed.Tables i) (c a : Name) :
     a ∈ t.axiomSet c ↔ (toSpec i).AxiomOf c a := by
   rw [t.mem_axiomSet]

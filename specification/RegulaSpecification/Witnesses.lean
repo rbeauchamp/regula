@@ -3,16 +3,6 @@ module
 public import RegulaSpecification.Foundation
 import all Init.Prelude
 
-/-!
-# The compliant project that the cases of each rule extend
-
-For each rule, its module below {lit}`Rules/` gives a small well-formed project that the rule must refuse, built on
-the compliant project here ({lit}`base`), and a subject of {lit}`base` that it must admit. With them {name (full := RegulaSpecification.adequate)}`adequate` discharges lean-intent's obligations for the rule's
-record, and {name (full := RegulaSpecification.silent_fails)}`silent_fails` and {name (full := RegulaSpecification.noisy_fails)}`noisy_fails` prove that neither the checker that reports nothing nor the one
-that reports every candidate meets it. A statement that a do-nothing checker met, or that refused the
-compliant case, would fail here.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -21,27 +11,21 @@ open Lean (Name)
 
 namespace Witnesses
 
-/-- A safe constant with nothing marked, outside the toolchain. -/
 def plain (name module : Name) (kind : Kind) (uses : List Name) : Decl :=
   { name, module, kind, safety := .safe, uses, valueUses := [], implementedBy := none,
     isExtern := false, initFn := none, inToolchain := false, ctorIdxForm := .none }
 
-/-- A constant of the toolchain's own library. -/
 def toolchain (name : Name) (kind : Kind) : Decl :=
   { plain name `Init.Core kind [] with inToolchain := true }
 
-/-- A constant of the exempted recursion-helper form beside `Good.f`. -/
 def helperDecl : Decl :=
   { plain `Good.f._unsafe_rec `Good .definition [`Good.f._unsafe_rec] with safety := .partial }
 
-/-- `Good.f`, the safe definition beside it. -/
 def fDecl : Decl := plain `Good.f `Good .definition []
 
-/-- The constants of {lit}`base`. -/
 def baseDecls : List Decl :=
   [toolchain ``propext .axiom, plain `Good.t `Good .theorem [``propext], fDecl, helperDecl]
 
-/-- The compliant project. -/
 def base : Input where
   profile := .choiceFree
   modules := [`Good]
@@ -51,7 +35,6 @@ def base : Input where
   decls := baseDecls
   unique := by decide
 
-/-- {name}`base` with the constants {name}`extra` added, whose names stay distinct. -/
 def withDecls (extra : List Decl) (hn : ((base.decls ++ extra).map (·.name)).Nodup) : Input :=
   { base with decls := base.decls ++ extra, unique := hn }
 
@@ -136,7 +119,6 @@ theorem name_mem {i : Input} {c : Name} {P : Decl → Prop} (h : ∃ d ∈ i.dec
   obtain ⟨d, hd, rfl, -⟩ := h
   exact List.mem_map_of_mem hd
 
-/-- The theorem `Good.t` of {name}`base`. -/
 def tDecl : Decl := plain `Good.t `Good .theorem [``propext]
 
 theorem t_mem : tDecl ∈ base.decls := by simp [tDecl, base, baseDecls]
@@ -152,20 +134,16 @@ theorem not_native_of_components {a : Name} (h : components a < 3) : ¬ NativePr
 theorem not_known_of_not_logical {i : Input} {a : Name} (h : a ∉ logicalAxioms) : ¬ i.Known a :=
   fun hk => h hk.1
 
-/-- A safe inductive type `Good.T` of a claimed module. -/
 def ctorIdxInd : Decl := plain `Good.T `Good .inductive []
 
-/-- The safe half `Good.T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair. -/
 def ctorIdxDefDecl : Decl :=
   { plain `Good.T.ctorIdx `Good .definition [`Good.T] with
     implementedBy := some `Good.T.ctorIdx._impl, ctorIdxForm := .defn `Good.T }
 
-/-- The unsafe half `Good.T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair. -/
 def ctorIdxImplDecl : Decl :=
   { plain `Good.T.ctorIdx._impl `Good .definition [`Good.T, `getObjTagNat] with
     safety := .unsafe, ctorIdxForm := .impl `Good.T }
 
-/-- {name}`base`, with a verified compiler-generated {lit}`ctorIdx` pair for `Good.T`. -/
 def withCtorIdx : Input :=
   withDecls [toolchain `getObjTagNat .opaque, ctorIdxInd, ctorIdxDefDecl, ctorIdxImplDecl]
     (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, ctorIdxInd, ctorIdxDefDecl,

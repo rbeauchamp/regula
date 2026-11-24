@@ -7,92 +7,17 @@ meta import Lake.CLI.Error
 meta import Lake.Load.Package
 meta import Lake.Util.IO
 
-/-! # The listing of the tests that Lake knows for Regula's package
-
-The validation pipeline's settings in `.no-mistakes.yaml` run this program from the repository root as the
-listing of Regula's tests, on macOS:
-
-```text
-lake env lean --load-dynlib=libLake_shared.dylib --run lean/Regula/TestListing.lean
-```
-
-It prints the test driver that Lake reports for the package there on one line, and prints nothing when Lake
-reports none. It exits with status 1 when Lake cannot load the package, after Lake's messages on standard
-error, and when the driver is not a text that it can print as one line (`listing`). So an empty listing with
-status 0 means that Lake loaded the package and reported no test driver.
-
-The program needs Lake's own compiled library, which `--load-dynlib` loads before the program runs.
-`lake env` puts the toolchain's library directory first on the search path of shared libraries
-(`Lake.Workspace.augmentedEnvVars`, `Lake/Config/Workspace.lean:409-431`, `Lake/CLI/Main.lean:1275-1284`).
-Without that library, `lean --run` stopped in the load of every `lakefile.lean` tried, at code that Lean's
-interpreter could not run, and exited with status 1 (observed with Lean v4.34.1 and v4.35.0). A
-`lakefile.toml`, which this repository has, loaded without it. The file name of the library is macOS's. On
-another system the command fails, so its listing blocks.
-
-## What Lake knows as a test
-
-Lake v4.36.0 knows one test of a package: its test driver, `Lake.Package.testDriver`, which `lake test` runs
-when the package is the root of the workspace (`Lake/CLI/Actions.lean:71-85`). The driver is the package's
-`testDriver` setting, or the one script, executable or library tagged `@[test_driver]`. A package with both,
-or with two tagged, does not load (`Lake/Load/Lean/Eval.lean:145-161`). `lake check-test` reports the driver
-only by its exit status. That status is 1 for an empty driver and also for a package that does not load
-(`Lake/CLI/Main.lean:181-184`, `:1109-1112`, `Lake/Util/MainM.lean:72-75`, `:80-82`), so this program reads
-the driver itself.
-
-## How it reads the package
-
-It makes the calls that `lake check-test` makes when no option is given (`Lake/CLI/Main.lean:175-184`,
-`:1109-1112`):
-- Lake's search for the Lean and Lake installations (`Lake.findInstall?`);
-- the load configuration of the working directory, which `loadConfig` makes as
-  `Lake.LakeOptions.mkLoadConfig` makes it from the options that hold only those installations
-  (`Main.lean:134-148`), as `Regula.ProgramCheck.TestListing.loadConfig_eq` proves;
-- the load of the package alone (`Lake.loadPackage`, `Lake/Load/Package.lean:135-139`).
-
-The program does not call `mkLoadConfig`. The module that declares it, `Lake.CLI.Main`, imports the code of
-every command of Lake. This module imports only Lake's load of a package (`Lake.Load.Package`), the path
-operations that it uses too (`Lake.Util.IO`) and the errors of Lake's commands (`Lake.CLI.Error`). It
-imports each of them a second time with `meta`, because `lean --run` runs the program in the process that
-elaborates it: in a `module` file, only a module imported with `meta` has its runtime initializers run
-(`runInitAttrForMod`, `Lean/Compiler/InitAttr.lean:160-168`), and Lake's native code from the library that
-`--load-dynlib` loads does not work before that. (Observed with Lean v4.35.0: without `meta` the process
-ended with signal 11.)
-
-It runs the load with Lake's default log configuration, which is the command's when no option is given
-(`Lake/CLI/Main.lean:103-110`, `:181-182`, `Lake/Util/Log.lean:125-128`, `:597-612`). Lake's messages go to
-standard error, and an error, or an entry of the error level in the log, fails the load
-(`Lake.LogIO.toBaseIO`, `Lake/Util/Log.lean:630-638`). The command passes its arguments to the load
-configuration (`lakeArgs?`), which only the load of a workspace reads (`Lake/Load/Workspace.lean:44`), not
-`Lake.loadPackage`. It builds no target. When the configuration file is there, `lake env` first loads the
-workspace itself and fails when Lake cannot load it (`Lake/CLI/Main.lean:1275-1284`).
-
-## Boundaries
-
-Lake's choice of the configuration file, its elaboration of that file and the value of `testDriver` that it
-gives are trusted at the pinned Lean, as `lake test` trusts them. That a print reaches the stream is the
-operating system's. The pipeline reads each line of standard output, with the white space at its ends
-removed, as one test identifier, and skips a blank line. A printed driver is not empty, and its characters
-are between U+0021 and U+007E. None of those is a line break or white space, so the pipeline reads the line
-as exactly the driver. -/
-
 public section
 
 namespace Regula.TestListing
 
-/-- A character that the listing prints: one of the printable ASCII characters other than space,
-U+0021 to U+007E. -/
 def Printable (c : Char) : Prop := 0x21 ≤ c.toNat ∧ c.toNat ≤ 0x7E
 
-/-- The test that `listing` runs on each character of the driver (`printable_iff`). -/
 def printable (c : Char) : Bool := 0x21 ≤ c.toNat && c.toNat ≤ 0x7E
 
 theorem printable_iff (c : Char) : printable c = true ↔ Printable c := by
   simp [printable, Printable]
 
-/-- The lines that the listing prints for a package whose test driver is `driver`: none for the
-empty driver, which is Lake's report of no test driver, and the driver itself when each of its
-characters is printable. Any other driver is refused with a reason, because the pipeline would not
-read a line of it as the driver. -/
 def listing (driver : String) : Except String (List String) :=
   if driver.isEmpty then .ok []
   else if driver.all printable then .ok [driver]
@@ -122,12 +47,6 @@ theorem listing_ok_iff (driver : String) (lines : List String) :
         false_and, false_or, ne_eq, not_false_eq_true, true_and, false_iff, not_and]
       exact fun each => absurd (all_iff.mpr each) allPrintable
 
-/-- The load configuration of the working directory, with the installations `elanInstall?`,
-`leanInstall?` and `lakeInstall?`: the one that `Lake.LakeOptions.mkLoadConfig` makes from the
-options that hold only these installations, with the same failures in the same order
-(`Regula.ProgramCheck.TestListing.loadConfig_eq`). It fails when the working directory does not
-resolve, then when the Lake installation is missing, then when the Lean installation is missing,
-and then when Lake cannot compute its environment from them. -/
 def loadConfig (elanInstall? : Option Lake.ElanInstall) (leanInstall? : Option Lake.LeanInstall)
     (lakeInstall? : Option Lake.LakeInstall) : EIO Lake.CliError Lake.LoadConfig := do
   let some wsDir ← Lake.resolvePath? "."
@@ -152,17 +71,11 @@ def loadConfig (elanInstall? : Option Lake.ElanInstall) (leanInstall? : Option L
     updateToolchain := true
   }
 
-/-- What the program says and exits with, for what its load gave. -/
 structure Outcome where
-  /-- The lines of standard output. -/
   lines : List String
-  /-- The lines of standard error. -/
   errors : List String
-  /-- The exit code. -/
   code : UInt32
 
-/-- The one decision of the program, on what its load gave: why the load configuration failed, a package that did not load,
-for which Lake has written its messages, or the test driver of the package. -/
 def outcome : Except String (Option String) → Outcome
   | .error why => { lines := [], errors := [s!"error: {why}"], code := 1 }
   | .ok none => { lines := [], errors := [], code := 1 }
@@ -202,8 +115,6 @@ theorem outcome_of_nonzero {r : Except String (Option String)} (h : (outcome r).
       | ok lines => simp [hl] at h
       | error reason => rfl
 
-/-- What the load gave: why the load configuration failed, nothing for a package that did not load, or Lake's report of the
-test driver. Each call is Lake's, passing its result on. -/
 def readDriver : IO (Except String (Option String)) := do
   let installs ← Lake.findInstall?
   let loaded ← (((loadConfig installs.1 installs.2.1 installs.2.2).adapt toString >>= fun config =>
@@ -214,9 +125,6 @@ def readDriver : IO (Except String (Option String)) := do
 end Regula.TestListing
 
 open Regula.TestListing in
-/-- Print the test driver that Lake reports for the package of the working directory, or nothing
-when it reports none. Exit with status 1 when Lake cannot load the package or the driver cannot be
-printed as one line (`listing`), and with status 0 otherwise. A straight line: the one decision is `outcome`. -/
 def main : IO UInt32 := do
   let result := outcome (← readDriver)
   result.lines.forM IO.println

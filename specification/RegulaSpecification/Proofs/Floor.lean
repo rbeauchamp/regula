@@ -6,17 +6,6 @@ public import RegulaSpecification.Proofs.Load
 import all Lean.Environment
 import all Regula.Load
 
-/-!
-# What the rules ask of a build, by what Lean answered
-
-{name}`RegulaSpecification.Loader.LoadFloor` says what a build must be for the loader and the rules to pass it, in the terms of
-{name}`Regula.Load.Facts`, the checker's own reading of what Lean answered. As a premise of an owed pass it would apply the checker's
-functions to an answer. {lit}`BuildAnswer` holds only the answers: what Lean's import gave, where Lean's search found each {lit}`.olean`, and the
-two library directories that Lake's load named. `BuildAnswer.Floor` states the same requirement over them, through Lean's own fields and
-functions and the components of a path. {lit}`loadFloor_iff` relates the two in both directions, so {lit}`pass_iff_answer` states the checker's
-decision against a property that names none of its functions.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -28,20 +17,12 @@ open RegulaSpecification.Loader
 
 variable {L E : Type}
 
-/-- What a finished build answered: what Lean's import gave, the toolchain's and the root package's library directories as Lake's load
-named them, and each module of the import's header with where Lean found its {lit}`.olean`, in the header's order. -/
 structure BuildAnswer where
-  /-- What Lean's import gave. -/
   env : Lean.Environment
-  /-- The toolchain's library directory. -/
   toolchainDir : FilePath
-  /-- The root package's library directory. -/
   rootDir : FilePath
-  /-- Each module, with where Lean found its {lit}`.olean`. -/
   places : List (Name × FilePath)
 
-/-- What a run received of a finished build: {name}`a` is what the answers of {name}`t` state, for the workspace {name}`root`, whose default targets give
-the modules {name}`roots`. -/
 def BuildAnswered (t : List (Event L E)) (root : Root L) (a : BuildAnswer) (roots : List Name) : Prop :=
   ∃ modules,
     DefaultModules t root root.defaultTargets modules ∧ roots = modules.map (·.1) ∧
@@ -50,8 +31,6 @@ def BuildAnswered (t : List (Event L E)) (root : Root L) (a : BuildAnswer) (root
     a.places.map (·.1) = a.env.header.moduleNames.toList ∧
     ∀ x ∈ a.places, (⟨.findOLean root.leanPath x.1, .ok x.2⟩ : Event L E) ∈ t
 
-/-- What the rules read of a constant by its names: those that {name}`Mentions` reads, each once in the order of their first
-occurrence. -/
 def namesOf : ConstantInfo → List Name
   | .axiomInfo v => v.type.getUsedConstants.toList.eraseDups
   | .defnInfo v => (v.type.getUsedConstants.toList ++ v.value.getUsedConstants.toList).eraseDups
@@ -62,15 +41,12 @@ def namesOf : ConstantInfo → List Name
   | .recInfo v => (v.type.getUsedConstants.toList ++ v.all).eraseDups
   | .inductInfo v => (v.type.getUsedConstants.toList ++ v.ctors ++ v.all).eraseDups
 
-/-- What the value of a constant mentions, and nothing of a constant that has no value. -/
 def valueNamesOf : ConstantInfo → List Name
   | .defnInfo v => v.value.getUsedConstants.toList
   | .thmInfo v => v.value.getUsedConstants.toList
   | .opaqueInfo v => v.value.getUsedConstants.toList
   | .axiomInfo _ | .quotInfo _ | .inductInfo _ | .ctorInfo _ | .recInfo _ => []
 
-/-- Two constants of which the rules read the same: the same kind, the same two flags, the same
-names, and the same {lit}`ctorIdx` structural classification. -/
 def SameRead (env : Lean.Environment) (n : Name) (k v : ConstantInfo) : Prop :=
   ConstantKind.ofConstantInfo k = ConstantKind.ofConstantInfo v ∧ k.isUnsafe = v.isUnsafe ∧ k.isPartial = v.isPartial ∧
     namesOf k = namesOf v ∧ valueNamesOf k = valueNamesOf v ∧ ctorIdxShape env n k = ctorIdxShape env n v
@@ -79,45 +55,33 @@ namespace BuildAnswer
 
 variable (a : BuildAnswer)
 
-/-- The module that holds a constant, by Lean's index, with where its {lit}`.olean` lies. -/
 def place? (n : Name) : Option (Name × FilePath) :=
   (a.env.getModuleIdxFor? n).bind fun idx => a.places[idx.toNat]?
 
-/-- A module whose {lit}`.olean` lies below the root package's library directory is claimed. -/
 def Claimed (m : Name) : Prop :=
   ∃ olean, (m, olean) ∈ a.places ∧ StrictlyBelow a.rootDir olean
 
-/-- What the own data of a loaded module states of a name. -/
 def Stated (n : Name) (v : ConstantInfo) : Prop :=
   ∃ data ∈ a.env.header.moduleData, (n, v) ∈ data.constNames.zip data.constants
 
-/-- What a constant mentions: what the constant that the environment keeps mentions, and what any constant that a module states of its
-name mentions. -/
 def Mention (c u : Name) : Prop :=
   ∃ k, a.env.constants.map₁[c]? = some k ∧ (Mentions k u ∨ ∃ v, a.Stated c v ∧ Mentions v u)
 
-/-- A name that is an axiom: the constant that the environment keeps, or any that a module states of it. -/
 def Axiom (n : Name) : Prop :=
   ∃ k, a.env.constants.map₁[n]? = some k ∧ (AxiomInfo k ∨ ∃ v, a.Stated n v ∧ AxiomInfo v)
 
-/-- What a constant reaches through what it mentions. -/
 inductive Reaches : Name → Name → Prop
-  /-- A constant reaches itself. -/
   | refl (c : Name) : Reaches c c
-  /-- A constant reaches what a constant that it mentions reaches. -/
   | step {c u e : Name} : a.Mention c u → Reaches u e → Reaches c e
 
-/-- A constant whose module lies below the toolchain's library directory. -/
 def InToolchain (n : Name) : Prop :=
   ∃ x, a.place? n = some x ∧ StrictlyBelow a.toolchainDir x.2
 
-/-- An axiom that a profile admits. -/
 def Admits : Regula.Closed.Profile → Name → Prop
   | .kernelOnly, _ => False
   | .choiceFree, n => (n = ``propext ∨ n = ``Quot.sound) ∧ a.InToolchain n
   | .standardLogical, n => (n = ``propext ∨ n = ``Quot.sound ∨ n = ``Classical.choice) ∧ a.InToolchain n
 
-/-- A constant of the exempted recursion-helper form beside a safe definition of the module {name}`m`, which names no origin. -/
 def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   info.isPartial = true ∧ info.isUnsafe = false ∧
     Lean.Compiler.getImplementedBy? a.env n = none ∧ Lean.isExtern a.env n = false ∧
@@ -127,8 +91,6 @@ def Helper (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
       (ConstantInfo.defnInfo v).isPartial = false ∧
       Lean.Compiler.getImplementedBy? a.env b = none ∧ Lean.isExtern a.env b = false
 
-/-- The compiler-generated {lit}`T.ctorIdx` / {lit}`T.ctorIdx._impl` pair for safe inductive
-{name}`ind` in module {name}`m`, stated over the build answers alone. -/
 def CtorIdxPair (ind : Name) (defv implv : Lean.DefinitionVal) (m : Name) : Prop :=
   let defName := Name.str ind "ctorIdx"
   let implName := Name.str defName "_impl"
@@ -155,35 +117,24 @@ def CtorIdxPair (ind : Name) (defv implv : Lean.DefinitionVal) (m : Name) : Prop
   Lean.isExtern a.env implName = false ∧
   Lean.getInitFnNameFor? a.env implName = none
 
-/-- The safe half {lit}`T.ctorIdx` of a compiler-generated {lit}`ctorIdx` pair. -/
 def CtorIdxDef (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   ∃ ind defv implv, n = Name.str ind "ctorIdx" ∧ info = .defnInfo defv ∧
     a.CtorIdxPair ind defv implv m
 
-/-- The unsafe half {lit}`T.ctorIdx._impl` of a compiler-generated {lit}`ctorIdx` pair. -/
 def CtorIdxImpl (n : Name) (info : ConstantInfo) (m : Name) : Prop :=
   ∃ ind defv implv, n = Name.str (Name.str ind "ctorIdx") "_impl" ∧ info = .defnInfo implv ∧
     a.CtorIdxPair ind defv implv m
 
-/-- A name that the environment holds as a theorem: the constant that it keeps is one, and no module states an
-axiom of that name. -/
 def Theorem (n : Name) : Prop :=
   ∃ v, a.env.constants.map₁[n]? = some (.thmInfo v) ∧ ∀ w, a.Stated n w → ¬ AxiomInfo w
 
-/-- A panic form: one of Lean's four panic functions, or a name that {name}`BangNamed` admits and that the
-environment does not hold as a theorem. -/
 def Panic (n : Name) : Prop :=
   n ∈ panicFunctions ∨ (BangNamed n ∧ ¬ a.Theorem n)
 
-/-- A constant that a claimed module's own {lit}`.olean` holds. -/
 def Own (m n : Name) (info : ConstantInfo) : Prop :=
   ∃ (k : Nat) (olean : FilePath) (data : Lean.ModuleData), a.places[k]? = some (m, olean) ∧ StrictlyBelow a.rootDir olean ∧
     a.env.header.moduleData[k]? = some data ∧ (n, info) ∈ data.constNames.zip data.constants
 
-/-- A claimed module's own constant represented by the rules, including the absence of its own
-replacement attributes (or solely the compiler-generated {lit}`(n, n._impl)` entry of a
-{lit}`ctorIdx` definition) or a represented unexempted replacement that RG1011 refuses, and, of a
-definition, the absence of its own initialization function or a represented one. -/
 def Shown (m n : Name) (info : ConstantInfo) : Prop :=
   (∃ k x, a.env.constants.map₁[n]? = some k ∧ a.place? n = some x ∧ SameRead a.env n k info ∧
     StrictlyBelow a.rootDir x.2 ∧
@@ -193,26 +144,13 @@ def Shown (m n : Name) (info : ConstantInfo) : Prop :=
         ∀ ind, ctorIdxShape a.env n k = .defn ind → impl ≠ Name.str n "_impl")) ∧
     ((∃ v, info = .defnInfo v) → ModuleUninitialized a.env m n ∨ ∃ fn, Lean.getInitFnNameFor? a.env n = some fn)
 
-/-- What the rules ask of a finished build, by what Lean and Lake answered and with none of the checker's
-functions. -/
 structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
-  /-- Each module of the default targets is claimed. -/
   roots : ∀ r ∈ roots, a.Claimed r
-  /-- Each constant has a module. -/
   placed : ∀ n info, a.env.constants.map₁[n]? = some info → ∃ x, a.place? n = some x
-  /-- Each mentioned constant is held. -/
   closed : ∀ n u, a.Mention n u → ∃ info', a.env.constants.map₁[u]? = some info'
-  /-- At least one module is claimed. -/
   claims : ∃ m, a.Claimed m
-  /-- Each claimed module is a {lit}`module` file. -/
   moduleFiles : ∀ m, a.Claimed m → EnvModuleFile a.env m
-  /-- Each claimed module has an index in the environment, and each of its exported ({lit}`global` or
-  {lit}`scoped`) {attr}`@[csimp]` entries names a constant declared in some claimed module's own
-  {lit}`.olean` data. -/
   csimps : ∀ m, a.Claimed m → ModuleCSimpIn a.env (fun thm => ∃ cm info, a.Own cm thm info) m
-  /-- Each constant of a claimed module is no axiom, has an exempted form ({name}`BuildAnswer.Helper` or {name}`BuildAnswer.CtorIdxImpl`) if it has unsafe, partial or helper-name marks, mentions no loop construct, has a value that does not mention {name}`Lean.Order.fix` when it is a definition or an opaque constant, reaches only axioms that the profile admits,
-  has neither {attr}`@[implemented_by]` (unless it is {name}`BuildAnswer.CtorIdxDef`) nor {attr}`@[extern]`, has, when it is a definition, no initialization function, and, when it is a definition or an opaque
-  constant, has a value that mentions no panic form. -/
   floor : ∀ n info m, a.env.constants.map₁[n]? = some info → (a.place? n).map (·.1) = some m → a.Claimed m →
     ¬ a.Axiom n ∧
     ((info.isUnsafe = true ∨ info.isPartial = true ∨ ∃ b, n = .str b "_unsafe_rec") →
@@ -224,16 +162,12 @@ structure Floor (roots : List Name) (p : Regula.Closed.Profile) : Prop where
     Lean.isExtern a.env n = false ∧
     ((∃ v, info = .defnInfo v) → Lean.getInitFnNameFor? a.env n = none) ∧
     ((∃ v, info = .defnInfo v) ∨ (∃ v, info = .opaqueInfo v) → ∀ u, ValueMentions info u → ¬ a.Panic u)
-  /-- A claimed module's own constant that the environment does not show has neither replacement attribute in its own module,
-  is a safe theorem with no helper's name, whose value mentions no
-  loop construct, and each constant it mentions is held and reaches only axioms that the profile admits. -/
   unshown : ∀ m n info, a.Own m n info → ¬ a.Shown m n info →
     ModuleUnreplaced a.env m n ∧
     (∃ t, info = .thmInfo t) ∧ info.isUnsafe = false ∧ info.isPartial = false ∧
     (∀ b, n ≠ .str b "_unsafe_rec") ∧ (∀ l ∈ loopConstructs, ¬ ValueMentions info l) ∧
     ∀ u, Mentions info u → (∃ k, a.env.constants.map₁[u]? = some k) ∧ ∀ e, a.Reaches u e → a.Axiom e → a.Admits p e
 
-/-- The answers that a reading of the checker holds. -/
 def ofFacts (f : Regula.Load.Facts) : BuildAnswer where
   env := f.env
   toolchainDir := f.toolchainDir

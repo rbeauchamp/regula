@@ -6,19 +6,6 @@ import all Lake.Toml.Data.Dict
 import all Lake.Toml.Data.Value
 import all Lean.Parser.Module
 
-/-!
-# A project that the reader admits
-
-{lit}`admits_a_project` is the record's witness, under hypotheses: for paths that meet {lit}`WitnessPaths`, there is a
-trace on which the check that runs admits. The proof's trace is that of a project of one module {lit}`Good` in
-the closed language.
-
-The tests of a path read {name}`System.FilePath`, whose separator depends on {name}`System.Platform.isWindows`, an
-{kw (of := Lean.Parser.Command.declaration)}`opaque` constant, so {lit}`WitnessPaths` states what those tests give on the paths of the project as hypotheses,
-and no theorem discharges them. Observed: the gate's run on Regula's own checkout takes the same branches on
-real paths, and its run ends with {lit}`full verdict: pass`.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -32,12 +19,10 @@ open Regula.Reader
 open Regula.Shell
 open RegulaSpecification.Language
 
-/-- The events of a program, for the answers {name}`f`, one function of the operation. -/
 def traceWith {L E α : Type} (f : (o : Op L E) → Resp o) : Prog L E α → List (Event L E)
   | .done _ => []
   | .ask o next => ⟨o, f o⟩ :: traceWith f (next (f o))
 
-/-- The value of a program, for those answers. -/
 def valueWith {L E α : Type} (f : (o : Op L E) → Resp o) : Prog L E α → α
   | .done a => a
   | .ask o next => valueWith f (next (f o))
@@ -57,48 +42,27 @@ theorem traceWith_answers {L E α : Type} {f : (o : Op L E) → Resp o} {p : Pro
     · rfl
     · exact ih _ h
 
-/-- The paths of the witness, and what the tests of them give. -/
 structure WitnessPaths where
-  /-- The project. -/
   project : FilePath
-  /-- The checker's tree. -/
   tree : FilePath
-  /-- The search path Lake gave. -/
   leanPath : String
-  /-- The library directory of Lake. -/
   lakeLib : FilePath
-  /-- The file that Lake names for the module {lit}`Good`. -/
   file : FilePath
-  /-- Its components below the tree. -/
   rel : List String
-  /-- The directory of the toolchain's library. -/
   toolchainDir : FilePath
-  /-- The root package's library directory. -/
   rootLib : FilePath
-  /-- An {lit}`.olean`. -/
   olean : FilePath
-  /-- The project and the tree lie apart. -/
   apart : apart project tree = true
-  /-- {lit}`lean-toolchain` lies at itself below the project. -/
   toolchainExact : ExactlyBelow project (project / "lean-toolchain") (project / "lean-toolchain")
-  /-- `lakefile.toml` lies at itself below the project. -/
   tomlExact : ExactlyBelow project (project / "lakefile.toml") (project / "lakefile.toml")
-  /-- The tree's copies lie below it. -/
   tomlInTree : ¬ OutsideTree tree (tree / "lakefile.toml")
-  /-- The tree's copies lie below it. -/
   toolchainInTree : ¬ OutsideTree tree (tree / "lean-toolchain")
-  /-- The module's file lies below the tree, at {lit}`rel`. -/
   fileRel : TreeRelative (parts tree) (parts file) rel
-  /-- Its directory too. -/
   fileInTree : ¬ OutsideTree tree file
-  /-- The same relative path lies at itself below the project. -/
   fileExact : ExactlyBelow project (under project rel) (under project rel)
-  /-- The pinned text is the text of the file, trimmed. -/
   pinned : leanToolchain.trimAscii.toString = leanToolchain
-  /-- An empty log holds no error. -/
   noErrors : ({} : MessageLog).hasErrors = false
 
-/-- What the workspace of the witness holds: one default target {lit}`Good`, which {name (full := Regula.Effect.Root.findLib)}`findLib` treats as a library. -/
 def witnessRoot (w : WitnessPaths) : Root Unit where
   sourceDirs := []
   libraries := []
@@ -112,8 +76,6 @@ def witnessRoot (w : WitnessPaths) : Root Unit where
   leanLib := w.toolchainDir
   rootLib := w.rootLib
 
-/-- The answers of the witness: every read gives the pinned text, every parse a file in the closed language with no
-import, Lean's import gives {name}`env`, and nothing fails. -/
 def answers (w : WitnessPaths) (env : Lean.Environment) : (o : Op Unit Unit) → Resp o
   | .leanVersion => Regula.Closed.pinnedLean
   | .getEnv _ => some w.leanPath

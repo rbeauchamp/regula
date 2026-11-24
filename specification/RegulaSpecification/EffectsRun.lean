@@ -2,14 +2,6 @@ module
 
 public import RegulaSpecification.Effects
 
-/-!
-# What the reader must have done, and what a whole run must do
-
-{lit}`Reason` is the closed set of what may keep a project from being admitted: a refusal or a failure to read
-that has no such reason is no behaviour of the checker, so a reader that refuses everything is ruled out
-too.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -23,71 +15,43 @@ open RegulaSpecification.Language
 
 variable {L E : Type}
 
-/-- A key path of a TOML table: each key whose value is neither a table nor an array that holds one, and each
-key of each table and array of tables under it. A table with no key is a key path itself. -/
 inductive KeyPath : Name → Lake.Toml.Table → Name → Prop where
-  /-- A key whose value holds no table. -/
   | leaf {pre k v t} : (k, v) ∈ t.items → (∀ r sub, v ≠ .table r sub) →
       (∀ r xs, v = .array r xs → ∀ r' sub, Lake.Toml.Value.table r' sub ∉ xs) →
       KeyPath pre t (pre ++ k)
-  /-- A key whose value is an empty table. -/
   | empty {pre k r sub t} : (k, Lake.Toml.Value.table r sub) ∈ t.items → sub.items.isEmpty = true →
       KeyPath pre t (pre ++ k)
-  /-- A key path below a table. -/
   | under {pre k r sub t n} : (k, Lake.Toml.Value.table r sub) ∈ t.items → KeyPath (pre ++ k) sub n →
       KeyPath pre t n
-  /-- An empty table in an array. -/
   | emptyIn {pre k r xs r' sub t} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
       Lake.Toml.Value.table r' sub ∈ xs → sub.items.isEmpty = true → KeyPath pre t (pre ++ k)
-  /-- A key path below a table in an array. -/
   | underIn {pre k r xs r' sub t n} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
       Lake.Toml.Value.table r' sub ∈ xs → KeyPath (pre ++ k) sub n → KeyPath pre t n
 
-/-- A table with a chain of more than {lit}`n` nested tables, which the reader does not follow. -/
 inductive Deeper : Nat → Lake.Toml.Table → Prop where
-  /-- Any table is deeper than nothing. -/
   | zero {t} : Deeper 0 t
-  /-- Through a table that holds a key. -/
   | table {n k r sub t} : (k, Lake.Toml.Value.table r sub) ∈ t.items → sub.items.isEmpty = false →
       Deeper n sub → Deeper (n + 1) t
-  /-- Through a table in an array that holds a key. -/
   | array {n k r xs r' sub t} : (k, Lake.Toml.Value.array r xs) ∈ t.items →
       Lake.Toml.Value.table r' sub ∈ xs → sub.items.isEmpty = false → Deeper n sub → Deeper (n + 1) t
 
-/-- A path, or the directory above it, does not lie below the tree by {name}`TreeRelative`. -/
 def OutsideTree (tree path : FilePath) : Prop :=
   (∀ rel, ¬ TreeRelative (parts tree) (parts path) rel) ∨
     ∃ d, path.parent = some d ∧ ∀ rel, ¬ TreeRelative (parts tree) (parts d) rel
 
-/-- The file of a module, as Lake's load names it: a root's own, or what Lake's resolution of an import gives. -/
 def FileOfModule (root : Root L) (modules : List (Name × FilePath)) (m : Name) (path : FilePath) : Prop :=
   (m, path) ∈ modules ∨ root.resolve m = some path
 
-/-- Neither of two directories lies at or below the other. -/
 def Apart (a b : FilePath) : Prop :=
   ¬ (parts a <+: parts b) ∧ ¬ (parts b <+: parts a)
 
-/-- {lit}`Sees headers held m n`: an import of {lit}`m` lets a file see the toolchain's module {lit}`n`, by the rule of
-{name (full := Lean.importModulesCore)}`importModulesCore` for a {lit}`module` file ({lit}`Lean/Environment.lean:2472-2554` at v4.36.0): a module of the
-toolchain's own closes it there, whose own closure Lean follows, and a project's module passes on each of its
-`public` imports, as {name}`headers` gives them. -/
 inductive Sees (headers : List (Name × Array Import)) (held : List Name) : Name → Name → Prop where
-  /-- The toolchain's own module. -/
   | self {n} : n ∈ held → Sees headers held n n
-  /-- Through a `public` import of a project's module. -/
   | through {m imports i n} : m ∉ held → headers.lookup m = some imports → i ∈ imports →
       i.isExported = true → Sees headers held i.module n → Sees headers held m n
 
-/-- What a reading of the project at {name}`dir`, in the checker's tree {name}`dirTree`, rests on: for each thing that the
-reading states, the events of the run that gave it.
-
-{name}`held` says what stands at each place where the build consumes a text, by the components of a path. So the
-statement that the text judged is what stands is about that state, and not about a write that some event
-once made: {name}`Evidence` with {name}`held` fixed keeps under more events, and {lit}`Decided` gives it {lean}`written t`, a fold
-of the run's own requests over its whole reading, which observes no file ({lit}`ReadBack` is the observation). -/
 structure Evidence (t : List (Event L E)) (dir dirTree : FilePath) (held : List String → Option String)
     (r : Reading) : Prop where
-  /-- The project and the tree have real paths, and neither lies in the other. -/
   places : ∃ project tree, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
     (⟨.realPath dirTree, .ok tree⟩ : Event L E) ∈ t ∧ Apart project tree ∧
     (∃ text real, (⟨.readFile (project / "lean-toolchain"), .ok text⟩ : Event L E) ∈ t ∧

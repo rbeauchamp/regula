@@ -5,15 +5,6 @@ public import Regula.Rules.RG1005
 import all Regula.Rule
 import all Regula.Rules.RG1005
 
-/-!
-# RG1005: the profile
-
-A constant of a claimed module depends on an axiom that the project's profile does not admit. Kernel-only
-admits no axiom, choice-free admits {name}`propext` and {name}`Quot.sound`, and standard-logical also admits
-{name}`Classical.choice`, each the toolchain's own ({lit}`Input.Admits`).
-{name (full := Regula.Rules.RG1005.check)}`Regula.Rules.RG1005.check` is the function that the checker runs.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -25,7 +16,6 @@ namespace Input
 
 variable (i : Input)
 
-/-- Profile {lit}`p` admits axiom {lit}`a`: a known axiom in the profile's set. -/
 def Admits : Profile → Name → Prop
   | .kernelOnly, _ => False
   | .choiceFree, a => i.Known a ∧ (a = ``propext ∨ a = ``Quot.sound)
@@ -33,12 +23,9 @@ def Admits : Profile → Name → Prop
 
 end Input
 
-/-- RG1005: a constant of a claimed module depends on an axiom that the project's profile does not
-admit. -/
 def Violates1005 (i : Input) (c : Name) : Prop :=
   i.ClaimedName c ∧ ∃ a, i.AxiomOf c a ∧ ¬ i.Admits i.profile a
 
-/-- The intent record of RG1005. -/
 def rg1005 := ruleRecord "RG1005" Violates1005
 
 theorem admits_known {i : Input} {p : Profile} {a : Name} (h : i.Admits p a) : i.Known a := by
@@ -58,11 +45,9 @@ theorem base_t_admitted {a : Name} (ha : base.AxiomOf `Good.t a) : base.Admits b
   subst this
   exact ⟨base_known_propext, Or.inl rfl⟩
 
-/-- A theorem that uses {name}`Classical.choice`, which the profile of {name}`base` does not admit. -/
 def choice : List Decl :=
   [toolchain ``Classical.choice .axiom, plain `Good.c `Good .theorem [``Classical.choice]]
 
-/-- The cases of RG1005. -/
 def w1005 : Witnessed Violates1005 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -138,12 +123,10 @@ theorem rg1005_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1005 with its statement, its proofs and its cases, for the registry. -/
 def rg1005Proved : Proved :=
   ⟨Regula.Rules.RG1005.rule, Violates1005, Link.rg1005_exact, Witnesses.w1005,
     fun t _ hv => .inl ⟨by decide, Link.rg1005_subject t hv⟩⟩
 
-/-- The function of RG1005 over the specification's input. -/
 def rg1005Checker : Checker Input Name := rg1005Proved.checker
 
 theorem rg1005_meets : rg1005.Meets rg1005Checker := rg1005Proved.meets "RG1005"

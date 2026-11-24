@@ -3,10 +3,6 @@ module
 public import RegulaSpecification.Proofs.ReaderWalk
 import all Regula.Reader
 
-/-!
-# What the reader's parse of each file gives
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -34,7 +30,6 @@ theorem parsed_events {input : InputContext} {env : E} {fuel : Nat} {state : Mod
     · exact id
     · exact ih.2 x hx
 
-/-- What one file of a reading holds, from the source {name}`s`. -/
 def FileFrom (T : List (Event L E)) (root : Root L) (sources : List (Name × Source)) (toolchain : List Name) (m : Name)
     (s : Source) (f : FileRead) : Prop :=
   f.module = m ∧ f.header = s.header ∧

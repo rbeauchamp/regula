@@ -2,26 +2,12 @@ module
 
 public import Regula.Verdict
 
-/-!
-# The closed set of the language check
-
-What a Lean file may hold, as data, and the type of what the reader gives the decision. Nothing here
-decides anything: `Regula.Language` is the decision, and `specification/RegulaSpecification/Language.lean`
-states it over these tables, independently of that decision, and `specification/RegulaSpecification/Proofs/Owner.lean` states the owner's
-examples apart from them, so a table replaced by a constant fails that build.
-
-Each table is closed: a name that it does not hold is refused, so a construct that a later Lean adds is
-refused until someone reads it and adds it. The criterion each entry was read against, at Lean v4.36.0,
-is in the specification's section "The language check", which states it as the hypothesis H2.
--/
-
 public section
 
 namespace Regula.Language
 
 open Lean (Name Syntax)
 
-/-- The syntax kinds a file may hold, in strictly ascending `Name.cmp` order for binary search. -/
 def kinds : List Name :=
   [`choice, `group, `interpolatedStrKind, `null, `patternIgnore, `«tacticBy_cases_:_»,
     `tacticFunext___, `term!_, `«term#[_,]», `«term-_», `termDepIfThenElse, `termIfLet,
@@ -127,8 +113,6 @@ def kinds : List Name :=
     `Lean.Parser.Tactic.rcasesPat.one, `Lean.Parser.Tactic.rcasesPat.paren,
     `Lean.Parser.Tactic.rcasesPat.tuple, `Lean.Parser.Tactic.rintroPat.one]
 
-/-- The tokens a file may hold, outside the kinds of `leafKinds`, in strictly ascending `<` order for
-binary search. -/
 def atoms : List String :=
   ["!", "!=", "#[", "#v[", "%", "&&", "&&&", "(", ")", "*", "+", "++", ",", "-", ".", "..", "/", "//",
     ":", "::", ":=", ";", "<", "<$>", "<+:", "<:+:", "<;>", "<<<", "<|", "=", "==", "=>", ">", ">>=",
@@ -149,110 +133,63 @@ def atoms : List String :=
     "←", "→", "↓", "↔", "∀", "∃", "∅", "∈", "∉", "∘", "∣", "∧", "∨", "≠", "≤", "≥", "⊆", "⊕", "⊢", "▸",
     "⟨", "⟩"]
 
-/-- The kinds whose children are the text of a literal, a comment or hygiene data that Lean's parser
-makes, in strictly ascending `Name.cmp` order for binary search. The decision does not enter them,
-because what they hold is open text that names no construct. -/
 def leafKinds : List Name :=
   [`char, `fieldIdx, `hygieneInfo, `interpolatedStrLitKind, `name, `num, `scientific, `str,
     `Lean.Parser.Command.docComment, `Lean.Parser.Command.eoi, `Lean.Parser.Command.moduleDoc]
 
-/-- The attributes of the form `@[name]` that a file may use. -/
 def simpleAttributes : List Name :=
   [`inline, `noinline, `always_inline, `reducible, `irreducible, `expose]
 
-/-- The options a file or the Lake configuration may set. -/
 def options : List Name :=
   [`maxRecDepth, `maxHeartbeats, `exponentiation.threshold, `autoImplicit, `relaxedAutoImplicit,
     `warningAsError, `linter.missingDocs]
 
-/-- The items of a tactic's `+item` configuration that a file may use. -/
 def configItems : List Name := [`kernel]
 
-/-- The classes that a `deriving` clause may name. -/
 def derivingClasses : List Name :=
   [`DecidableEq, `BEq, `Repr, `Inhabited, `Hashable, `Ord, `Nonempty]
 
-/-- The keys of a `lakefile.toml` outside `leanOptions`, each as a path of TOML keys. This table reads a key
-and no value: `Reading.openPaths` holds what the reader found of the values of `srcDir`, `globs` and `defaultTargets`. -/
 def configKeys : List Name :=
   [`name, `version, `description, `keywords, `license, `licenseFiles, `srcDir, `defaultTargets,
     `lintDriver, `lintDriverArgs, `lean_lib.name, `lean_lib.roots, `lean_lib.globs,
     `lean_exe.name, `lean_exe.root, `lean_exe.supportInterpreter]
 
-/-- What `lean-toolchain` must say: the one Lean this revision reads, which the checker also uses to
-build, whatever a project's own file names. -/
 def leanToolchain : String := "leanprover/lean4:v4.36.0"
 
-/-- One Lean file as the reader got it from Lean's parser. -/
 structure FileRead where
-  /-- Its module, as Lake names it. -/
   module : Name
-  /-- `Lean.Parser.parseHeader`'s tree. -/
   header : Syntax
-  /-- `Lean.Parser.parseCommand`'s trees, in order. -/
   commands : List Syntax
-  /-- Whether Lean's parser gave no error. -/
   parsed : Bool
-  /-- The namespaces that hold scoped parser entries in the environment this file was parsed in. -/
   scopedParsers : List Name
 
-/-- What the reader read of one project, before anything of it is compiled. -/
 structure Reading where
-  /-- What the project's `lean-toolchain` says, trimmed, or none if it has none. -/
   toolchainFile : Option String
-  /-- Whether the project has a `lakefile.lean`, which Lake prefers and runs. -/
   leanConfig : Bool
-  /-- The key paths of the project's `lakefile.toml`. -/
   configKeys : List Name
-  /-- What the project's configuration names that is outside the closed domain, each with its report: a
-  source directory that does not lie below the checker's tree with closed components (`closedSourceDir`), a
-  library with a `globs` entry that is not a single module, which would need a directory listing, and a default
-  target that is not a library. -/
   openPaths : List String
-  /-- The modules of the project's default targets. -/
   roots : List Name
-  /-- The roots, and each module outside the toolchain that their imports reach. -/
   reached : List Name
-  /-- What the reader read of the modules of `reached`. -/
   files : List FileRead
-  /-- What the reader could not read, each with its reason. -/
   unread : List (Name × String)
 
-/-- What the decision gives. -/
 inductive Outcome where
-  /-- Everything read is in the closed set, so the build can have the full verdict. -/
   | admitted
-  /-- The project holds something outside the closed set. Nothing is compiled. -/
   | refused
-  /-- The project can have only the proof verdict: its configuration has a dependency, or Mathlib is in
-  its imports. Nothing is compiled. -/
   | proofOnly
-  /-- Something could not be read, so nothing is decided. Nothing is compiled. -/
   | incomplete
   deriving DecidableEq, Repr
 
-/-- One step that the full gate takes, in the order it takes them. -/
 inductive Step where
-  /-- Read the project and decide (`Reading`, `Outcome`). -/
   | read
-  /-- Build the checker's tree (`lake build --wfail`). -/
   | build
-  /-- Read the finished build, replay the cone of its claim in Lean's kernel and run the rules
-  (`Regula.Shell.inputOf`, `Regula.Closed.decisionPrepared`). -/
   | rules
   deriving DecidableEq, Repr
 
-/-- What a run of the full gate reports. The two verdicts are distinct constructors, so that neither
-can be read as the other. -/
 inductive Report where
-  /-- The full verdict: the check admitted everything before anything was compiled. -/
   | full (verdict : Regula.Closed.Verdict)
-  /-- Only a proof verdict is possible for this project, and the gate built nothing. The two commands
-  in the project give that verdict, and they run the project's code and its dependencies'. -/
   | proofOnly
-  /-- The check refused the project. Nothing was compiled. -/
   | refused
-  /-- The check could not read the project. Nothing was compiled. -/
   | incomplete
   deriving DecidableEq, Repr
 

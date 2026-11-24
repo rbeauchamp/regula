@@ -8,20 +8,6 @@ import all Regula.Input
 import all Regula.Language
 import all Regula.Verdict
 
-/-!
-# A pass is owed
-
-What the record of a run ({name}`RegulaSpecification.Effects.programRecord`) requires of every program that meets
-it, by the record alone. It reads no program, so it holds of each subject and not only of the one that runs.
-
-{lit}`FullOwed` is the absence of each reason, so it says nothing by itself of who ought to pass, and no
-statement here says that: a refusal is true of what the run was answered, and a project with no refusal, on
-which the rules hold, passes. Preparation is supplied by {name (full := RegulaSpecification.Effects.PlainRun)}`PlainRun` and {name (full := RegulaSpecification.Effects.FullRun)}`FullRun`, not by assuming reasons
-absent: their exact phase relations constrain every copy, load, command, lookup and import, including failed
-attempts. The premises concern responses and content, never a branch of a program. No consistency of
-responses is needed for either implication to a pass.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -42,11 +28,9 @@ theorem PreparedLoad.event {t : List (Event L E)} {dir treeDir sysroot tree resp
   obtain ⟨_, _, _, _, _, _, _, _, _, _, hi, _⟩ := h
   exact hi.subset (by simp)
 
-/-- What a run of the full gate did after it made its tree and before its first Lake command or import for the rules. -/
 def readPhase (t : List (Event L E)) : List (Event L E) :=
   (t.drop 1).takeWhile fun e => !e.isBuild && !e.isImportForRules
 
-/-- What a run of the full gate did after its last Lake command. -/
 def rulesPhase (t : List (Event L E)) : List (Event L E) :=
   (t.reverse.takeWhile fun e => !e.isBuild).reverse
 
@@ -260,15 +244,9 @@ theorem BuildRead.mono {root : Root L} {f roots} (h : BuildRead T root f roots) 
 
 end Mono
 
-/-- What a run of the proof verdict receives on a build that it owes a pass: no reason in the closed set holds, Lean's kernel
-accepted each replay, and each environment that the run read of the workspace in the current directory has
-{name}`BuildAnswer.Floor`. -/
 structure PlainOwed (t : List (Event L E)) (p : Regula.Closed.Profile) : Prop where
-  /-- Nothing that the load needs failed, and the search path starts with that of the workspace in the current directory. -/
   noReason : ¬ PlainReason t
-  /-- Lean's kernel accepted each replay that the run asked for. -/
   replayed : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ t
-  /-- What Lean's import gave has the floor. -/
   floor : ∀ root a roots, PlainRoot t root → BuildAnswered t root a roots → a.Floor roots p
 
 structure OutProofOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
@@ -276,34 +254,22 @@ structure OutProofOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Close
   replayed : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ t
   floor : ∀ root a roots, OutProofRoot dir t root → BuildAnswered t root a roots → a.Floor roots p
 
-/-- What a run of the full gate receives on a build that it owes a pass: the run has its tree, nothing keeps the project from
-being admitted, the build was not rejected, nothing that the load of the result needs failed, Lean's kernel accepted each
-replay that the load asked for, and each build that the run read has {name}`BuildAnswer.Floor`. -/
 structure FullOwed (t : List (Event L E)) (dir : FilePath) (p : Regula.Closed.Profile) : Prop where
-  /-- The tree. -/
   tree : ∀ e, (⟨.createTempDir, .error e⟩ : Event L E) ∉ t
-  /-- No reason keeps the project from being admitted. -/
   admitted : ∀ tree rest o, t = ⟨.createTempDir, .ok tree⟩ :: rest → ¬ Reason (readPhase t) dir tree o
-  /-- The build. -/
   built : ∀ tree rest sysroot, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
     ¬ BuildRejected sysroot tree t
-  /-- The load of the result. -/
   loaded : ∀ tree rest sysroot, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
     ¬ TreeReason sysroot tree (rulesPhase t)
-  /-- Lean's kernel accepted each replay that the load of the result asked for. -/
   replayed : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ rulesPhase t
-  /-- What Lean's import gave has the floor. -/
   floor : ∀ tree rest sysroot root a roots, t = ⟨.createTempDir, .ok tree⟩ :: rest → SysrootIs (readPhase t) sysroot →
     TreeRoot sysroot tree (rulesPhase t) root → BuildAnswered (rulesPhase t) root a roots → a.Floor roots p
 
-/-- The last line of a pass of the proof verdict. -/
 abbrev plainPass (subject : FilePath) : String :=
   Regula.Closed.Verdict.pass.proofLineOn subject.toString
 
-/-- The last line of a pass of the full verdict. -/
 abbrev fullPass (dir : FilePath) : String := (Report.full .pass).labelOn dir.toString
 
-/-- A load's result is the loader's when Lean's kernel accepted each replay of the run. -/
 theorem replayed_eq {t : List (Event L E)} {f : Regula.Load.Facts} {x result : Except String Regula.Closed.Input}
     (hr : Replayed t f x result) (hok : ∀ m e, (⟨.kernelReplay m, .error e⟩ : Event L E) ∉ t) : result = x := by
   cases x with
@@ -430,8 +396,6 @@ theorem run_full_owed {w : List String → Prog L E UInt32} (hw : RunMeets w) {t
   cases he'
   exact full_owed hf owed
 
-/-- A program that asks which Lean this is and which run is asked for, reads the environment variable {Lean.Doc.name}`name`,
-and says that the proof verdict is incomplete. -/
 def manufacturer (name : String) (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv Regula.Shell.fullVariable) fun _ =>

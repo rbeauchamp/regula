@@ -43,11 +43,3 @@ public import RegulaSpecification.Proofs.Gate
 public import RegulaSpecification.Assumptions
 public import RegulaSpecification.Meaning
 public import RegulaSpecification.Required
-
-/-!
-# The specification of Regula
-
-Each rule's formal statement, the cases that check each statement in both directions, and the proofs
-of the functions that the checker runs against the statements. The document is `README.md` in this
-directory.
--/

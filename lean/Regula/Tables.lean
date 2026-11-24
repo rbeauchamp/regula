@@ -3,20 +3,6 @@ module
 public import Regula.Input
 public import Regula.Reach
 
-/-!
-# The tables of the closed input
-
-A value of `Tables i` holds what the rules look up of the input `i`, with the proofs of what each
-table holds. So a table of another input cannot reach a rule, and no theorem about a rule has a
-hypothesis about its table. `Input.tables` constructs the one that a run computes, and the proofs
-are here because the proof fields of that value need them.
-
-The tables compute the axiom set of a constant from the input itself: the constants that each
-constant mentions and the kind of each (`Tables.axiomSet`). No field holds a set, so no set can be
-missing, and `Tables.mem_axiomSet` states what it holds. The same mentions give the cone of the claim
-that Lean's kernel replays (`Input.cone`).
--/
-
 public section
 
 namespace Regula.Closed
@@ -27,34 +13,22 @@ namespace Input
 
 variable (i : Input)
 
-/-- `e` is `c`, or a constant that `c` reaches through the constants each mentions. -/
 inductive Reaches : Name → Name → Prop
-  /-- A constant reaches itself. -/
   | refl (c : Name) : Reaches c c
-  /-- A constant reaches what a constant that it mentions reaches. -/
   | step {c u e : Name} (d : Decl) : d ∈ i.decls → d.name = c → u ∈ d.uses → Reaches u e →
       Reaches c e
 
-/-- `a` is an axiom of the input that `c` reaches. -/
 def AxiomOf (c a : Name) : Prop :=
   i.Reaches c a ∧ ∃ d ∈ i.decls, d.name = a ∧ d.kind = .axiom
 
 end Input
 
-/-- What the rules look up of the input `i`, computed once, with what each table holds. -/
 structure Tables (i : Input) where
-  /-- The constants by name. -/
   index : Std.HashMap Name Decl
-  /-- The index holds exactly the constants of the input, each under its name. -/
   mem_index : ∀ n d, index[n]? = some d ↔ d ∈ i.decls ∧ d.name = n
-  /-- The constants of claimed modules. -/
   claimed : List Decl
-  /-- These are exactly the constants of the input whose module is claimed. -/
   mem_claimed : ∀ d, d ∈ claimed ↔ d ∈ i.decls ∧ d.module ∈ i.modules
-  /-- Each axiom of the input, with the constants that reach it through the constants each mentions
-  (`axiomSet`). -/
   axiomReach : List (Name × Std.HashSet Name)
-  /-- The sets hold exactly the axioms that each constant reaches. -/
   mem_axiomReach : ∀ c a, (∃ s, (a, s) ∈ axiomReach ∧ s.contains c = true) ↔ i.AxiomOf c a
 
 namespace Input
@@ -95,7 +69,6 @@ theorem mem_indexFold (l : List Decl) (hu : (l.map (·.name)).Nodup)
         · exact .inl ⟨hd, hn⟩
         · exact .inr ⟨h1.2, h2⟩
 
-/-- The constants of the input by name. -/
 def index : Std.HashMap Name Decl :=
   i.decls.foldl (fun m d => m.insert d.name d) {}
 
@@ -103,7 +76,6 @@ theorem index_eq_some (n : Name) (d : Decl) : i.index[n]? = some d ↔ d ∈ i.d
   rw [index, mem_indexFold _ i.unique]
   simp
 
-/-- The constants of claimed modules. -/
 def claimedDecls : List Decl :=
   let claimed := setOf i.modules
   i.decls.filter (claimed.contains ·.module)
@@ -111,7 +83,6 @@ def claimedDecls : List Decl :=
 theorem mem_claimedDecls (d : Decl) : d ∈ i.claimedDecls ↔ d ∈ i.decls ∧ d.module ∈ i.modules := by
   simp only [claimedDecls, List.mem_filter, mem_setOf]
 
-/-- The constants that mention each constant. -/
 def mentionedBy : Std.HashMap Name (List Name) :=
   i.decls.foldl (init := {}) fun m d =>
     d.uses.foldl (init := m) fun m u => m.insert u (d.name :: m.getD u [])
@@ -169,9 +140,6 @@ theorem reach_mentionedBy_iff {a c : Name} :
     | refl => exact .refl
     | step d hd hn hu _ ih => exact .step ih ((mem_mentionedBy i _ _).mpr ⟨d, hd, hn, hu⟩)
 
-/-- Each axiom of the input, with the constants that reach it: the search over the mentions, read
-backwards from the axiom. The search costs what the graph of the input costs, once for each axiom.
--/
 def axiomReach : List (Name × Std.HashSet Name) :=
   let callers := i.mentionedBy
   let weight := (callers.keys.map fun n => (callers.getD n []).length).sum
@@ -198,23 +166,15 @@ theorem mem_axiomReach (c a : Name) :
   · rintro ⟨hr, d, hd, rfl, hk⟩
     exact ⟨_, ⟨d, ⟨hd, hk⟩, rfl, rfl⟩, hsearch.mpr hr⟩
 
-/-- The constants that Lean's kernel builds into a term that it checks, so that checking a constant can need one that it does
-not mention: the types of a literal (`Lean.Literal.type`, `Lean/Expr.lean:622-624`), what the kernel unfolds a number and a
-string literal to (`src/kernel/inductive.cpp:1347-1390`), and the values of its arithmetic on numbers
-(`src/kernel/type_checker.cpp:665`, `src/library/constants.cpp:12-15`), at v4.36.0. -/
 def kernelNames : List Name :=
   [`Nat, `String, `Nat.zero, `Nat.succ, `String.ofList, `List.cons, `List.nil, `Char, `Char.ofNat, `Bool.true,
     `Bool.false]
 
-/-- The cone of the claim from `seeds`: each constant of a claimed module, each of `seeds`, and each constant that one of them
-reaches through what each constant mentions. The index is built once, and each lookup of the search reads it, so the search
-costs what the cone's mentions cost. -/
 def cone (seeds : List Name) : Std.HashSet Name :=
   let index := i.index
   reach (fun n => ((index[n]?).map (·.uses)).getD []) (i.decls.map (·.uses.length)).sum
     (i.claimedDecls.map (·.name) ++ seeds)
 
-/-- The tables of the input. -/
 def tables : Tables i where
   index := i.index
   mem_index := i.index_eq_some
@@ -229,7 +189,6 @@ namespace Tables
 
 variable {i : Input} (t : Tables i)
 
-/-- The axiom set of constant `c` (`Input.AxiomOf`): each axiom of the input that `c` reaches. -/
 def axiomSet (c : Name) : List Name :=
   t.axiomReach.filterMap fun p => if p.2.contains c then some p.1 else none
 
@@ -249,14 +208,8 @@ theorem mem_axiomSet (c a : Name) : a ∈ t.axiomSet c ↔ i.AxiomOf c a := by
 
 end Tables
 
-/-- A closed input with tables of it. `Regula.Load.Facts.prepare` gives the input that it admits with
-`Input.tables` of it, built once, and a run's rules read those tables (`decisionPrepared`). The type
-does not say that `tables` is `Input.tables`: `Regula.Load.Facts.prepare_tables` proves it of what the
-loader gives. -/
 structure Prepared where
-  /-- The closed input. -/
   input : Input
-  /-- Tables of `input`. -/
   tables : Tables input
 
 end Regula.Closed

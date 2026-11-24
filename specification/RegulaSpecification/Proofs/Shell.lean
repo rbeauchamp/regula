@@ -8,10 +8,6 @@ import all Regula.Reader
 import all Regula.Shell
 import all Regula.Verdict
 
-/-!
-# What a whole run does
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -141,7 +137,6 @@ theorem build_protocol {sysroot : String} {tree : FilePath} {t : List (Event L E
   obtain ⟨pre, r, post, ht, hpre, hpost, -⟩ := lake_spec h₂
   exact ⟨program, lakeLib, t₂, r, rfl, ⟨pre, post, ht, hpre.1, hpost.1⟩⟩
 
-/-- What the events of a build are. -/
 def BuildEvents (t : List (Event L E)) (tree : FilePath) : Prop :=
   (∀ e ∈ t, e.isImportForRules = false) ∧ (∀ l ∈ printed t, IsDetail l) ∧
     ∀ e ∈ t, ∀ p, e.acted? = some p → p = tree
@@ -234,7 +229,6 @@ theorem build_spec {sysroot : String} {tree : FilePath} {t : List (Event L E)} {
     rw [he] at this
     cases this
 
-/-- An operation that the loads may ask: none prints, builds, makes or removes anything. -/
 def LoadOp : Op L E → Prop
   | .runLake .. | .println _ | .flush | .createTempDir | .removeDirAll _ | .leanVersion | .writeFile ..
   | .createDirAll _ => False
@@ -374,12 +368,9 @@ theorem rules_spec {T t : List (Event L E)} {sysroot : String} {tree : FilePath}
     · exact (l2 prep rfl).2 e he
     · exact details_not_failed hd e he
 
-/-- What the gate's events are, and what it reports. -/
 structure GateEvents (tRead tGate : List (Event L E)) (dir tree : FilePath) (p : Regula.Closed.Profile)
     (report : Report) : Prop where
-  /-- The reading stage builds nothing, loads no build and issues no removal request. -/
   quiet : ∀ e ∈ tRead, e.isBuild = false ∧ e.isImportForRules = false ∧ NotRemoving e.op
-  /-- What decided. -/
   decided : ∃ o, Decided tRead dir tree o ∧ (o = .admitted → ∀ e ∈ tRead, ¬ e.failed) ∧
     (o ≠ .admitted → tGate = [] ∧ report = (match o with
       | .refused => Report.refused
@@ -387,13 +378,9 @@ structure GateEvents (tRead tGate : List (Event L E)) (dir tree : FilePath) (p :
       | _ => Report.incomplete)) ∧
     (o = .admitted → ∃ sysroot tBuild tRules, SysrootIs tRead sysroot ∧ tGate = tBuild ++ tRules ∧
       BuildAndRules sysroot tBuild tRules tree p report)
-  /-- A pass received no failed answer. -/
   healthy : report = .full .pass → ∀ e ∈ tRead ++ tGate, ¬ e.failed
-  /-- Each line is a detail. -/
   lines : (∀ l ∈ printed tRead, IsDetail l) ∧ ∀ l ∈ printed tGate, IsDetail l
-  /-- The reading's ordered acts and the search path that each lookup and import names. -/
   readPrepared : ReadingPreparation tRead dir tree
-  /-- The gate's acts. -/
   gateActs : ∀ e ∈ tGate, ∀ path, e.acted? = some path → path = tree
 
 theorem gateIn_spec {p : Regula.Closed.Profile} {dir tree : FilePath} {t : List (Event L E)} {report : Report}

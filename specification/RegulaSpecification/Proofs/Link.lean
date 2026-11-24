@@ -3,20 +3,6 @@ module
 public import Regula.Input
 public import RegulaSpecification.RuleRecord
 
-/-!
-# The link from the implementation's input to the specification's
-
-The checker runs over {name}`Regula.Closed.Input`, and the specification states each rule over
-{name}`RegulaSpecification.Input`: two types with the same data, so that the specification is written
-independently of the code. {lit}`toSpec` carries an input of the checker to the specification's, and each
-{lit}`rg100N_exact` is stated about the function that the checker runs on an input {lit}`i` and the predicate of the
-specification at {lit}`toSpec i`.
-
-{lit}`ofSpec` goes the other way, so that the admission of the checker is a function of the specification's
-input, and {lit}`ofAdmitted` carries a well-formed input, so that a function of the checker is a checker of the
-specification's input ({name (full := RegulaSpecification.Checker)}`Checker`) and can meet a rule's intent record.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -25,19 +11,16 @@ open Lean (Name)
 
 namespace Link
 
-/-- The implementation's profile in the specification. -/
 def profile : Regula.Closed.Profile → Profile
   | .kernelOnly => .kernelOnly
   | .choiceFree => .choiceFree
   | .standardLogical => .standardLogical
 
-/-- The specification's profile in the implementation. -/
 def profile' : Profile → Regula.Closed.Profile
   | .kernelOnly => .kernelOnly
   | .choiceFree => .choiceFree
   | .standardLogical => .standardLogical
 
-/-- The implementation's kind of constant in the specification. -/
 def constKind : Regula.Closed.Kind → Kind
   | .axiom => .axiom
   | .definition => .definition
@@ -48,7 +31,6 @@ def constKind : Regula.Closed.Kind → Kind
   | .constructor => .constructor
   | .recursor => .recursor
 
-/-- The specification's kind of constant in the implementation. -/
 def constKind' : Kind → Regula.Closed.Kind
   | .axiom => .axiom
   | .definition => .definition
@@ -59,31 +41,26 @@ def constKind' : Kind → Regula.Closed.Kind
   | .constructor => .constructor
   | .recursor => .recursor
 
-/-- The implementation's safety in the specification. -/
 def safety : Regula.Closed.Safety → Safety
   | .safe => .safe
   | .unsafe => .unsafe
   | .partial => .partial
 
-/-- The specification's safety in the implementation. -/
 def safety' : Safety → Regula.Closed.Safety
   | .safe => .safe
   | .unsafe => .unsafe
   | .partial => .partial
 
-/-- The implementation's {lit}`ctorIdx` structural classification in the specification. -/
 def ctorIdxForm : Regula.Closed.CtorIdxForm → CtorIdxForm
   | .none => .none
   | .defn ind => .defn ind
   | .impl ind => .impl ind
 
-/-- The specification's {lit}`ctorIdx` structural classification in the implementation. -/
 def ctorIdxForm' : CtorIdxForm → Regula.Closed.CtorIdxForm
   | .none => .none
   | .defn ind => .defn ind
   | .impl ind => .impl ind
 
-/-- The implementation's constant in the specification. -/
 def decl (d : Regula.Closed.Decl) : Decl where
   name := d.name
   module := d.module
@@ -97,7 +74,6 @@ def decl (d : Regula.Closed.Decl) : Decl where
   inToolchain := d.inToolchain
   ctorIdxForm := ctorIdxForm d.ctorIdxForm
 
-/-- The specification's constant in the implementation. -/
 def decl' (d : Decl) : Regula.Closed.Decl where
   name := d.name
   module := d.module
@@ -111,17 +87,14 @@ def decl' (d : Decl) : Regula.Closed.Decl where
   inToolchain := d.inToolchain
   ctorIdxForm := ctorIdxForm' d.ctorIdxForm
 
-/-- The implementation's exported {attr}`@[csimp]` entry in the specification. -/
 def csimp (e : Regula.Closed.CSimpEntry) : CSimpEntry where
   module := e.module
   thm := e.thm
 
-/-- The specification's exported {attr}`@[csimp]` entry in the implementation. -/
 def csimp' (e : CSimpEntry) : Regula.Closed.CSimpEntry where
   module := e.module
   thm := e.thm
 
-/-- A reading of the checker as the specification's input. -/
 def toSpecDraft (d : Regula.Closed.Draft) : Input where
   profile := profile d.profile
   modules := d.modules
@@ -133,10 +106,8 @@ def toSpecDraft (d : Regula.Closed.Draft) : Input where
     have h := d.unique
     simpa [decl, Function.comp_def] using h
 
-/-- The input of the checker as the specification's input. -/
 def toSpec (i : Regula.Closed.Input) : Input := toSpecDraft i.toDraft
 
-/-- The specification's input as a reading of the checker. -/
 def ofSpec (s : Input) : Regula.Closed.Draft where
   profile := profile' s.profile
   modules := s.modules
@@ -148,7 +119,6 @@ def ofSpec (s : Input) : Regula.Closed.Draft where
     have h := s.unique
     simpa [decl', Function.comp_def] using h
 
-/-- The specification's well-formed input as the input of the checker. -/
 def ofAdmitted (s : Admitted Input) : Regula.Closed.Input where
   toDraft := ofSpec s.1
   closed := by

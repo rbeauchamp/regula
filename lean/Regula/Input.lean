@@ -3,126 +3,62 @@ module
 public import Std.Data.HashMap
 public import Std.Data.HashSet
 
-/-!
-# The closed input
-
-The one input every rule of the checker reads: the constants Lean loads from the finished build, the modules
-that the build claims, the loaded modules that are `module` files, and the profile that the project states. It carries no source text, message, compiled
-code, option or build log, so a rule cannot decide anything that is not here.
-
-A value of `Input` has the closed form by its type: no name is that of two constants (`Draft.unique`), each
-mentioned constant is held (`Input.closed`), and at least one module is claimed (`Input.claims`). So a rule
-has no case for an input that lacks that form. The loader constructs the first of these
-(`Regula.Load.Facts.input`), and `Draft.admit` is the one place that reads the other two, and either refuses
-the reading or gives the proofs.
-
-The types follow `specification/RegulaSpecification/Input.lean`, and `Draft.admit` decides that module's
-admission (`Input.WellFormed`). That Lean's and Lake's interfaces report the build is what the
-specification's trusted base lists.
--/
-
 public section
 
 namespace Regula.Closed
 
 open Lean (Name)
 
-/-- The kind of a constant, one for each constructor of Lean's `ConstantInfo`. -/
 inductive Kind where
-  /-- `ConstantInfo.axiomInfo`. -/
   | «axiom»
-  /-- `ConstantInfo.defnInfo`. -/
   | «definition»
-  /-- `ConstantInfo.thmInfo`. -/
   | «theorem»
-  /-- `ConstantInfo.opaqueInfo`. -/
   | «opaque»
-  /-- `ConstantInfo.quotInfo`. -/
   | quotient
-  /-- `ConstantInfo.inductInfo`. -/
   | «inductive»
-  /-- `ConstantInfo.ctorInfo`. -/
   | constructor
-  /-- `ConstantInfo.recInfo`. -/
   | recursor
   deriving DecidableEq, Repr
 
-/-- The safety of a constant. Lean gives a definition one `DefinitionSafety` and each other constant
-at most an unsafe flag, so this type states no constant that is both unsafe and partial. -/
 inductive Safety where
-  /-- Neither `ConstantInfo.isUnsafe` nor `ConstantInfo.isPartial`. -/
   | safe
-  /-- `ConstantInfo.isUnsafe`. -/
   | «unsafe»
-  /-- `ConstantInfo.isPartial`. -/
   | «partial»
   deriving DecidableEq, Repr
 
-/-- Whether a constant has the exact structural form of one half of the pair Lean's `mkCtorIdx`
-generates for an inductive type `induct` (`Lean/Meta/Constructions/CtorIdx.lean:40-141` at v4.36.0):
-the safe definition `induct.ctorIdx` whose body dispatches on `induct.casesOn` to each constructor's
-index, or the unsafe implementation `induct.ctorIdx._impl` whose body calls `getObjTagNat` on the
-matched value. -/
 inductive CtorIdxForm where
-  /-- Neither half. -/
   | none
-  /-- The safe definition `induct.ctorIdx`. -/
   | defn (induct : Name)
-  /-- The unsafe implementation `induct.ctorIdx._impl`. -/
   | impl (induct : Name)
   deriving DecidableEq, Repr
 
-/-- One constant of a loaded environment, as Lean reports it from the build's `.olean` files. -/
 structure Decl where
-  /-- Its name. -/
   name : Name
-  /-- The module whose `.olean` holds it (`Environment.getModuleIdxFor?`). -/
   module : Name
-  /-- `axiom` when any loaded module's own data states an axiom of this name (Lean's import can drop
-  it for a theorem), and otherwise the `ConstantInfo` constructor of the constant Lean keeps. -/
   kind : Kind
-  /-- Whether it is safe, unsafe or partial. -/
   safety : Safety
-  /-- The constants that it mentions, what Lean's kernel checks it against when Lean replays it
-  (`Regula.Load.usesOf`), of the constant Lean keeps and of each constant of this name that a loaded
-  module's own data states (Lean's import can drop those). -/
   uses : List Name
-  /-- The constants its value mentions, for a definition, theorem or opaque constant, and nothing
-  for any other constant. -/
   valueUses : List Name
-  /-- The constant `@[implemented_by]` names, if any (`Lean.Compiler.getImplementedBy?`). -/
   implementedBy : Option Name
-  /-- Whether it is `@[extern]` (`Lean.isExtern`). -/
   isExtern : Bool
-  /-- The initialization function that `@[init]` or `@[builtin_init]` names for it, if any
-  (`Lean.getInitFnNameFor?`). -/
   initFn : Option Name
-  /-- Whether its module belongs to the Lean toolchain's own library. -/
   inToolchain : Bool
-  /-- Whether it has the structural form of Lean's compiler-generated `T.ctorIdx` or `T.ctorIdx._impl`
-  (`Regula.Load.ctorIdxFormOf`). -/
   ctorIdxForm : CtorIdxForm
   deriving Repr
 
-/-- The foundation profiles a project can state. -/
 inductive Profile where
-  /-- No axiom. -/
   | kernelOnly
-  /-- `propext` and `Quot.sound` only. -/
   | choiceFree
-  /-- `propext`, `Quot.sound` and `Classical.choice`. -/
   | standardLogical
   deriving DecidableEq, Repr
 
 namespace Profile
 
-/-- The text by which a project states a profile in `lintDriverArgs`. -/
 def spelling : Profile → String
   | .kernelOnly => "kernel-only"
   | .choiceFree => "choice-free"
   | .standardLogical => "standard-logical"
 
-/-- Each profile once. -/
 def all : List Profile := [.kernelOnly, .choiceFree, .standardLogical]
 
 theorem mem_all (p : Profile) : p ∈ all := by
@@ -132,7 +68,6 @@ theorem spelling_injective : Function.Injective spelling := by
   intro a b h
   cases a <;> cases b <;> first | rfl | exact absurd h (by decide)
 
-/-- The profile with the spelling `text`, if any. -/
 def ofSpelling? (text : String) : Option Profile :=
   all.find? (·.spelling == text)
 
@@ -146,48 +81,24 @@ theorem ofSpelling?_eq_some {text : String} {p : Profile} :
 
 end Profile
 
-/-- An exported (`global` or `scoped`) `@[csimp]` entry registered in a module
-(`Lean.Compiler.CSimp.ext.ext.getModuleEntries`). -/
 structure CSimpEntry where
-  /-- The module whose extension entries hold this registration. -/
   module : Name
-  /-- The theorem or declaration that `@[csimp]` names (`Lean.Compiler.CSimp.Entry.thmName`). -/
   thm : Name
   deriving DecidableEq, Repr
 
-/-- What the loader reads of an environment, before the admission. No name is that of two constants:
-the constants of an environment are the keys of a hash map, so the loader constructs this. -/
 structure Draft where
-  /-- The profile that the project states. -/
   profile : Profile
-  /-- The claimed modules: each module of a default target of the root package, and each module of
-  the root package that their imports reach. -/
   modules : List Name
-  /-- The loaded modules whose `.olean` states that Lean read the file as a `module` file
-  (`ModuleData.isModule`). -/
   moduleFiles : List Name
-  /-- Of the names that the entries of `csimps` give, those that a claimed module's own `.olean` data
-  declares (`ModuleData.constNames`). On merged theorems, `Environment.getModuleIdxFor?` keeps the first
-  module (`Lean/Environment.lean:2709` at v4.36.0), which can be unclaimed even when a claimed module
-  declared the theorem, and `:2710-2712` also inserts IR `extraConstNames` into `const2ModIdx`; RG1011
-  reads this list so claimed-module ownership comes strictly from claimed modules' own `moduleData`. -/
   claimedConstants : List Name
-  /-- Exported (`global` or `scoped`) `@[csimp]` entries of claimed modules
-  (`Lean.Compiler.CSimp.ext.ext.getModuleEntries`). -/
   csimps : List CSimpEntry
-  /-- The constants of the environment. -/
   decls : List Decl
-  /-- Each name is the name of one constant. -/
   unique : (decls.map (·.name)).Nodup
 
-/-- The closed input of one run: a reading that has the closed form. -/
 structure Input extends Draft where
-  /-- Each mentioned constant is held. -/
   closed : ∀ d ∈ decls, ∀ u ∈ d.uses, ∃ e ∈ decls, e.name = u
-  /-- At least one module is claimed, so that a claim of nothing is not read as a pass. -/
   claims : modules ≠ []
 
-/-- The names of `l`, for lookups. -/
 def setOf (l : List Name) : Std.HashSet Name := l.foldl (·.insert ·) {}
 
 theorem mem_insertFold (l : List Name) (init : Std.HashSet Name) (x : Name) :
@@ -215,8 +126,6 @@ namespace Draft
 
 variable (d : Draft)
 
-/-- The first constant that mentions a constant that the reading does not hold, with what it
-mentions. -/
 def openMention? : Option (Name × Name) :=
   let names := setOf (d.decls.map (·.name))
   d.decls.findSome? fun x => (x.uses.find? (!names.contains ·)).map (x.name, ·)
@@ -235,8 +144,6 @@ theorem openMention?_eq_none :
   · intro h x hx u hu
     simp [(hnames u).mpr (h x hx u hu)]
 
-/-- The closed input of the reading, or why it does not have the closed form: a constant that
-mentions a constant the reading does not hold, or a claim of no module. -/
 def admit : Except String Input :=
   match h : d.openMention? with
   | some (n, u) => .error s!"the constant {n} mentions {u}, which the environment does not hold"

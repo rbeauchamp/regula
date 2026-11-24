@@ -4,14 +4,6 @@ public import RegulaSpecification.EffectsRecord
 public import RegulaSpecification.Proofs.Load
 import all Regula.Load
 
-/-!
-# The checker's decisions over paths, against what they state
-
-Each decision of the checker over a path, with a theorem that relates it, in both directions, to a statement that names none of
-the checker's functions: {name (full := Regula.Load.exactBelow)}`exactBelow` to {name (full := RegulaSpecification.Effects.ExactlyBelow)}`ExactlyBelow`, {name (full := Regula.Load.below)}`below` to {name (full := RegulaSpecification.Effects.StrictlyBelow)}`StrictlyBelow` and {name (full := Regula.Load.startsSearchPath)}`startsSearchPath` to {name (full := RegulaSpecification.Effects.SearchPathStarts)}`SearchPathStarts`. {module}`RegulaSpecification.Language` relates {name (full := Regula.Language.treeRelative)}`treeRelative` to {name (full := RegulaSpecification.Language.TreeRelative)}`TreeRelative`, and
-`RegulaSpecification.Proofs.ReaderWalk` relates {name (full := Regula.Reader.inTree)}`inTree` to it, and {lit}`apart_iff` relates {name (full := Regula.Reader.apart)}`apart` to {name (full := RegulaSpecification.Effects.Apart)}`Apart`.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects

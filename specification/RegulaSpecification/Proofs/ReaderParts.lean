@@ -7,10 +7,6 @@ import all Lean.Data.Name
 import all Regula.LanguageSet
 import all Regula.Reader
 
-/-!
-# What the parts of the reader give
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -25,7 +21,6 @@ open RegulaSpecification.Language
 
 variable {L E : Type}
 
-/-- No answer of these events failed. -/
 def Clean (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, ¬ e.failed
 
@@ -34,7 +29,6 @@ theorem clean_nil : Clean (L := L) (E := E) [] := fun _ h => nomatch h
 theorem clean_one {e : Event L E} (h : ¬ e.failed) : Clean [e] := by
   intro x hx; rw [List.mem_singleton.mp hx]; exact h
 
-/-- No event of a literal list of events with successful answers failed. -/
 macro "clean_events" : tactic =>
   `(tactic| (
     intro x hx
@@ -116,7 +110,6 @@ theorem keysOf_sound (fuel : Nat) (pre : Name) (t : Lake.Toml.Table) (k : Name)
       have : k = pre ++ tk := by simpa using hk
       subst this; exact .inl (.leaf hm (by simp) (by simp))
 
-/-- What the reader adds for a table deeper than it follows: a key whose last component is {lit}`too deep`. -/
 def IsDeepKey (k : Name) : Prop :=
   ∃ pre, k = .str pre "too deep"
 
@@ -193,7 +186,6 @@ theorem deepKey_not_admitted {k : Name} (h : IsDeepKey k) : ¬ ConfigKeyAdmitted
   · exact (by decide +kernel : ∀ k ∈ configKeys, k.getString! ≠ "too deep") _ h rfl
   · exact (by decide +kernel : ∀ o ∈ options, (`leanOptions ++ o).getString! ≠ "too deep") o ho (he ▸ rfl)
 
-/-- What the imports of the modules outside {lit}`seen` can still add to the search. -/
 def remaining : List (Name × Array Import) → List Name → Nat
   | [], _ => 0
   | (k, v) :: hs, seen => (if seen.contains k then 0 else v.size) + remaining hs seen
@@ -308,8 +300,6 @@ theorem visible_sound (hs : List (Name × Array Import)) (held : List Name) (fue
                 (Array.mem_toList_iff.mp hi) he hs'⟩
           · exact ⟨n, List.mem_cons_of_mem _ hn, hs'⟩
 
-/-- The search gives exactly what {name}`Sees` states from its first names, with the bound the reader gives it. So the
-import asked for the parser names exactly the modules that {name}`Sees` states, and that {name}`Sees` is Lean's rule is H1. -/
 theorem mem_visible_iff (hs : List (Name × Array Import)) (held direct : List Name) (fuel : Nat)
     (hf : direct.length + (hs.map (·.2.size)).sum ≤ fuel) (x : Name) :
     x ∈ visibleToolchain (fun n => hs.lookup n) held.contains direct [] fuel ↔
