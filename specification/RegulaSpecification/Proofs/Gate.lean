@@ -226,8 +226,8 @@ theorem runSteps_io (run : Step → IO UInt32) (steps : List Step) (w w' : Void 
       · cases h
 
 def expectedSha256Spec : NoCommentsTarget → String
-  | .darwinArm64 => "4c610e1b0f0f93f54e89f33acb13c5120ed4e7ecfc3bb5db85e562aba637fe2a"
-  | .linuxX86_64 => "f1a5d5cee2214515f9d36d3bb7245beee3856c06a85f6593ac0b23c4a0c6941e"
+  | .darwinArm64 => "1af3bddf3725aec455eedc6d5769e12860981b536a97b26cac71169ccc9e531c"
+  | .linuxX86_64 => "bfa4ecf223bb6d921a10023b82075d4378f63d640767fe29cfc2819c7c70dd3f"
 
 def noCommentsRemoteBaseRefSpec : String := "refs/remotes/origin/main"
 
@@ -689,7 +689,7 @@ def CacheDirEstablished (dir : System.FilePath) (w w' : Void IO.RealWorld) : Pro
     IO.FS.realPath "." w = .ok root w₁ ∧
     SubdirEstablished root ".cache" d1 w₁ w₂ ∧
     SubdirEstablished d1 "no-comments" d2 w₂ w₃ ∧
-    SubdirEstablished d2 "v0.2.0" dir w₃ w'
+    SubdirEstablished d2 "v0.3.1" dir w₃ w'
 
 theorem ensureNoCommentsCacheDir_ok (dir : System.FilePath) (w w' : Void IO.RealWorld)
     (h : ensureNoCommentsCacheDir w = .ok dir w') :
@@ -1408,7 +1408,7 @@ def requiredQueryRequestSpec : IO.Process.SpawnArgs where
 
 def requiredCheckRequestSpec (builtPath : System.FilePath) : IO.Process.SpawnArgs where
   cmd := "lake"
-  args := #["env", "lean", "-DwarningAsError=true", "RequiredGate.lean"]
+  args := #["env", "lean", "-DwarningAsError=true", "--run", "RequiredGate.lean"]
   cwd := some (System.FilePath.mk "specification")
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"),
@@ -2110,7 +2110,7 @@ theorem requiredGateFile_eq : requiredGateFile = "RequiredGate.lean" := by rfl
 
 theorem builtModulesFileName_eq : builtModulesFileName = "specification-built-modules.json" := by rfl
 
-theorem noCommentsVersion_eq : noCommentsVersion = "v0.2.0" := by rfl
+theorem noCommentsVersion_eq : noCommentsVersion = "v0.3.1" := by rfl
 
 theorem noCommentsArgs_eq (baseRef : String) : noCommentsArgs baseRef = noCommentsArgsSpec baseRef := by rfl
 
@@ -2120,9 +2120,9 @@ theorem noCommentsTargets_eq :
     NoCommentsTarget.linuxX86_64.asset = "no-comments-linux-x86_64" ∧
     NoCommentsTarget.linuxX86_64.sha256 = expectedSha256Spec .linuxX86_64 ∧
     NoCommentsTarget.darwinArm64.url =
-      "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.2.0/no-comments-darwin-arm64" ∧
+      "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.3.1/no-comments-darwin-arm64" ∧
     NoCommentsTarget.linuxX86_64.url =
-      "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.2.0/no-comments-linux-x86_64" := by
+      "https://github.com/rbeauchamp/lean-no-comments/releases/download/v0.3.1/no-comments-linux-x86_64" := by
   decide +kernel
 
 theorem hostNoCommentsTarget_darwin_iff :
