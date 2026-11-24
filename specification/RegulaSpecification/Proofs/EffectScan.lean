@@ -4,14 +4,6 @@ public import Regula.ProgramCheck.EffectScan
 public import RegulaSpecification.Rule
 import all Regula.ProgramCheck.EffectScan
 
-/-!
-# What the check of effects decides
-
-`Regula.ProgramCheck.Effects` runs {name (full := Regula.ProgramCheck.EffectScan.scan)}`scan` and {name (full := Regula.ProgramCheck.EffectScan.judge)}`judge` of {module}`Regula.ProgramCheck.EffectScan` on the import
-closure of the executable and the two library roots, and fails the gate's build on what {name (full := Regula.ProgramCheck.EffectScan.judge)}`judge` refuses.
-What {name (full := Lean.Environment.find?)}`Environment.find?` and the header hold, and what {name (full := Lean.Expr.getUsedConstants)}`Expr.getUsedConstants` lists, stays Lean's.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.EffectScan
@@ -19,19 +11,13 @@ namespace RegulaSpecification.EffectScan
 open Lean
 open Regula.ProgramCheck.EffectScan
 
-/-- A constant of the repository is one of the graph. -/
 def Own (g : Graph) (n : Name) : Prop := n ∈ g.own.map (·.1)
 
-/-- A name that marks an effect by itself, in the terms of the graph. -/
 def Hit (g : Graph) (u : Name) : Prop :=
   u ∈ effectRoots ∨ (¬ Own g u ∧ g.foreign u = true)
 
-/-- A constant of the repository mentions an effect: it mentions a name that marks one, or a constant of the repository that
-mentions one. -/
 inductive Effectful (g : Graph) : Name → Prop where
-  /-- It mentions a name that marks an effect. -/
   | direct {n u} : Own g n → u ∈ g.mentions n → Hit g u → Effectful g n
-  /-- It mentions a constant of the repository that mentions an effect. -/
   | through {n u} : Own g n → u ∈ g.mentions n → Effectful g u → Effectful g n
 
 theorem hit_iff (g : Graph) (u : Name) : g.hit u = true ↔ Hit g u := by

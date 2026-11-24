@@ -5,10 +5,6 @@ public import RegulaSpecification.Proofs.Written
 public import RegulaSpecification.Proofs.ReaderParts
 import all Regula.Reader
 
-/-!
-# What the reader's walk over the imports gives
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -110,8 +106,6 @@ theorem writeInTree_spec {tree path : FilePath} {text : String} {t : List (Event
     obtain ⟨rfl, rfl⟩ := runs_attempt_throw_iff.mp h
     exact .outside (.inl fun rel hr => hout ((inTree_iff tree path).mpr ⟨rel, hr⟩))
 
-/-- What one source holds, by these events: the exact-path test passed, and Lean's header parser read the text that the
-read gave. It states nothing of a write. -/
 def SourceRead (T : List (Event L E)) (project tree path : FilePath) (s : Source) : Prop :=
   ∃ rel real text,
     TreeRelative (parts tree) (parts path) rel ∧ ¬ OutsideTree tree path ∧
@@ -127,13 +121,11 @@ theorem SourceRead.mono {T T' : List (Event L E)} {project tree path : FilePath}
   obtain ⟨rel, real, text, h0, h1, h2, h3, h4, h5, h6⟩ := h
   exact ⟨rel, real, text, h0, h1, h2, h3, h4, h5, h6.trans hs⟩
 
-/-- An operation of the reading of a source at {name}`path`, by what the run has been told of it. -/
 def SourceOp (T : List (Event L E)) (project tree path : FilePath) (o : Op L E) : Prop :=
   (∃ rel, TreeRelative (parts tree) (parts path) rel ∧
     (o = .realPath (under project rel) ∨ o = .readFile (under project rel))) ∨
   ∃ text, SourceText T project tree path text ∧ o = .parseHeader (mkInputContext text (inputNameOf path))
 
-/-- Why a source could not be read. -/
 def SourceBad (t : List (Event L E)) (project tree path : FilePath) : Prop :=
   OutsideTree tree path ∨ (∃ e ∈ t, Event.failed e ∧ SourceOp t project tree path e.op) ∨
     ∃ rel real, TreeRelative (parts tree) (parts path) rel ∧
@@ -206,7 +198,6 @@ theorem toolchainOLean_spec {path : List FilePath} {m : Name} {t : List (Event L
   | error e => obtain ⟨rfl, rfl⟩ := h₂; exact ⟨by simp, fun _ => ⟨e, rfl⟩⟩
   | ok olean => obtain ⟨rfl, rfl⟩ := runs_attempt_pure_iff.mp h₂; exact ⟨fun _ => ⟨olean, rfl⟩, by simp⟩
 
-/-- Each event only observes, or is a lookup or a parser's import on the toolchain's library of {name}`root`. -/
 def Observes (root : Root L) (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, QuietOp e.op ∨ ParserSearchOp root e.op
 
@@ -223,33 +214,22 @@ theorem Observes.noActs {root : Root L} {t : List (Event L E)} (h : Observes roo
   intro ⟨o, r⟩ he; have hq := h _ he
   cases o <;> first | rfl | (rcases hq with hq | hq <;> exact hq.elim)
 
-/-- A name is owed a visit: it is a root, or a source that was read imports it. -/
 def Due (roots : List Name) (w : Walk) (n : Name) : Prop :=
   n ∈ roots ∨ ∃ x ∈ w.sources, ∃ i ∈ x.2.imports, i.module = n
 
-/-- What the walk has established of the state {name}`w` with the names {name}`todo` left to visit. -/
 structure WalkInv (T : List (Event L E)) (dir treeDir project tree : FilePath) (root : Root L)
     (modules : List (Name × FilePath)) (roots todo : List Name)
     (w : Walk) : Prop where
-  /-- Each source was read. -/
   sources : ∀ x ∈ w.sources, ∃ path, fileOf root modules x.1 = some path ∧
     SourceRead T project tree path x.2 ∧ x.1 ∈ w.reached
-  /-- Each toolchain module was found there. -/
   held : ∀ n ∈ w.toolchain, fileOf root modules n = none ∧ HeldByToolchain T root n ∧
     closedModuleName n = true ∧ n.getRoot ≠ `Mathlib ∧ Named T project tree root modules n
-  /-- No module has two sources. -/
   nodup : (w.sources.map (·.1)).Nodup
-  /-- What each module reached is. -/
   reached : ∀ m ∈ w.reached, (∃ s, (m, s) ∈ w.sources) ∨ m.getRoot = `Mathlib ∨ w.unread ≠ []
-  /-- Each name reached is in the closed domain, unless something was left unread. -/
   closed : ∀ m ∈ w.reached, closedModuleName m = true ∨ w.unread ≠ []
-  /-- Each name reached was named. -/
   named : ∀ m ∈ w.reached, Named T project tree root modules m
-  /-- Each name left to visit was named. -/
   todoNamed : ∀ m ∈ todo, Named T project tree root modules m
-  /-- What was left unread has a reason, in the requested build. -/
   unread : w.unread ≠ [] → Scene T dir treeDir project tree root modules → Reason T dir treeDir .incomplete
-  /-- When nothing was left unread, each name owed a visit is visited, or left to visit. -/
   visited : w.unread = [] → ∀ n, Due roots w n → n ∈ todo ∨ n ∈ w.reached ∨ n ∈ w.toolchain
 
 theorem fileOf_mem {root : Root L} {modules : List (Name × FilePath)} {m : Name} {path : FilePath}
@@ -390,7 +370,6 @@ theorem reason_of_sourceBad {m : Name} {path : FilePath}
     · exact .sourceHeader scene hn hfm (SourceText.mono ht hst)
   · exact .moduleNotExact scene hn hfm hr (ht.subset he) ((exactBelow_eq_false_iff _ _ _).mp hb)
 
-/-- How many imports the sources state. -/
 abbrev sourceImports (sources : List (Name × Source)) : Nat :=
   (sources.map (·.2.imports.size)).sum
 

@@ -2,10 +2,6 @@ module
 
 public import RegulaSpecification.Effects
 
-/-!
-# What the run's own acts leave in the tree
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -15,7 +11,6 @@ open Regula.Effect
 
 variable {L E : Type}
 
-/-- What the acts of {name}`t` leave at the path with the components {name}`p`, from {name}`held`. -/
 def leavesFrom (t : List (Event L E)) (p : List String) (held : Option String) : Option String :=
   t.foldl (fun held e => e.leaves p held) held
 
@@ -29,7 +24,6 @@ theorem written_append (a b : List (Event L E)) (p : List String) :
     written (a ++ b) p = leavesFrom b p (written a p) :=
   leavesFrom_append a b p none
 
-/-- What a list of writes leaves at the path with the components {name}`p`, from {name}`held`. -/
 def writesOf (l : List (FilePath × String)) (p : List String) (held : Option String) : Option String :=
   l.foldl (fun held x => if parts x.1 = p then some x.2 else held) held
 
@@ -75,7 +69,6 @@ theorem writesOf_mem {l : List (FilePath × String)} {p : List String} {v : Stri
       · exact .inl he
       · exact .inr ⟨x, List.mem_cons_of_mem _ hx, h1, h2⟩
 
-/-- The segment {name}`t` acts on files exactly as the list {name}`l` of writes does. -/
 def LeavesAs (t : List (Event L E)) (l : List (FilePath × String)) : Prop :=
   ∀ p held, leavesFrom t p held = writesOf l p held
 
@@ -84,7 +77,6 @@ theorem LeavesAs.append {a b : List (Event L E)} {x y : List (FilePath × String
   intro p held
   rw [leavesFrom_append, writesOf_append, ha, hb]
 
-/-- An event that requests no write and no removal. What a Lake command does inside itself is not read here. -/
 def Event.keepsFiles (e : Event L E) : Prop :=
   match e.op with
   | .writeFile .. | .removeDirAll _ => False
@@ -130,7 +122,6 @@ theorem leavesAs_write {before : List (Event L E)} {path : FilePath} {text : Str
   rw [hb]
   rfl
 
-/-- Each write that a segment asks is one of a list. -/
 def WritesIn (t : List (Event L E)) (l : List (FilePath × String)) : Prop :=
   ∀ path text r, (⟨.writeFile path text, r⟩ : Event L E) ∈ t → (path, text) ∈ l
 

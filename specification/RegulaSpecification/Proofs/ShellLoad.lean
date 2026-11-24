@@ -4,10 +4,6 @@ public import RegulaSpecification.Proofs.Reader
 import all Regula.Load
 import all Regula.Shell
 
-/-!
-# What the load of a finished build gives
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects

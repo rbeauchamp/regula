@@ -6,27 +6,6 @@ import all Init.Prelude
 import all Regula.Rule
 import all Regula.Rules.RG1012
 
-/-!
-# RG1012: hidden panics
-
-A definition or opaque constant of a claimed module whose value mentions a panic form. Lean's total functions
-can still panic, and a panic gives the type's default value, in Lean's logic ({name}`panicCore` is
-{name}`default`, {lit}`Init/Prelude.lean:3857` at v4.36.0) and in the compiled program, which prints the
-message and goes on with that value unless the variable {lit}`LEAN_ABORT_ON_PANIC` is set or the program asked
-to exit on a panic ({lit}`lean_panic_impl`, {lit}`src/runtime/object.cpp:176-207` at v4.36.0). So a proved
-function can go on with a value that its proofs never considered.
-
-A panic form is one of Lean's four panic functions, or a constant that is no theorem and whose name's last
-string component, with its macro scopes erased, contains {lit}`!`: Lean names so an operation that panics when it
-fails, and each listed form elaborates to a mention of one ({lit}`xs[i]!` to {name}`GetElem?.getElem!`,
-{lit}`panic!`, {lit}`unreachable!` and {lit}`assert!` to {name}`panicWithPosWithDecl`). The rule reads only
-what a value mentions directly: a build fails under the closure of the mentions within the claim exactly
-when it fails under the direct mentions, because the last claimed constant on any path to a panic form
-mentions that form itself. A theorem is no subject, and a theorem's name is no panic form, because a proof
-is never run. {name (full := Regula.Rules.RG1012.check)}`Regula.Rules.RG1012.check` is the function that the
-checker runs.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -34,11 +13,8 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- Lean's four panic functions. -/
 def panicFunctions : List Name := [``panicCore, ``panic, ``panicWithPos, ``panicWithPosWithDecl]
 
-/-- The name {name}`u`, with its macro scopes erased, is a string component {lit}`s` that contains {lit}`!`,
-followed by nothing but numeric components. -/
 def BangNamed (u : Name) : Prop :=
   ∃ p s, ∃ ks : List Nat, u.eraseMacroScopes = ks.foldl Name.num (Name.str p s) ∧ '!' ∈ s.toList
 
@@ -46,26 +22,21 @@ namespace Input
 
 variable (i : Input)
 
-/-- {name}`u` is a panic form of the input: one of Lean's four panic functions, or a name that
-{name}`BangNamed` admits and that the input does not hold as a theorem. -/
 def PanicForm (u : Name) : Prop :=
   u ∈ panicFunctions ∨ (BangNamed u ∧ ¬ ∃ e ∈ i.decls, e.name = u ∧ e.kind = .theorem)
 
 end Input
 
-/-- RG1012: a definition or opaque constant of a claimed module whose value mentions a panic form. -/
 def Violates1012 (i : Input) (c : Name) : Prop :=
   ∃ d ∈ i.decls, d.name = c ∧ i.ClaimedModule d.module ∧ (d.kind = .definition ∨ d.kind = .opaque) ∧
     ∃ u ∈ d.valueUses, i.PanicForm u
 
-/-- The intent record of RG1012. -/
 def rg1012 := ruleRecord "RG1012" Violates1012
 
 namespace Witnesses
 
 theorem bangNamed_get : BangNamed ``Option.get! := ⟨`Option, "get!", [], rfl, by decide⟩
 
-/-- A name with macro scopes, as hygiene makes one of {name}`Option.get!`. -/
 def hygienicGet : Name := .num (.str (.str (.str ``Option.get! "_@") "M") "_hyg") 3
 
 theorem bangNamed_hygienic : BangNamed hygienicGet := ⟨`Option, "get!", [], rfl, by decide⟩
@@ -78,7 +49,6 @@ theorem foldl_num_eq_str {ks : List Nat} {x p : Name} {s : String}
     rw [List.foldl_cons] at h
     exact absurd (ih h).2 (by simp)
 
-/-- {name}`GetElem?.getElem?`, to which {lit}`xs[i]?` elaborates, is named with no {lit}`!`. -/
 theorem not_bangNamed_query : ¬ BangNamed ``GetElem?.getElem? := by
   rintro ⟨p, s, ks, he, hc⟩
   have hq : (``GetElem?.getElem?).eraseMacroScopes = Name.str `GetElem? "getElem?" := rfl
@@ -88,13 +58,10 @@ theorem not_bangNamed_query : ¬ BangNamed ``GetElem?.getElem? := by
   rw [hx.2] at hc
   exact absurd hc (by decide)
 
-/-- {name}`Option.get!`, a definition of the toolchain. -/
 def getBang : Decl := toolchain ``Option.get! .definition
 
-/-- A definition of a claimed module whose value mentions {name}`Option.get!`. -/
 def bangUser : Decl := { plain `Good.g `Good .definition [``Option.get!] with valueUses := [``Option.get!] }
 
-/-- The cases of RG1012. -/
 def w1012 : Witnessed Violates1012 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -124,11 +91,9 @@ theorem rg1012_adequate : O2 rg1012 ∧ O2Run rg1012 ∧ O3 rg1012 ∧ O4 rg1012
 
 theorem rg1012_noisy : ¬ rg1012.Meets w1012.candidates := noisy_fails w1012 t_mem_support
 
-/-- A definition of a claimed module whose value mentions {name}`panicWithPosWithDecl`, as {lit}`panic!` gives. -/
 def panicUser : Decl :=
   { plain `Good.p `Good .definition [``panicWithPosWithDecl] with valueUses := [``panicWithPosWithDecl] }
 
-/-- {name}`base`, with {name}`panicUser` and the panic function that it mentions. -/
 def withPanic : Input := withDecls [toolchain ``panicWithPosWithDecl .definition, panicUser]
   (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, panicUser])
 
@@ -140,24 +105,17 @@ theorem rg1012_refuses_panic : Violates1012 withPanic `Good.p :=
   ⟨panicUser, by simp [withPanic, withDecls], rfl, claimed_withDecls, .inl rfl, ``panicWithPosWithDecl,
     by simp [panicUser], .inl (by simp [panicFunctions])⟩
 
-/-- A theorem of the toolchain whose name contains {lit}`!`. -/
 def bangLemma : Decl := toolchain `Std.get!_lemma .theorem
 
-/-- A definition of a claimed module whose value mentions {name}`bangLemma`, as a proof inside a value can. -/
 def lemmaUser : Decl :=
   { plain `Good.u `Good .definition [`Std.get!_lemma] with valueUses := [`Std.get!_lemma] }
 
-/-- A theorem of a claimed module whose proof mentions {name}`Option.get!`. -/
 def bangProof : Decl :=
   { plain `Good.q `Good .theorem [``Option.get!] with valueUses := [``Option.get!] }
 
-/-- {name}`base`, with {name}`lemmaUser`, {name}`bangProof` and what they mention. -/
 def withLemma : Input := withDecls [bangLemma, lemmaUser, getBang, bangProof]
   (by simp [base, baseDecls, plain, toolchain, helperDecl, fDecl, bangLemma, lemmaUser, getBang, bangProof])
 
-/-- A theorem whose name contains {lit}`!` is no panic form, and a theorem is no subject, even when its proof
-mentions one. So a rule that refuses every mention of a name with {lit}`!`, or every claimed constant whose value
-mentions a panic form, does not meet this. -/
 theorem rg1012_admits_theorems : ¬ Violates1012 withLemma `Good.u ∧ ¬ Violates1012 withLemma `Good.q := by
   have hmem : ∀ d ∈ [bangLemma, lemmaUser, getBang, bangProof], d ∈ withLemma.decls := by
     intro d hd
@@ -271,12 +229,10 @@ theorem rg1012_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1012 with its statement, its proofs and its cases, for the registry. -/
 def rg1012Proved : Proved :=
   ⟨Regula.Rules.RG1012.rule, Violates1012, Link.rg1012_exact, Witnesses.w1012,
     fun t _ hv => .inl ⟨by decide, Link.rg1012_subject t hv⟩⟩
 
-/-- The function of RG1012 over the specification's input. -/
 def rg1012Checker : Checker Input Name := rg1012Proved.checker
 
 theorem rg1012_meets : rg1012.Meets rg1012Checker := rg1012Proved.meets "RG1012"

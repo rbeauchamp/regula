@@ -6,13 +6,6 @@ import all Init.Data.String.Search
 import all Init.Data.String.Slice
 import all Init.System.FilePath
 
-/-!
-# Consequences of ordered preparation
-
-These consequences read the contract alone. No result here assumes consistent filesystem responses or
-describes effects inside trusted Lean/Lake calls.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -38,7 +31,6 @@ theorem Quiet.noActs {t : List (Event L E)} (h : Quiet t) : ∀ e ∈ t, e.acted
   obtain ⟨o, r⟩ := e
   cases o <;> first | rfl | exact hq.elim
 
-/-- Each event of a literal list of events is quiet. -/
 macro "quiet_events" : tactic =>
   `(tactic| (
     intro x hx
@@ -219,7 +211,6 @@ theorem CopyStep.incomplete {tree path : FilePath} {text : String} {t : List (Ev
     | error x => exact .inr ⟨⟨.writeFile path text, .error x⟩, by simp, ⟨x, rfl⟩, .inr rfl⟩
     | ok u => cases hc
 
-/-- Every act of these events lies at or below the tree. -/
 def ActsBelow (tree : FilePath) (t : List (Event L E)) : Prop :=
   ∀ e ∈ t, ∀ p, e.acted? = some p → AtOrBelow tree p
 
@@ -298,7 +289,6 @@ theorem ConfigCopies.actsBelow {prior t : List (Event L E)} {sysroot : String} {
   | failed hp hc hr => exact ((hp.actsBelow tree).append hc.actsBelow).append (hr.actsBelow tree)
   | next hp hc _ ih => exact ((hp.actsBelow tree).append hc.actsBelow).append ih
 
-/-- What the acts of a reading are: none, or all at or below a tree that lies apart from the project. -/
 def ReadActs (t : List (Event L E)) (dir treeDir : FilePath) : Prop :=
   (∀ e ∈ t, e.acted? = none) ∨
     ∃ project tree, (⟨.realPath dir, .ok project⟩ : Event L E) ∈ t ∧
@@ -334,9 +324,6 @@ theorem BuildProtocol.operations {sysroot : String} {tree : FilePath} {t : List 
     · exact .inl hs
     · exact .inr (.inr hl)
 
-/-- What may not occur among the module copies or the rules' reading: a load, a Lake command, a removal or an allocation.
-Stated apart from {name}`QuietOp`, {name}`ParserSearchOp` and {name}`RulesSearchOp`, so that a phase's list of allowed operations that came to hold one of these
-fails `ModuleCopies.not_barred` or `InputPreparation.not_barred`. -/
 def Barred : Op L E → Prop
   | .loadRoot .. | .loadWorkspace .. | .runLake .. | .removeDirAll _ | .createTempDir => True
   | _ => False
@@ -462,7 +449,6 @@ theorem FullRun.no_remove_before_command {t : List (Event L E)} {dir : FilePath}
   obtain ⟨op, r⟩ := e
   cases op <;> first | rfl | cases hs
 
-/-- The requests that change a file or a directory or run a command, retaining order and responses. -/
 def treeActs (t : List (Event L E)) : List (Event L E) := t.filter fun e => e.acted?.isSome
 
 theorem treeActs_append (a b : List (Event L E)) : treeActs (a ++ b) = treeActs a ++ treeActs b :=
@@ -475,7 +461,6 @@ theorem Quiet.treeActs_nil {t : List (Event L E)} (h : Quiet t) : treeActs t = [
   obtain ⟨op, response⟩ := e
   cases op <;> simp_all [QuietOp, Event.acted?]
 
-/-- The first act of a copy is its own parent creation, or its write when it has no parent. -/
 def CopyHead (path : FilePath) (text : String) (e : Event L E) : Prop :=
   (∃ parent response, path.parent = some parent ∧ e = ⟨.createDirAll parent, response⟩) ∨
     (path.parent = none ∧ ∃ response, e = ⟨.writeFile path text, response⟩)
@@ -580,8 +565,6 @@ theorem FullRun.no_sysroot_no_copy {t : List (Event L E)} {dir : FilePath}
     · trivial
     · exact quiet (saying hs) e he
 
-/-- The reported manufactured refusal: read the requested TOML, create a directory at its destination,
-fail the write, remove the tree, and report incomplete. -/
 def manufacturedCopyTrace (dir tree : FilePath) (text : String) (error : IO.Error) : List (Event L E) :=
   [⟨.createTempDir, .ok tree⟩, ⟨.realPath dir, .ok dir⟩, ⟨.realPath tree, .ok tree⟩,
    ⟨.readFile (dir / "lakefile.toml"), .ok text⟩, ⟨.createDirAll (tree / "lakefile.toml"), .ok ()⟩,
@@ -653,8 +636,6 @@ theorem copy_sliceTo_ne (s : String) (x : s.Pos) (hx : x ≠ s.endPos) : (s.slic
   apply String.Pos.Raw.ext
   simpa using this
 
-/-- No path is its own parent, on any platform: the proof reads {name}`FilePath.parent` and takes both answers of
-{name (full := System.FilePath.isAbsolute)}`isAbsolute`, so it needs no value of the `opaque` {name}`System.Platform.isWindows`. -/
 theorem parent_ne_self (p : FilePath) : p.parent ≠ some p := by
   have slice : ∀ x : p.toString.Pos, x ≠ p.toString.endPos →
       some (FilePath.mk (p.toString.sliceTo x).copy) ≠ some p := by
@@ -677,7 +658,6 @@ theorem parent_ne_self (p : FilePath) : p.parent ≠ some p := by
       · exact ext _ fun x hx => lastSep_ne_end _ x hx
   · exact ext _ fun x hx => lastSep_ne_end _ x hx
 
-/-- The reported manufactured refusal with the toolchain's answer present, and every other act as reported. -/
 def manufacturedCopyAnsweredTrace (dir tree : FilePath) (sysroot text : String) (error : IO.Error) :
     List (Event L E) :=
   [⟨.createTempDir, .ok tree⟩, ⟨.realPath dir, .ok dir⟩, ⟨.realPath tree, .ok tree⟩,

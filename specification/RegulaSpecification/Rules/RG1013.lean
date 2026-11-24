@@ -5,14 +5,6 @@ public import Regula.Rules.RG1013
 import all Regula.Rule
 import all Regula.Rules.RG1013
 
-/-!
-# RG1013: files that are not {lit}`module` files
-
-A claimed module is not one of the loaded modules that Lean read as a {lit}`module` file. The subject is the
-module, and the rule reads no constant, so it reports a claimed module that holds none.
-{name (full := Regula.Rules.RG1013.check)}`Regula.Rules.RG1013.check` is the function that the checker runs.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -20,20 +12,15 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- RG1013: Lean did not read the file of a claimed module as a {lit}`module` file. -/
 def Violates1013 (i : Input) (m : Name) : Prop :=
   i.ClaimedModule m ∧ ¬ i.ModuleFile m
 
-/-- The intent record of RG1013. -/
 def rg1013 := ruleRecord "RG1013" Violates1013
 
 namespace Witnesses
 
-/-- The compliant project with one more claimed module, {lit}`Bad`, which holds no constant and is no
-{lit}`module` file. -/
 def withPlainModule : Input := { base with modules := [`Good, `Bad] }
 
-/-- The cases of RG1013. -/
 def w1013 : Witnessed Violates1013 where
   support i := i.modules
   support_complete _ _ h := h.1
@@ -53,8 +40,6 @@ theorem rg1013_adequate : O2 rg1013 ∧ O2Run rg1013 ∧ O3 rg1013 ∧ O4 rg1013
 theorem rg1013_noisy : ¬ rg1013.Meets w1013.candidates :=
   noisy_fails w1013 (by simp [w1013, base])
 
-/-- The rule reads the claimed modules and the {lit}`module` files, and nothing else of the input: two inputs
-that agree on both have the same violations, whatever their constants and their profiles. -/
 theorem rg1013_reads_modules {i j : Input} (hm : i.modules = j.modules)
     (hf : i.moduleFiles = j.moduleFiles) (m : Name) : Violates1013 i m ↔ Violates1013 j m := by
   simp [Violates1013, Input.ClaimedModule, Input.ModuleFile, hm, hf]
@@ -80,12 +65,10 @@ theorem rg1013_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1013 with its statement, its proofs and its cases, for the registry. -/
 def rg1013Proved : Proved :=
   ⟨Regula.Rules.RG1013.rule, Violates1013, Link.rg1013_exact, Witnesses.w1013,
     fun t _ hv => .inr (.inl ⟨rfl, Link.rg1013_subject t hv⟩)⟩
 
-/-- The function of RG1013 over the specification's input. -/
 def rg1013Checker : Checker Input Name := rg1013Proved.checker
 
 theorem rg1013_meets : rg1013.Meets rg1013Checker := rg1013Proved.meets "RG1013"
