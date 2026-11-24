@@ -5,14 +5,6 @@ public import Regula.Rules.RG1002
 import all Regula.Rule
 import all Regula.Rules.RG1002
 
-/-!
-# RG1002: proof holes
-
-A constant of a claimed module depends on {name}`sorryAx`, directly or through an import: its transitive axiom
-set ({name (full := RegulaSpecification.Input.AxiomOf)}`Input.AxiomOf`) holds it.
-{name (full := Regula.Rules.RG1002.check)}`Regula.Rules.RG1002.check` is the function that the checker runs.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -20,20 +12,16 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- RG1002: a constant of a claimed module depends on {name}`sorryAx`. -/
 def Violates1002 (i : Input) (c : Name) : Prop :=
   i.ClaimedName c ∧ i.AxiomOf c ``sorryAx
 
-/-- The intent record of RG1002. -/
 def rg1002 := ruleRecord "RG1002" Violates1002
 
 namespace Witnesses
 
-/-- A theorem that uses {name}`sorryAx`. -/
 def hole : List Decl :=
   [toolchain ``sorryAx .axiom, plain `Good.h `Good .theorem [``sorryAx]]
 
-/-- The cases of RG1002. -/
 def w1002 : Witnessed Violates1002 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := name_mem (P := fun _ => True) (by
@@ -88,12 +76,10 @@ theorem rg1002_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1002 with its statement, its proofs and its cases, for the registry. -/
 def rg1002Proved : Proved :=
   ⟨Regula.Rules.RG1002.rule, Violates1002, Link.rg1002_exact, Witnesses.w1002,
     fun t _ hv => .inl ⟨by decide, Link.rg1002_subject t hv⟩⟩
 
-/-- The function of RG1002 over the specification's input. -/
 def rg1002Checker : Checker Input Name := rg1002Proved.checker
 
 theorem rg1002_meets : rg1002.Meets rg1002Checker := rg1002Proved.meets "RG1002"

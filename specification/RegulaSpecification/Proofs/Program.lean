@@ -5,12 +5,6 @@ public import Regula.Table
 import all Regula.Input
 import all Regula.Table
 
-/-!
-# The program against its record, and what the executable runs
-
-Each row of the one table is a straight line of calls ({lit}`table_rows`), so the table makes no decision.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Effects
@@ -56,9 +50,6 @@ theorem program_o3 : O3 (programRecord L E) := by
 
 theorem program_o4 : O4 (programRecord L E) := o4_function _ rfl
 
-/-- O5 at {lean (type := "LeanIntent.Freedom _")}`.widest`, which every record meets, so it adds no agreement between programs. The record leaves the order of independent
-reads, and the wording of each line before the last, to the program, and two programs ask different events, so no relation
-between their traces is fixed. -/
 theorem program_o5 : O5 (programRecord L E) .widest := o5_widest _
 
 theorem reason_nil {dir tree : FilePath} {o : Outcome} : ¬ Reason ([] : List (Event L E)) dir tree o := by
@@ -76,7 +67,6 @@ theorem reason_nil {dir tree : FilePath} {o : Outcome} : ¬ Reason ([] : List (E
   cases h <;> first | exact hs (by assumption) | exact ht (by assumption) | exact hm (by assumption) |
     exact hl (by assumption) | simp_all
 
-/-- A program that says it refused, and read nothing. -/
 def refuser (_ : List String) : Prog L E UInt32 :=
   .ask .leanVersion fun _ =>
     .ask (.getEnv Regula.Shell.fullVariable) fun _ =>
@@ -133,76 +123,46 @@ theorem refuser_fails (tree : FilePath) :
     | proofOnly => exact reason_nil (hdec.2.1 (by simp))
     | incomplete => exact reason_nil (hdec.2.1 (by simp))
 
-/-- What {name}`Prog.interpret` computes is the value of a run of the program, from any state of the world and for any
-table: so all that {name}`run_meets` states holds of it. That {lit}`main` of `Regula.LintMain` is that interpretation is read from the code,
-and that the compiled program does what its definition says stays with
-Lean's compiler, which the trusted base lists. -/
 theorem executed_meets (table : (o : Op L E) → BaseIO (Resp o)) (args : List String) (w : Void IO.RealWorld) :
     Runs (Regula.Shell.run args : Prog L E UInt32)
       (traceFrom table (Regula.Shell.run args) w)
       (Prog.interpret table (Regula.Shell.run args) w).val :=
   interpret_runs table _ w
 
-/-- What each operation calls. Each row is a straight line of calls of Lean, of the operating system's function as Lean gives
-it, or of a row of {name}`LakeCalls`, with {name}`spawnLake` and {name}`importParsers`, which {lit}`spawnLake_eq` and {lit}`importParsers_eq` state. No
-row holds a test or a branch on a result. This is the closed form of "so thin that it only calls Lean" for this table. -/
 inductive Row (enable : BaseIO Unit) (lake : LakeCalls L) : (o : Op L Environment) → BaseIO (Resp o) → Prop where
-  /-- Lean's own constants. -/
   | leanVersion : Row enable lake .leanVersion (pure (Lean.versionString, Lean.githash))
-  /-- {Lean.Doc.name}`IO.getEnv`. -/
   | getEnv {name} : Row enable lake (.getEnv name) (IO.getEnv name)
-  /-- {name}`IO.FS.realPath`. -/
   | realPath {p} : Row enable lake (.realPath p) (IO.FS.realPath p).toBaseIO
-  /-- {name}`IO.FS.readFile`. -/
   | readFile {p} : Row enable lake (.readFile p) (IO.FS.readFile p).toBaseIO
-  /-- {name}`System.FilePath.symlinkMetadata`. -/
   | symlinkMetadata {p} : Row enable lake (.symlinkMetadata p) p.symlinkMetadata.toBaseIO
-  /-- {name}`IO.FS.writeFile`. -/
   | writeFile {p text} : Row enable lake (.writeFile p text) (IO.FS.writeFile p text).toBaseIO
-  /-- {name}`IO.FS.createDirAll`. -/
   | createDirAll {p} : Row enable lake (.createDirAll p) (IO.FS.createDirAll p).toBaseIO
-  /-- {name}`IO.FS.createTempDir`. -/
   | createTempDir : Row enable lake .createTempDir IO.FS.createTempDir.toBaseIO
-  /-- {name}`IO.FS.removeDirAll`. -/
   | removeDirAll {p} : Row enable lake (.removeDirAll p) (IO.FS.removeDirAll p).toBaseIO
-  /-- {name}`IO.println`. -/
   | println {text} : Row enable lake (.println text) (IO.println text).toBaseIO
-  /-- The flush of standard output. -/
   | flush : Row enable lake .flush (do (← IO.getStdout).flush : IO Unit).toBaseIO
-  /-- {name}`Lean.Parser.parseHeader`, and what its header imports. -/
   | parseHeader {input} : Row enable lake (.parseHeader input)
       (do
         let (header, state, messages) ← Lean.Parser.parseHeader input
         return (header.raw, state, messages, Lean.Elab.HeaderSyntax.imports header) :
         IO (Lean.Syntax × Lean.Parser.ModuleParserState × Lean.MessageLog × Array Lean.Import)).toBaseIO
-  /-- {name}`Lean.Parser.parseCommand`. -/
   | parseCommand {input env state messages} : Row enable lake (.parseCommand input env state messages)
       (pure (Lean.Parser.parseCommand input { env, options := {} } state messages))
-  /-- {name}`Lean.findOLean`, with {name}`Lean.searchPathRef` set to the path it names first, because that function reads it and takes no path. -/
   | findOLean {p m} : Row enable lake (.findOLean p m)
       (do Lean.searchPathRef.set p; Lean.findOLean m : IO FilePath).toBaseIO
-  /-- {name}`Lean.importModules`, for the rules, with {name}`Lean.searchPathRef` set to the path it names first. -/
   | importForRules {p ms} : Row enable lake (.importForRules p ms)
       (do
         Lean.searchPathRef.set p
         Lean.importModules (ms.map ({ module := · })) {} (loadExts := false) (level := .private) : IO Environment).toBaseIO
-  /-- {name}`Lean.importModules`, for the parser, with {name}`Lean.searchPathRef` set to the path it names first. -/
   | importForParser {p ms} : Row enable lake (.importForParser p ms)
       (do Lean.searchPathRef.set p; importParsers enable ms : IO (Environment × List Name)).toBaseIO
-  /-- {name (full := Lean.Kernel.Environment.replay)}`Kernel.Environment.replay` of the constants, into the kernel's environment of {name}`Lean.mkEmptyEnvironment`. -/
   | kernelReplay {constants} : Row enable lake (.kernelReplay constants)
       (do let _ ← (← Lean.mkEmptyEnvironment).toKernelEnv.replay constants : IO Unit).toBaseIO
-  /-- Lake's row. -/
   | parseToml {input} : Row enable lake (.parseToml input) (lake.parseToml input)
-  /-- Lake's row. -/
   | lakeInstall {s} : Row enable lake (.lakeInstall s) (lake.lakeInstall s)
-  /-- Lake's row. -/
   | loadWorkspace {s d} : Row enable lake (.loadWorkspace s d) (lake.loadWorkspace s d)
-  /-- Lake's row. -/
   | loadRoot {s d} : Row enable lake (.loadRoot s d) (lake.loadRoot s d)
-  /-- Lake's row. -/
   | libModules {l} : Row enable lake (.libModules l) (lake.libModules l)
-  /-- {name}`spawnLake`. -/
   | runLake {program cwd args} : Row enable lake (.runLake program cwd args)
       (spawnLake program cwd args).toBaseIO
 
@@ -217,9 +177,6 @@ theorem spawnLake_eq (program cwd : FilePath) (args : List String) :
           cwd := some cwd, stdin := .null }
       child.wait) := by rfl
 
-/-- {name}`importParsers` enables Lean's initializers and imports: two calls, with no test, and what it gives as the
-namespaces that hold a scoped parser is what Lean's own state of the parser extension holds, the keys of its
-{name (full := Lean.ScopedEnvExtension.StateStack.scopedEntries)}`scopedEntries` map, which is what H1 reads. -/
 theorem importParsers_eq (enable : BaseIO Unit) (modules : List Name) :
     importParsers enable modules = (do
       enable

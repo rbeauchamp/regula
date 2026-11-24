@@ -5,15 +5,6 @@ public import Regula.Rules.RG1004
 import all Regula.Rule
 import all Regula.Rules.RG1004
 
-/-!
-# RG1004: native proofs
-
-A constant of a claimed module depends on an axiom with the name form that {tactic}`native_decide`,
-{tactic}`decide +native` and {tactic}`bv_decide` give ({name (full := RegulaSpecification.NativeProofAxiom)}`NativeProofAxiom`), or on an axiom by which the
-kernel trusts the compiler ({name (full := RegulaSpecification.compilerAxioms)}`compilerAxioms`). {name (full := Regula.Rules.RG1004.check)}`Regula.Rules.RG1004.check`
-is the function that the checker runs.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -21,22 +12,17 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- RG1004: a constant of a claimed module depends on a native proof's axiom or on an axiom by
-which the kernel trusts the compiler. -/
 def Violates1004 (i : Input) (c : Name) : Prop :=
   i.ClaimedName c ∧ ∃ a, i.AxiomOf c a ∧ (NativeProofAxiom a ∨ a ∈ compilerAxioms)
 
-/-- The intent record of RG1004. -/
 def rg1004 := ruleRecord "RG1004" Violates1004
 
 namespace Witnesses
 
-/-- A theorem that uses the axiom of a native proof. -/
 def native : List Decl :=
   [plain `Good.n._native.native_decide.ax_1 `Good .axiom [],
     plain `Good.n `Good .theorem [`Good.n._native.native_decide.ax_1]]
 
-/-- The cases of RG1004. -/
 def w1004 : Witnessed Violates1004 where
   support i := i.decls.map (·.name)
   support_complete _ _ h := by
@@ -104,12 +90,10 @@ theorem rg1004_subject {v : Regula.Closed.Violation} (hv : v ∈ Regula.Rules.RG
 
 end Link
 
-/-- RG1004 with its statement, its proofs and its cases, for the registry. -/
 def rg1004Proved : Proved :=
   ⟨Regula.Rules.RG1004.rule, Violates1004, Link.rg1004_exact, Witnesses.w1004,
     fun t _ hv => .inl ⟨by decide, Link.rg1004_subject t hv⟩⟩
 
-/-- The function of RG1004 over the specification's input. -/
 def rg1004Checker : Checker Input Name := rg1004Proved.checker
 
 theorem rg1004_meets : rg1004.Meets rg1004Checker := rg1004Proved.meets "RG1004"

@@ -2,10 +2,6 @@ module
 
 public import RegulaSpecification.Gate
 
-/-!
-# Lean-intent's obligations for the verdict
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -15,13 +11,11 @@ open LeanIntent
 
 namespace Witnesses
 
-/-- An input the admission refuses: it claims no module. -/
 def unclaimed : Input := { base with modules := [] }
 
 theorem no_claim_refused : ¬ unclaimed.WellFormed :=
   fun h => h.claims rfl
 
-/-- A constant that mentions a constant that the input does not hold. -/
 def openDecl : Decl := plain `Good.o `Good .theorem [`Gone.x]
 
 theorem open_mention_refused :
@@ -35,7 +29,6 @@ theorem open_mention_refused :
     simp [plain, toolchain, helperDecl, fDecl, openDecl] at hn
 
 open Classical in
-/-- A verdict function that meets the record. -/
 noncomputable def verdictOf : Option Input → Verdict
   | none => .incomplete
   | some i => if i.WellFormed then (if AllHold i then .pass else .fail) else .incomplete

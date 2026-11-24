@@ -10,13 +10,6 @@ import all Lean.Data.Name
 import all Regula.Language
 import all Regula.LanguageSet
 
-/-!
-# The language decision against its record
-
-Each theorem is about the definition that the checker runs. What fills a {name (full := Regula.Language.Reading)}`Reading` from a real project
-(`Regula.Reader`) is in {lit}`Proofs/Reader.lean`, and the specification's trusted base lists what stays assumed.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification.Language
@@ -28,7 +21,6 @@ open LeanIntent
 theorem contains_iff {α : Type} [BEq α] [LawfulBEq α] {l : List α} {x : α} :
     l.contains x = true ↔ x ∈ l := List.contains_iff_mem
 
-/-- Whether adjacent elements strictly increase under {name}`lt`. -/
 def isSorted {α : Type} (lt : α → α → Bool) : List α → Bool
   | [] | [_] => true
   | a :: b :: rest => lt a b && isSorted lt (b :: rest)
@@ -493,14 +485,11 @@ theorem treeRelative_iff (base path rel : List String) :
     simp only [hnone, Bool.false_eq_true, ↓reduceIte, reduceCtorEq, false_iff]
     rintro ⟨rfl, -⟩; exact hp (List.prefix_append _ _)
 
-/-- `..`, {lit}`.` and {lit}`.lake` are no components of what {name}`treeRelative` gives. A component may still hold a separator or be
-absolute, for an argument that no real path is. -/
 theorem treeRelative_no_parent {base path rel : List String} (h : treeRelative base path = some rel) :
     ".." ∉ rel ∧ "." ∉ rel ∧ ".lake" ∉ rel := by
   obtain ⟨-, hc⟩ := (treeRelative_iff base path rel).mp h
   refine ⟨fun m => (hc _ m).2 ?_, fun m => (hc _ m).2 ?_, fun m => (hc _ m).2 ?_⟩ <;> decide
 
-/-- The gate over a monad that records its steps, as the specification reads it. -/
 def traced : GateRun := fun o b v =>
   let tell (s : Step) : StateM (List Step) Unit := modify (s :: ·)
   let run := gate (m := StateM (List Step)) (tell .read *> pure o) (tell .build *> pure b)

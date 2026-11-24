@@ -5,18 +5,6 @@ public import RegulaSpecification.Witnesses
 public import RegulaSpecification.Proofs.Tables
 import all Regula.Rule
 
-/-!
-# What the statement of every rule shares
-
-Each rule's statement is a module of its own below {lit}`Rules/`, which imports this module, the rule's own
-check in the checker's package, and no other rule. A rule enters the specification's registry
-({lit}`Rules.lean`) as a value of {lit}`Proved`: the rule that the checker runs, its violation predicate,
-the proof that its check reports exactly the violations, its cases, and the proof of the kind of subject that
-its violations carry. So no rule is registered without its statement, its proofs and its cases.
-
-The lemmas here are the ones that more than one rule's proof uses.
--/
-
 @[expose] public section
 
 namespace RegulaSpecification
@@ -24,24 +12,12 @@ namespace RegulaSpecification
 open Lean (Name)
 open LeanIntent
 
-/-- A rule of the checker with its statement: the violation predicate over the specification's input, the
-proof that the rule's check reports exactly its violations on every input and every value of its tables, the
-cases that the rule's record needs, and the proof of the kind of subject that its violations carry. -/
 structure Proved where
-  /-- The rule that the checker runs. -/
   rule : Regula.Closed.Rule
-  /-- What a violation of the rule is. -/
   Violates : Input → Name → Prop
-  /-- The check reports exactly the violations. -/
   exact : ∀ {i : Regula.Closed.Input} (t : Regula.Closed.Tables i) (s : Name),
     s ∈ (rule.check t).map (·.subject.name) ↔ Violates (Link.toSpec i) s
-  /-- The case that the rule must refuse, and the case that it must admit. -/
   cases : Witnessed Violates
-  /-- Every violation of RG1013 has a module subject for a claimed module. Every violation of RG1011 has a
-  constant subject carrying the name and the module of a declaration of a claimed module or, for its
-  {attr}`@[csimp]` clause, the theorem of a claimed module's exported {attr}`@[csimp]` entry that no claimed
-  module declares, with that claimed module. Every violation of another rule has a constant subject carrying
-  the declaration's own name and module. -/
   subject : ∀ {i : Regula.Closed.Input} (t : Regula.Closed.Tables i), ∀ v ∈ rule.check t,
     (rule.spelling ∉ ["RG1011", "RG1013"] ∧ ∃ d ∈ i.decls, v.subject = .constant d.name d.module) ∨
       (rule.spelling = "RG1013" ∧ ∃ m ∈ i.modules, v.subject = .module m) ∨
@@ -56,7 +32,6 @@ open Link
 
 variable (p : Proved)
 
-/-- The rule's check over the specification's input. -/
 def checker : Checker Input Name := fun s =>
   (p.rule.check (ofAdmitted s).tables).map (·.subject.name)
 
@@ -65,8 +40,6 @@ theorem meets (rule : String) : (ruleRecord rule p.Violates).Meets p.checker := 
   have := p.exact (ofAdmitted s).tables c
   rwa [toSpec_ofAdmitted] at this
 
-/-- The rule's own check reports the case it must refuse and does not report the case it must admit. So a
-function that reports nothing, or everything, cannot be the one that runs. -/
 theorem cases_hold :
     p.cases.bad ∈ p.checker ⟨p.cases.refused, p.cases.refused_wf⟩ ∧
       p.cases.fine ∉ p.checker ⟨p.cases.admitted, p.cases.admitted_wf⟩ := by
