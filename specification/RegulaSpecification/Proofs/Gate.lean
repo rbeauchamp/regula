@@ -105,7 +105,7 @@ def stepRequest (step : Step) : IO.Process.SpawnArgs where
   args := step.arguments.toArray
   cwd := some (System.FilePath.mk step.dir)
   stdin := .null
-  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", step.full), ("REGULA_PROOF", none)]
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", step.full), ("REGULA_PROOF", none), ("REGULA_BUILT_MODULES", none)]
 
 def StepRan (step : Step) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
   ∃ w₁ w₂, ∃ child : IO.Process.Child (stepRequest step).toStdioConfig,
@@ -1147,7 +1147,7 @@ def noCommentsRequestSpec (bin : System.FilePath) (baseRef : String) : IO.Proces
   args := (noCommentsArgsSpec baseRef).toArray
   cwd := some (System.FilePath.mk ".")
   stdin := .null
-  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", none), ("REGULA_PROOF", none)]
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"), ("REGULA_FULL", none), ("REGULA_PROOF", none), ("REGULA_BUILT_MODULES", none)]
 
 theorem noCommentsRequest_eq (bin : System.FilePath) (baseRef : String) :
     noCommentsRequest bin baseRef = noCommentsRequestSpec bin baseRef := by
@@ -1398,6 +1398,194 @@ theorem runNoComments_zero (w w' : Void IO.RealWorld) (h : runNoComments w = .ok
     NoCommentsGateRan 0 w w' :=
   runNoComments_ok 0 w w' h
 
+def requiredQueryRequestSpec : IO.Process.SpawnArgs where
+  cmd := "lake"
+  args := #["query", "--json", "@/RegulaSpecification:modules"]
+  cwd := some (System.FilePath.mk "specification")
+  stdin := .null
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"),
+    ("REGULA_FULL", none), ("REGULA_PROOF", none), ("REGULA_BUILT_MODULES", none)]
+
+def requiredCheckRequestSpec (builtPath : System.FilePath) : IO.Process.SpawnArgs where
+  cmd := "lake"
+  args := #["env", "lean", "-DwarningAsError=true", "RequiredGate.lean"]
+  cwd := some (System.FilePath.mk "specification")
+  stdin := .null
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LAKE_ARTIFACT_CACHE", some "false"),
+    ("REGULA_FULL", none), ("REGULA_PROOF", none), ("REGULA_BUILT_MODULES", some builtPath.toString)]
+
+theorem requiredQueryRequest_eq : requiredQueryRequest = requiredQueryRequestSpec := by rfl
+
+theorem requiredCheckRequest_eq (builtPath : System.FilePath) :
+    requiredCheckRequest builtPath = requiredCheckRequestSpec builtPath := by rfl
+
+def RequiredCheckRan (builtPath : System.FilePath) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
+  ∃ w₁, ∃ child : IO.Process.Child (requiredCheckRequestSpec builtPath).toStdioConfig,
+    IO.Process.spawn (requiredCheckRequestSpec builtPath) w = .ok child w₁ ∧
+      child.wait w₁ = .ok code w'
+
+theorem runRequiredCheckStep_ran (builtPath : System.FilePath) (code : UInt32)
+    (w w' : Void IO.RealWorld) (h : runRequiredCheckStep builtPath w = .ok code w') :
+    RequiredCheckRan builtPath code w w' := by
+  unfold runRequiredCheckStep at h
+  change ((IO.Process.spawn (requiredCheckRequestSpec builtPath)) >>= IO.Process.Child.wait) w = .ok code w' at h
+  cases hs : IO.Process.spawn (requiredCheckRequestSpec builtPath) w with
+  | error e w₁ =>
+    rw [io_bind_error hs] at h
+    cases h
+  | ok child w₁ =>
+    rw [io_bind_ok hs] at h
+    exact ⟨w₁, child, hs, h⟩
+
+def RequiredTheoremsRan (target : String) (code : UInt32) (w w' : Void IO.RealWorld) : Prop :=
+  ∃ (realTarget : System.FilePath) (out : IO.Process.Output) (w₁ w₂ w₃ w₄ w₅ : Void IO.RealWorld),
+    let builtPath := realTarget / "specification-built-modules.json"
+    IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ ∧
+    announceRequiredQuery w₁ = .ok () w₂ ∧
+    (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ = .ok out w₃ ∧
+    out.exitCode = 0 ∧
+    IO.FS.writeFile builtPath out.stdout w₃ = .ok () w₄ ∧
+    announceRequiredCheck w₄ = .ok () w₅ ∧
+    RequiredCheckRan builtPath code w₅ w'
+
+inductive RequiredTheoremsOutcome (target : String) (w : Void IO.RealWorld) :
+    EST.Out IO.Error IO.RealWorld UInt32 → Prop where
+  | realPathError (e : IO.Error) (w₁ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .error e w₁ →
+      RequiredTheoremsOutcome target w (.error e w₁)
+  | announceQueryError (realTarget : System.FilePath) (e : IO.Error) (w₁ w₂ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ →
+      announceRequiredQuery w₁ = .error e w₂ →
+      RequiredTheoremsOutcome target w (.error e w₂)
+  | queryOutputError (realTarget : System.FilePath) (e : IO.Error) (w₁ w₂ w₃ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ →
+      announceRequiredQuery w₁ = .ok () w₂ →
+      (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ = .error e w₃ →
+      RequiredTheoremsOutcome target w (.error e w₃)
+  | queryFailed (realTarget : System.FilePath) (out : IO.Process.Output) (e : IO.Error)
+      (w₁ w₂ w₃ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ →
+      announceRequiredQuery w₁ = .ok () w₂ →
+      (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ = .ok out w₃ →
+      out.exitCode ≠ 0 →
+      RequiredTheoremsOutcome target w (.error e w₃)
+  | writeError (realTarget : System.FilePath) (out : IO.Process.Output) (e : IO.Error)
+      (w₁ w₂ w₃ w₄ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ →
+      announceRequiredQuery w₁ = .ok () w₂ →
+      (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ = .ok out w₃ →
+      out.exitCode = 0 →
+      IO.FS.writeFile (realTarget / "specification-built-modules.json") out.stdout w₃ = .error e w₄ →
+      RequiredTheoremsOutcome target w (.error e w₄)
+  | announceCheckError (realTarget : System.FilePath) (out : IO.Process.Output) (e : IO.Error)
+      (w₁ w₂ w₃ w₄ w₅ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ →
+      announceRequiredQuery w₁ = .ok () w₂ →
+      (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ = .ok out w₃ →
+      out.exitCode = 0 →
+      IO.FS.writeFile (realTarget / "specification-built-modules.json") out.stdout w₃ = .ok () w₄ →
+      announceRequiredCheck w₄ = .error e w₅ →
+      RequiredTheoremsOutcome target w (.error e w₅)
+  | spawnError (realTarget : System.FilePath) (out : IO.Process.Output) (e : IO.Error)
+      (w₁ w₂ w₃ w₄ w₅ w₆ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ →
+      announceRequiredQuery w₁ = .ok () w₂ →
+      (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ = .ok out w₃ →
+      out.exitCode = 0 →
+      IO.FS.writeFile (realTarget / "specification-built-modules.json") out.stdout w₃ = .ok () w₄ →
+      announceRequiredCheck w₄ = .ok () w₅ →
+      IO.Process.spawn (requiredCheckRequestSpec (realTarget / "specification-built-modules.json")) w₅ = .error e w₆ →
+      RequiredTheoremsOutcome target w (.error e w₆)
+  | waitError (realTarget : System.FilePath) (out : IO.Process.Output)
+      (child : IO.Process.Child (requiredCheckRequestSpec (realTarget / "specification-built-modules.json")).toStdioConfig)
+      (e : IO.Error) (w₁ w₂ w₃ w₄ w₅ w₆ w₇ : Void IO.RealWorld) :
+      IO.FS.realPath (System.FilePath.mk target) w = .ok realTarget w₁ →
+      announceRequiredQuery w₁ = .ok () w₂ →
+      (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ = .ok out w₃ →
+      out.exitCode = 0 →
+      IO.FS.writeFile (realTarget / "specification-built-modules.json") out.stdout w₃ = .ok () w₄ →
+      announceRequiredCheck w₄ = .ok () w₅ →
+      IO.Process.spawn (requiredCheckRequestSpec (realTarget / "specification-built-modules.json")) w₅ = .ok child w₆ →
+      child.wait w₆ = .error e w₇ →
+      RequiredTheoremsOutcome target w (.error e w₇)
+  | ran (code : UInt32) (w' : Void IO.RealWorld) :
+      RequiredTheoremsRan target code w w' →
+      RequiredTheoremsOutcome target w (.ok code w')
+
+theorem runRequiredTheorems_outcome (target : String) (w : Void IO.RealWorld) :
+    RequiredTheoremsOutcome target w (runRequiredTheorems target w) := by
+  unfold runRequiredTheorems
+  rw [requiredQueryRequest_eq]
+  cases hr : IO.FS.realPath (System.FilePath.mk target) w with
+  | error e w₁ =>
+    rw [io_bind_error hr]
+    exact .realPathError e w₁ hr
+  | ok realTarget w₁ =>
+    rw [io_bind_ok hr]
+    cases haq : announceRequiredQuery w₁ with
+    | error e w₂ =>
+      rw [io_bind_error haq]
+      exact .announceQueryError realTarget e w₁ w₂ hr haq
+    | ok u w₂ =>
+      cases u
+      rw [io_bind_ok haq]
+      cases hq : (IO.Process.output requiredQueryRequestSpec : IO IO.Process.Output) w₂ with
+      | error e w₃ =>
+        rw [io_bind_error hq]
+        exact .queryOutputError realTarget e w₁ w₂ w₃ hr haq hq
+      | ok out w₃ =>
+        rw [io_bind_ok hq]
+        by_cases hzero : out.exitCode = 0
+        · have hne : (out.exitCode != 0) = false := by simp [hzero]
+          simp only [hne, Bool.false_eq_true, ↓reduceIte]
+          change RequiredTheoremsOutcome target w
+            ((IO.FS.writeFile (realTarget / "specification-built-modules.json") out.stdout >>= _) w₃)
+          cases hw : IO.FS.writeFile (realTarget / "specification-built-modules.json") out.stdout w₃ with
+          | error e w₄ =>
+            rw [io_bind_error hw]
+            exact .writeError realTarget out e w₁ w₂ w₃ w₄ hr haq hq hzero hw
+          | ok u w₄ =>
+            cases u
+            rw [io_bind_ok hw]
+            cases hac : announceRequiredCheck w₄ with
+            | error e w₅ =>
+              rw [io_bind_error hac]
+              exact .announceCheckError realTarget out e w₁ w₂ w₃ w₄ w₅ hr haq hq hzero hw hac
+            | ok u w₅ =>
+              cases u
+              rw [io_bind_ok hac]
+              unfold runRequiredCheckStep
+              change RequiredTheoremsOutcome target w
+                ((IO.Process.spawn (requiredCheckRequestSpec (realTarget / "specification-built-modules.json")) >>= IO.Process.Child.wait) w₅)
+              cases hsp : IO.Process.spawn (requiredCheckRequestSpec (realTarget / "specification-built-modules.json")) w₅ with
+              | error e w₆ =>
+                rw [io_bind_error hsp]
+                exact .spawnError realTarget out e w₁ w₂ w₃ w₄ w₅ w₆ hr haq hq hzero hw hac hsp
+              | ok child w₆ =>
+                rw [io_bind_ok hsp]
+                cases hwt : child.wait w₆ with
+                | error e w₇ =>
+                  exact .waitError realTarget out child e w₁ w₂ w₃ w₄ w₅ w₆ w₇ hr haq hq hzero hw hac hsp hwt
+                | ok code w₇ =>
+                  exact .ran code w₇
+                    ⟨realTarget, out, w₁, w₂, w₃, w₄, w₅, hr, haq, hq, hzero, hw, hac, ⟨w₆, child, hsp, hwt⟩⟩
+        · have hne : (out.exitCode != 0) = true := by simp [hzero]
+          simp only [hne, ↓reduceIte]
+          exact .queryFailed realTarget out _ w₁ w₂ w₃ hr haq hq hzero
+
+theorem runRequiredTheorems_ok (target : String) (code : UInt32) (w w' : Void IO.RealWorld)
+    (h : runRequiredTheorems target w = .ok code w') :
+    RequiredTheoremsRan target code w w' := by
+  have ho := runRequiredTheorems_outcome target w
+  rw [h] at ho
+  cases ho with
+  | ran _ _ hreq => exact hreq
+
+theorem runRequiredTheorems_zero (target : String) (w w' : Void IO.RealWorld)
+    (h : runRequiredTheorems target w = .ok 0 w') :
+    RequiredTheoremsRan target 0 w w' :=
+  runRequiredTheorems_ok target 0 w w' h
+
 inductive RunInOutcome (target root : String) (w : Void IO.RealWorld) :
     EST.Out IO.Error IO.RealWorld UInt32 → Prop where
   | lakeError (pre post : List Step) (step : Step) (e : IO.Error) (w₁ w₂ : Void IO.RealWorld) :
@@ -1421,20 +1609,39 @@ inductive RunInOutcome (target root : String) (w : Void IO.RealWorld) :
       code ≠ 0 →
       sayResult (localSteps target root) (some (step, code)) w₂ = .error e w₃ →
       RunInOutcome target root w (.error e w₃)
-  | noCommentsError (e : IO.Error) (w₁ w₂ : Void IO.RealWorld) :
+  | requiredError (e : IO.Error) (w₁ w₂ : Void IO.RealWorld) :
       StepsAllZero (localSteps target root) w w₁ →
-      NoCommentsOutcome w₁ (.error e w₂) →
+      RequiredTheoremsOutcome target w₁ (.error e w₂) →
       RunInOutcome target root w (.error e w₂)
-  | noCommentsSayError (ncCode : UInt32) (e : IO.Error) (w₁ w₂ w₃ : Void IO.RealWorld) :
+  | requiredFailed (reqCode : UInt32) (w₁ w₂ w₃ : Void IO.RealWorld) :
       StepsAllZero (localSteps target root) w w₁ →
-      NoCommentsGateRan ncCode w₁ w₂ →
-      sayNoCommentsResult (localSteps target root) ncCode w₂ = .error e w₃ →
+      RequiredTheoremsRan target reqCode w₁ w₂ →
+      reqCode ≠ 0 →
+      sayRequiredResult reqCode w₂ = .ok () w₃ →
+      RunInOutcome target root w (.ok 1 w₃)
+  | requiredFailedSayError (reqCode : UInt32) (e : IO.Error) (w₁ w₂ w₃ : Void IO.RealWorld) :
+      StepsAllZero (localSteps target root) w w₁ →
+      RequiredTheoremsRan target reqCode w₁ w₂ →
+      reqCode ≠ 0 →
+      sayRequiredResult reqCode w₂ = .error e w₃ →
       RunInOutcome target root w (.error e w₃)
-  | completed (ncCode : UInt32) (w₁ w₂ w₃ : Void IO.RealWorld) :
+  | noCommentsError (e : IO.Error) (w₁ w₂ w₃ : Void IO.RealWorld) :
       StepsAllZero (localSteps target root) w w₁ →
-      NoCommentsGateRan ncCode w₁ w₂ →
-      sayNoCommentsResult (localSteps target root) ncCode w₂ = .ok () w₃ →
-      RunInOutcome target root w (.ok (if ncCode == 0 then 0 else 1) w₃)
+      RequiredTheoremsRan target 0 w₁ w₂ →
+      NoCommentsOutcome w₂ (.error e w₃) →
+      RunInOutcome target root w (.error e w₃)
+  | noCommentsSayError (ncCode : UInt32) (e : IO.Error) (w₁ w₂ w₃ w₄ : Void IO.RealWorld) :
+      StepsAllZero (localSteps target root) w w₁ →
+      RequiredTheoremsRan target 0 w₁ w₂ →
+      NoCommentsGateRan ncCode w₂ w₃ →
+      sayNoCommentsResult (localSteps target root) ncCode w₃ = .error e w₄ →
+      RunInOutcome target root w (.error e w₄)
+  | completed (ncCode : UInt32) (w₁ w₂ w₃ w₄ : Void IO.RealWorld) :
+      StepsAllZero (localSteps target root) w w₁ →
+      RequiredTheoremsRan target 0 w₁ w₂ →
+      NoCommentsGateRan ncCode w₂ w₃ →
+      sayNoCommentsResult (localSteps target root) ncCode w₃ = .ok () w₄ →
+      RunInOutcome target root w (.ok (if ncCode == 0 then 0 else 1) w₄)
 
 theorem runIn_outcome (target root : String) (w : Void IO.RealWorld) :
     RunInOutcome target root w (runIn target root w) := by
@@ -1467,47 +1674,77 @@ theorem runIn_outcome (target root : String) (w : Void IO.RealWorld) :
       dsimp only
       cases hst with
       | allZero _ hall =>
-        have hnco := runNoComments_outcome w₁
-        cases hnc : runNoComments w₁ with
+        have hreqo := runRequiredTheorems_outcome target w₁
+        cases hreq : runRequiredTheorems target w₁ with
         | error e w₂ =>
-          rw [io_bind_error hnc]
-          rw [hnc] at hnco
-          exact .noCommentsError e w₁ w₂ hall hnco
-        | ok ncCode w₂ =>
-          rw [io_bind_ok hnc]
-          have hgate := runNoComments_ok ncCode w₁ w₂ hnc
-          cases hs : sayNoCommentsResult (localSteps target root) ncCode w₂ with
-          | error e w₃ =>
-            rw [io_bind_error hs]
-            exact .noCommentsSayError ncCode e w₁ w₂ w₃ hall hgate hs
-          | ok u w₃ =>
-            cases u
-            rw [io_bind_ok hs]
-            exact .completed ncCode w₁ w₂ w₃ hall hgate hs
+          rw [io_bind_error hreq]
+          rw [hreq] at hreqo
+          exact .requiredError e w₁ w₂ hall hreqo
+        | ok reqCode w₂ =>
+          rw [io_bind_ok hreq]
+          have hreqRan := runRequiredTheorems_ok target reqCode w₁ w₂ hreq
+          by_cases hreqZero : reqCode = 0
+          · subst hreqZero
+            have hne : ((0 : UInt32) != 0) = false := rfl
+            simp only [hne, Bool.false_eq_true, ↓reduceIte]
+            have hnco := runNoComments_outcome w₂
+            cases hnc : runNoComments w₂ with
+            | error e w₃ =>
+              rw [io_bind_error hnc]
+              rw [hnc] at hnco
+              exact .noCommentsError e w₁ w₂ w₃ hall hreqRan hnco
+            | ok ncCode w₃ =>
+              rw [io_bind_ok hnc]
+              have hgate := runNoComments_ok ncCode w₂ w₃ hnc
+              cases hs : sayNoCommentsResult (localSteps target root) ncCode w₃ with
+              | error e w₄ =>
+                rw [io_bind_error hs]
+                exact .noCommentsSayError ncCode e w₁ w₂ w₃ w₄ hall hreqRan hgate hs
+              | ok u w₄ =>
+                cases u
+                rw [io_bind_ok hs]
+                exact .completed ncCode w₁ w₂ w₃ w₄ hall hreqRan hgate hs
+          · have hne : (reqCode != 0) = true := by simp [hreqZero]
+            simp only [hne, ↓reduceIte]
+            cases hs : sayRequiredResult reqCode w₂ with
+            | error e w₃ =>
+              rw [io_bind_error hs]
+              exact .requiredFailedSayError reqCode e w₁ w₂ w₃ hall hreqRan hreqZero hs
+            | ok u w₃ =>
+              cases u
+              rw [io_bind_ok hs]
+              exact .requiredFailed reqCode w₁ w₂ w₃ hall hreqRan hreqZero hs
 
 theorem runIn_zero (target root : String) (w w' : Void IO.RealWorld)
     (h : runIn target root w = .ok 0 w') :
-    ∃ w₁ w₂, StepsAllZero (localSteps target root) w w₁ ∧
-      NoCommentsGateRan 0 w₁ w₂ ∧
-      sayNoCommentsResult (localSteps target root) 0 w₂ = .ok () w' := by
+    ∃ w₁ w₂ w₃, StepsAllZero (localSteps target root) w w₁ ∧
+      RequiredTheoremsRan target 0 w₁ w₂ ∧
+      NoCommentsGateRan 0 w₂ w₃ ∧
+      sayNoCommentsResult (localSteps target root) 0 w₃ = .ok () w' := by
   have haux : ∀ res, RunInOutcome target root w res → res = .ok 0 w' →
-      ∃ w₁ w₂, StepsAllZero (localSteps target root) w w₁ ∧
-        NoCommentsGateRan 0 w₁ w₂ ∧
-        sayNoCommentsResult (localSteps target root) 0 w₂ = .ok () w' := by
+      ∃ w₁ w₂ w₃, StepsAllZero (localSteps target root) w w₁ ∧
+        RequiredTheoremsRan target 0 w₁ w₂ ∧
+        NoCommentsGateRan 0 w₂ w₃ ∧
+        sayNoCommentsResult (localSteps target root) 0 w₃ = .ok () w' := by
     intro res ho heq
     cases ho with
     | lakeError => cases heq
     | lakeFailedSayError => cases heq
+    | requiredError => cases heq
+    | requiredFailedSayError => cases heq
     | noCommentsError => cases heq
     | noCommentsSayError => cases heq
     | lakeFailed =>
       have hc := (EST.Out.ok.inj heq).1
       cases hc
-    | completed ncCode w₁ w₂ _ hall hgate hsay =>
+    | requiredFailed =>
+      have hc := (EST.Out.ok.inj heq).1
+      cases hc
+    | completed ncCode w₁ w₂ w₃ _ hall hreq hgate hsay =>
       obtain ⟨hc, rfl⟩ := EST.Out.ok.inj heq
       by_cases hzero : ncCode = 0
       · subst hzero
-        exact ⟨w₁, w₂, hall, hgate, hsay⟩
+        exact ⟨w₁, w₂, w₃, hall, hreq, hgate, hsay⟩
       · simp [hzero] at hc
   exact haux _ (runIn_outcome target root w) h
 
@@ -1784,23 +2021,25 @@ theorem runLocal_outcome (w : Void IO.RealWorld) :
             ht hc hd hrio (.inr (.inr (.inr ⟨e, e', rfl, hrem, rfl⟩)))
 
 theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
-    ∃ target root w₁ w₂ w₃ w₄ w₅ w₆,
+    ∃ target root w₁ w₂ w₃ w₄ w₅ w₆ w₇,
       IO.FS.createTempDir w = .ok target w₁ ∧
       copyChecker target w₁ = .ok () w₂ ∧
       IO.currentDir w₂ = .ok root w₃ ∧
       StepsAllZero (localSteps target.toString root.toString) w₃ w₄ ∧
-      NoCommentsGateRan 0 w₄ w₅ ∧
-      sayNoCommentsResult (localSteps target.toString root.toString) 0 w₅ = .ok () w₆ ∧
-      IO.FS.removeDirAll target w₆ = .ok () w' := by
+      RequiredTheoremsRan target.toString 0 w₄ w₅ ∧
+      NoCommentsGateRan 0 w₅ w₆ ∧
+      sayNoCommentsResult (localSteps target.toString root.toString) 0 w₆ = .ok () w₇ ∧
+      IO.FS.removeDirAll target w₇ = .ok () w' := by
   have haux : ∀ res, RunLocalOutcome w res → res = .ok 0 w' →
-      ∃ target root w₁ w₂ w₃ w₄ w₅ w₆,
+      ∃ target root w₁ w₂ w₃ w₄ w₅ w₆ w₇,
         IO.FS.createTempDir w = .ok target w₁ ∧
         copyChecker target w₁ = .ok () w₂ ∧
         IO.currentDir w₂ = .ok root w₃ ∧
         StepsAllZero (localSteps target.toString root.toString) w₃ w₄ ∧
-        NoCommentsGateRan 0 w₄ w₅ ∧
-        sayNoCommentsResult (localSteps target.toString root.toString) 0 w₅ = .ok () w₆ ∧
-        IO.FS.removeDirAll target w₆ = .ok () w' := by
+        RequiredTheoremsRan target.toString 0 w₄ w₅ ∧
+        NoCommentsGateRan 0 w₅ w₆ ∧
+        sayNoCommentsResult (localSteps target.toString root.toString) 0 w₆ = .ok () w₇ ∧
+        IO.FS.removeDirAll target w₇ = .ok () w' := by
     intro res ho heq
     cases ho with
     | tempDirError => cases heq
@@ -1813,26 +2052,32 @@ theorem runLocal_zero (w w' : Void IO.RealWorld) (h : runLocal w = .ok 0 w') :
       · rw [hres] at heq
         obtain ⟨rfl, rfl⟩ := EST.Out.ok.inj heq
         have hauxIn : ∀ bres, RunInOutcome target.toString root.toString w₃ bres → bres = .ok 0 w₄ →
-            ∃ w₅ w₆, StepsAllZero (localSteps target.toString root.toString) w₃ w₅ ∧
-              NoCommentsGateRan 0 w₅ w₆ ∧
-              sayNoCommentsResult (localSteps target.toString root.toString) 0 w₆ = .ok () w₄ := by
+            ∃ w₅ w₆ w₇, StepsAllZero (localSteps target.toString root.toString) w₃ w₅ ∧
+              RequiredTheoremsRan target.toString 0 w₅ w₆ ∧
+              NoCommentsGateRan 0 w₆ w₇ ∧
+              sayNoCommentsResult (localSteps target.toString root.toString) 0 w₇ = .ok () w₄ := by
           intro bres hr hb
           cases hr with
           | lakeError => cases hb
           | lakeFailedSayError => cases hb
+          | requiredError => cases hb
+          | requiredFailedSayError => cases hb
           | noCommentsError => cases hb
           | noCommentsSayError => cases hb
           | lakeFailed =>
             have hc := (EST.Out.ok.inj hb).1
             cases hc
-          | completed ncCode w₅ w₆ _ hall hgate hsay =>
+          | requiredFailed =>
+            have hc := (EST.Out.ok.inj hb).1
+            cases hc
+          | completed ncCode w₅ w₆ w₇ _ hall hreq hgate hsay =>
             obtain ⟨hc, rfl⟩ := EST.Out.ok.inj hb
             by_cases hzero : ncCode = 0
             · subst hzero
-              exact ⟨w₅, w₆, hall, hgate, hsay⟩
+              exact ⟨w₅, w₆, w₇, hall, hreq, hgate, hsay⟩
             · simp [hzero] at hc
-        obtain ⟨w₅, w₆, hall, hgate, hsay⟩ := hauxIn bodyRes hrio hbr
-        exact ⟨target, root, w₁, w₂, w₃, w₅, w₆, w₄, ht, hc, hd, hall, hgate, hsay, hrem⟩
+        obtain ⟨w₅, w₆, w₇, hall, hreq, hgate, hsay⟩ := hauxIn bodyRes hrio hbr
+        exact ⟨target, root, w₁, w₂, w₃, w₅, w₆, w₇, w₄, ht, hc, hd, hall, hreq, hgate, hsay, hrem⟩
       · rw [hres] at heq; cases heq
       · rw [hres] at heq; cases heq
       · rw [hres] at heq; cases heq
@@ -1856,6 +2101,14 @@ theorem main_zero (args : List String) (w w' : Void IO.RealWorld) (h : _root_.ma
 theorem fullVariable_eq : fullVariable = Regula.Shell.fullVariable := by rfl
 
 theorem proofVariable_eq : proofVariable = Regula.Shell.proofVariable := by rfl
+
+theorem builtModulesVariable_eq : builtModulesVariable = "REGULA_BUILT_MODULES" := by rfl
+
+theorem requiredModulesTarget_eq : requiredModulesTarget = "@/RegulaSpecification:modules" := by rfl
+
+theorem requiredGateFile_eq : requiredGateFile = "RequiredGate.lean" := by rfl
+
+theorem builtModulesFileName_eq : builtModulesFileName = "specification-built-modules.json" := by rfl
 
 theorem noCommentsVersion_eq : noCommentsVersion = "v0.2.0" := by rfl
 
@@ -1928,7 +2181,8 @@ theorem localSteps_eq (checker root : String) :
         ⟨["build", "--wfail", "Regula", "lint"], ".", none⟩,
         ⟨["lint"], ".", none⟩,
         ⟨["build", "--wfail"], "specification", none⟩,
-        ⟨["lint"], "specification", none⟩] := by rfl
+        ⟨["lint"], "specification", none⟩,
+        ⟨["build", "--wfail", "LeanIntent.Implementation.Read", "LeanIntent.Required.Read"], "specification", none⟩] := by rfl
 
 theorem localSteps_full (checker root : String) :
     ∀ s ∈ localSteps checker root,
@@ -1939,6 +2193,12 @@ theorem runStep_spawns (step : Step) :
     runStep step = (do
       announce step
       let child ← IO.Process.spawn (stepRequest step)
+      child.wait) :=
+  by rfl
+
+theorem runRequiredCheckStep_spawns (builtPath : System.FilePath) :
+    runRequiredCheckStep builtPath = (do
+      let child ← IO.Process.spawn (requiredCheckRequestSpec builtPath)
       child.wait) :=
   by rfl
 
