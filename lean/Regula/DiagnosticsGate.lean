@@ -8,6 +8,14 @@ def fullVariable : String := "REGULA_FULL"
 
 def proofVariable : String := "REGULA_PROOF"
 
+def builtModulesVariable : String := "REGULA_BUILT_MODULES"
+
+def requiredModulesTarget : String := "@/RegulaSpecification:modules"
+
+def requiredGateFile : String := "RequiredGate.lean"
+
+def builtModulesFileName : String := "specification-built-modules.json"
+
 def noCommentsVersion : String := "v0.2.0"
 
 def noCommentsRemoteBaseRef : String := "refs/remotes/origin/main"
@@ -203,7 +211,8 @@ def noCommentsRequest (bin : System.FilePath) (baseRef : String) : IO.Process.Sp
   cwd := some (System.FilePath.mk ".")
   stdin := .null
   env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-    ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, none), (proofVariable, none)]
+    ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, none), (proofVariable, none),
+    (builtModulesVariable, none)]
 
 def announceNoComments (baseRef : String) : IO Unit := do
   IO.println s!"local gate: no-comments {" ".intercalate (noCommentsArgs baseRef)} (in .)"
@@ -243,7 +252,8 @@ def localSteps (checker root : String) : List Step :=
     ⟨["build", "--wfail", "Regula", "lint"], ".", none⟩,
     ⟨["lint"], ".", none⟩,
     ⟨["build", "--wfail"], "specification", none⟩,
-    ⟨["lint"], "specification", none⟩]
+    ⟨["lint"], "specification", none⟩,
+    ⟨["build", "--wfail", "LeanIntent.Implementation.Read", "LeanIntent.Required.Read"], "specification", none⟩]
 
 def runSteps {m : Type → Type} [Monad m] (run : Step → m UInt32) :
     List Step → m (Option (Step × UInt32))
@@ -285,8 +295,53 @@ def runStep (step : Step) : IO UInt32 := do
     { cmd := "lake", args := step.arguments.toArray, cwd := some (System.FilePath.mk step.dir),
       stdin := .null,
       env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
-        ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, step.full), (proofVariable, none)] }
+        ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, step.full), (proofVariable, none),
+        (builtModulesVariable, none)] }
   child.wait
+
+def requiredQueryRequest : IO.Process.SpawnArgs where
+  cmd := "lake"
+  args := #["query", "--json", requiredModulesTarget]
+  cwd := some (System.FilePath.mk "specification")
+  stdin := .null
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+    ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, none), (proofVariable, none),
+    (builtModulesVariable, none)]
+
+def requiredCheckRequest (builtPath : System.FilePath) : IO.Process.SpawnArgs where
+  cmd := "lake"
+  args := #["env", "lean", "-DwarningAsError=true", requiredGateFile]
+  cwd := some (System.FilePath.mk "specification")
+  stdin := .null
+  env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none),
+    ("LAKE_ARTIFACT_CACHE", some "false"), (fullVariable, none), (proofVariable, none),
+    (builtModulesVariable, some builtPath.toString)]
+
+def announceRequiredQuery : IO Unit := do
+  IO.println s!"local gate: lake query --json {requiredModulesTarget} (in specification)"
+  (← IO.getStdout).flush
+
+def announceRequiredCheck : IO Unit := do
+  IO.println s!"local gate: lake env lean -DwarningAsError=true {requiredGateFile} (in specification)"
+  (← IO.getStdout).flush
+
+def runRequiredCheckStep (builtPath : System.FilePath) : IO UInt32 := do
+  let child ← IO.Process.spawn (requiredCheckRequest builtPath)
+  child.wait
+
+def runRequiredTheorems (target : String) : IO UInt32 := do
+  let realTarget ← IO.FS.realPath (System.FilePath.mk target)
+  let builtPath := realTarget / builtModulesFileName
+  announceRequiredQuery
+  let out ← IO.Process.output requiredQueryRequest
+  if out.exitCode != 0 then
+    throw <| IO.userError
+      s!"local gate: lake query --json {requiredModulesTarget} (in specification) ended with \
+        exit code {out.exitCode}: {out.stderr.trimAscii.toString}"
+  else
+    IO.FS.writeFile builtPath out.stdout
+    announceRequiredCheck
+    runRequiredCheckStep builtPath
 
 def regularFiles : List System.FilePath → IO (List System.FilePath)
   | [] => pure []
@@ -319,7 +374,11 @@ def sayResult (steps : List Step) : Option (Step × UInt32) → IO Unit
     IO.eprintln s!"local gate: lake {" ".intercalate step.arguments} (in {step.dir}) ended with \
       exit code {code}, so the local gate refuses the change"
   | none =>
-    IO.println s!"local gate: each of its {steps.length} lake steps and no-comments ({noCommentsVersion}) ended with exit code 0"
+    IO.println s!"local gate: each of its {steps.length} lake steps, lean-intent gate, and no-comments ({noCommentsVersion}) ended with exit code 0"
+
+def sayRequiredResult (reqCode : UInt32) : IO Unit :=
+  IO.eprintln s!"local gate: lean-intent gate ended with \
+    exit code {reqCode}, so the local gate refuses the change"
 
 def sayNoCommentsResult (steps : List Step) (ncCode : UInt32) : IO Unit :=
   if ncCode == 0 then
@@ -336,9 +395,14 @@ def runIn (target root : String) : IO UInt32 := do
     sayResult steps result
     return exitOf result
   | none =>
-    let ncCode ← runNoComments
-    sayNoCommentsResult steps ncCode
-    return if ncCode == 0 then 0 else 1
+    let reqCode ← runRequiredTheorems target
+    if reqCode != 0 then
+      sayRequiredResult reqCode
+      return 1
+    else
+      let ncCode ← runNoComments
+      sayNoCommentsResult steps ncCode
+      return if ncCode == 0 then 0 else 1
 
 def runLocal : IO UInt32 := do
   let target ← IO.FS.createTempDir

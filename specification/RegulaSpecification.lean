@@ -42,6 +42,7 @@ public import RegulaSpecification.Proofs.EffectScan
 public import RegulaSpecification.Proofs.Gate
 public import RegulaSpecification.Assumptions
 public import RegulaSpecification.Meaning
+public import RegulaSpecification.Required
 
 /-!
 # The specification of Regula
