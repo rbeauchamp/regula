@@ -13,8 +13,10 @@
 # (`"v" + version == TAG`, parsed via Python 3 stdlib `tomllib`) before calling
 # `gh release create --verify-tag`. Because `gh release create` publishes by tag name (`--verify-tag`
 # checks existence only) and GitHub's immutable-release protection starts at publication, preventing
-# tag updates or deletions between verification and publication requires a GitHub repository ruleset
-# protecting `v*` tags.
+# tag updates or deletions between verification and publication relies on GitHub's active
+# `release-tags` repository ruleset protecting `refs/tags/v*` (deletion, update, non-fast-forward,
+# and required signatures); creating a new `v*` tag on an older pre-guard commit is not restricted
+# by `release-tags` and remains governed by repository maintainer tag-creation discipline.
 name: Release
 
 on:

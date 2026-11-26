@@ -14,9 +14,9 @@ Regula gives one of two verdicts across three run routes, and its output names w
 
 | Route | Command | Target projects | Checks and trust boundary | Exit codes |
 | --- | --- | --- | --- | --- |
-| **In-tree proof verdict** | `lake build --wfail` then `lake lint` (in project directory, no Lake options, `REGULA_FULL` and `REGULA_PROOF` unset) | Any Lean `v4.36.0` project, including `[[require]]` dependencies and Mathlib | Runs `RG1001`–`RG1006`, `RG1011`–`RG1013`, and `RG2001` kernel cone replay of [claimed modules](#the-checks). Runs project and dependency code during build and lint; holds only for a project placing no file or code aimed at the checker or toolchain (no `RG1010`). | `0` (`pass`), `1` (`fail`), `2` (`incomplete`) |
-| **Out-of-tree proof verdict** | `lake build --wfail` in `DIR`, then `REGULA_PROOF=DIR lake exe lint PROFILE` (from a built Regula checkout, no Lake options, `REGULA_FULL` unset) | Already-built zero-dependency `lakefile.toml` packages without `lakefile.lean` and with non-empty `lean_lib` `defaultTargets` (including metaprogramming, `macro`, or `deriving` code outside `RG1010`), without adding `regula` to `[[require]]` or modifying `DIR/lakefile.toml` or `DIR/lake-manifest.json` | Runs `RG1001`–`RG1006`, `RG1011`–`RG1013`, and `RG2001` kernel cone replay on built `.olean` files. Imported `[[require]]` dependencies fail closed as `incomplete` (`RG2001`) under Lake's default per-package `leanLibDir` layout (path dependencies sharing `root.leanLibDir` lie outside contract). Does not rebuild `DIR`, check stale edits, or run `RG1010`; holds only for a project placing no file or code aimed at the checker or toolchain. | `0` (`pass`), `1` (`fail`), `2` (`incomplete`) |
-| **Full verdict** | `REGULA_FULL=DIR lake exe lint PROFILE` (from a built Regula checkout, no Lake options, `REGULA_PROOF` unset) | Standalone library projects with `lean_lib` `defaultTargets`, no `require` in `lakefile.toml`, no Mathlib imports, and no `lakefile.lean` | Runs pre-build source and config admission (`RG1010`) in an isolated temporary tree, `lake build --wfail`, then `RG1001`–`RG1006`, `RG1011`–`RG1013`, and `RG2001` kernel cone replay. Holds under H1–H5 and [the trusted base](specification/README.md#the-trusted-base), even if the project is aimed at the checker: no project-written code runs during build, and no file installs a compiler replacement apart from Lean's own compiler-generated `T.ctorIdx` / `T.ctorIdx._impl` pair covered by `ctorIdxTag`. | `0` (`pass`), `1` (`refused` / `fail`), `2` (`incomplete`), `3` (`proofOnly`, builds nothing) |
+| **In-tree proof verdict** | `lake build --wfail && lake lint` (in project directory, no Lake options, `REGULA_FULL` and `REGULA_PROOF` unset) | Any Lean `v4.36.0` project, including `[[require]]` dependencies and Mathlib ([setup](#in-tree-proof-verdict-lake-lint)) | Runs `RG1001`–`RG1006`, `RG1011`–`RG1013`, and `RG2001` kernel cone replay of [claimed modules](#the-checks). Runs project and dependency code; holds only for a project placing no file or code aimed at the checker or toolchain (no `RG1010`). | `0` (`pass`), `1` (`fail`), `2` (`incomplete`) |
+| **Out-of-tree proof verdict** | `lake build --wfail` in `DIR`, then `REGULA_PROOF=DIR lake exe lint PROFILE` (from a Regula checkout built apart from the project, no Lake options, `REGULA_FULL` unset) | Already-built zero-dependency `lakefile.toml` packages without `lakefile.lean`, with non-empty `lean_lib` `defaultTargets`, and without adding `regula` to `[[require]]` or modifying `DIR/lakefile.toml` or `DIR/lake-manifest.json` ([setup and limits](#out-of-tree-proof-verdict-regula_proofdir)) | Runs `RG1001`–`RG1006`, `RG1011`–`RG1013`, and `RG2001` kernel cone replay on built `.olean` files. Does not rebuild `DIR`, check stale edits, or run `RG1010`; holds only for a project placing no file or code aimed at the checker or toolchain ([Proof verdict](#proof-verdict)). | `0` (`pass`), `1` (`fail`), `2` (`incomplete`) |
+| **Full verdict** | `REGULA_FULL=DIR lake exe lint PROFILE` (from a Regula checkout built apart from the project, no Lake options, `REGULA_PROOF` unset) | Standalone library projects with `lean_lib` `defaultTargets`, no `require` in `lakefile.toml`, no Mathlib imports, and no `lakefile.lean` ([The full gate](#the-full-gate)) | Runs pre-build source and config admission (`RG1010`) in an isolated temporary tree, `lake build --wfail`, then `RG1001`–`RG1006`, `RG1011`–`RG1013`, and `RG2001` kernel cone replay. Holds under H1–H5 and [the trusted base](specification/README.md#the-trusted-base), even if the project is aimed at the checker ([Full verdict](#full-verdict)). | `0` (`pass`), `1` (`refused` / `fail`), `2` (`incomplete`), `3` (`proofOnly`, builds nothing) |
 
 A pass does not mean your code is correct: no checker can say a theorem states what you meant, so theorem statements stay yours to read. Beyond RG1011's refusal of unexempted `@[implemented_by]` and `@[extern]` on a claimed constant, of an initialization function (`@[init]` or `@[builtin_init]`) on a claimed definition, and of an exported (`global` or `scoped`) `@[csimp]` entry registered in a claimed module whose theorem is not declared in any claimed module, and RG1012's refusal of a claimed definition whose value mentions a panic form, the proof verdict says nothing about what a compiled program runs.
 
@@ -41,11 +41,12 @@ rev = "<latest-release-tag>"
 name = "Demo"
 ```
 
-Run `lake update regula` so the manifest selects that release tag. Then run the two commands in order on one build, from the project's own directory with no option of Lake's and `REGULA_FULL` and `REGULA_PROOF` unset:
+Run `lake update regula`, then run `lake build --wfail` and `lake lint` in order on one build (chaining with `&&` so a failed update or build stops before `lake lint` reads a stale build), from the project's own directory with no option of Lake's and `REGULA_FULL` and `REGULA_PROOF` unset:
 
 ```sh
-lake build --wfail
-lake lint
+lake update regula &&
+  lake build --wfail &&
+  lake lint
 ```
 
 For this `Demo.lean`, `lake build --wfail` fails at `double`, while a plain `lake build` only warns there. After that plain build, `lake lint` refuses `double` and `twice` (whose proof depends on `double`):
@@ -79,14 +80,13 @@ regula: proof verdict: fail
 
 ### Out-of-tree proof verdict (`REGULA_PROOF=DIR`)
 
-Use this route for zero-dependency `lakefile.toml` packages that use metaprogramming, `macro`, or deriving handlers refused by `RG1010`, without adding `regula` to `[[require]]` or modifying `DIR/lakefile.toml` or `DIR/lake-manifest.json`. Check the latest release tag on [GitHub Releases](https://github.com/rbeauchamp/regula/releases/latest), clone and build Regula apart from the project (replacing `<latest-release-tag>`), build the target package with `lake build --wfail`, and run `REGULA_PROOF=DIR lake exe lint PROFILE` (with no option of Lake's and `REGULA_FULL` unset):
+Use this route for zero-dependency `lakefile.toml` packages that use metaprogramming, `macro`, or deriving handlers refused by `RG1010`, without adding `regula` to `[[require]]` or modifying `DIR/lakefile.toml` or `DIR/lake-manifest.json`. Check the latest release tag on [GitHub Releases](https://github.com/rbeauchamp/regula/releases/latest), clone and build Regula apart from the project (replacing `<latest-release-tag>`, chaining with `&&` so `lake exe lint` runs only after a clean clone and build), build the target package with `lake build --wfail`, and run `REGULA_PROOF=DIR lake exe lint PROFILE` (with no option of Lake's and `REGULA_FULL` unset):
 
 ```sh
-git clone --branch <latest-release-tag> https://github.com/rbeauchamp/regula
-cd regula
-lake build lint
-(cd /path/to/project && lake build --wfail)
-REGULA_PROOF=/path/to/project lake exe lint standard-logical
+git clone --branch <latest-release-tag> https://github.com/rbeauchamp/regula /path/to/regula &&
+  (cd /path/to/regula && lake build lint) &&
+  (cd /path/to/project && lake build --wfail) &&
+  (cd /path/to/regula && REGULA_PROOF=/path/to/project lake exe lint standard-logical)
 ```
 
 - **Target admission:** Regula resolves `DIR` via `realPath`, refuses `DIR/lakefile.lean` before loading (`incomplete (RG2001)`, exit `2`), loads only `DIR/lakefile.toml` via `Lake.loadWorkspaceRoot` without writing `DIR/lakefile.toml` or `DIR/lake-manifest.json`, and refuses empty or non-`lean_lib` `defaultTargets` (`incomplete (RG2001)`, exit `2`, while admitting `globs`).
@@ -143,11 +143,11 @@ Where `lake check` also refuses (as on `sorry` or an axiom in use), `lake lint` 
 
 ## Before you adopt it
 
-- **Toolchain & release:** Regula reads only `leanprover/lean4:v4.36.0` (enforced by `Regula.Closed.pinnedLean`). Check [GitHub Releases](https://github.com/rbeauchamp/regula/releases/latest) for the latest release tag, upgrade notes (including breaking changes between releases), and compatibility pins for older Lean toolchains.
+- **Toolchain & release:** Regula reads only `leanprover/lean4:v4.36.0` (enforced by `Regula.Closed.pinnedLean`). Check [GitHub Releases](https://github.com/rbeauchamp/regula/releases/latest) for the current release tag, and [all releases](https://github.com/rbeauchamp/regula/releases) for upgrade notes (including breaking changes between releases) and compatibility pins for older Lean toolchains.
 - **Named configurations:** The claim holds only for `leanprover/lean4:v4.36.0` on macOS 27.2 (Apple silicon) or Ubuntu 24.04.5 LTS (x86-64), using one published run per route with no option of Lake's:
   - `lake lint` in the project's own directory with `REGULA_FULL` and `REGULA_PROOF` unset;
-  - `REGULA_PROOF=DIR lake exe lint PROFILE` from a built Regula checkout against an already-built zero-dependency `lakefile.toml` package without `lakefile.lean`, with non-empty `lean_lib` `defaultTargets`, and with no shared-`leanLibDir` `[[require]]`; or
-  - `REGULA_FULL=DIR lake exe lint PROFILE` from a built Regula checkout.
+  - `REGULA_PROOF=DIR lake exe lint PROFILE` from a Regula checkout built apart from the project against an already-built zero-dependency `lakefile.toml` package without `lakefile.lean`, with non-empty `lean_lib` `defaultTargets`, and with no shared-`leanLibDir` `[[require]]`; or
+  - `REGULA_FULL=DIR lake exe lint PROFILE` from a Regula checkout built apart from the project.
   - Setting both `REGULA_FULL` and `REGULA_PROOF`, or anything else (Windows, other Linux or macOS versions, `lake -d`, `lake -f`, starting the full gate from a project's Lake, or `lake lint` with `REGULA_FULL` or `REGULA_PROOF` set), is outside the contract ([the trusted base](specification/README.md#the-named-configurations)) and not a defect.
 - **No `lake -d` or `lake -f`:** Lake gives a program nothing a project cannot set to identify the selected workspace, so `lake lint` still audits the current directory and can exit `0` naming it rather than the option's target. No argument names a project, and anything in `lintDriverArgs` other than one profile exits `2`, so a project cannot choose what is audited.
 - **Dependencies:** Projects with a `require` dependency or Mathlib imports can have only the proof verdict, whose two commands run project and dependency code. RG1013 needs each claimed file to be a `module` file, and the files that `lake new` writes at this release are not. A `module` file can import only `module` files, so a file of a dependency that is not one and that a claimed module imports, directly or through its imports, rules a pass out until it is one: `Mathlib.lean` and each file below `Mathlib/` at Mathlib's tag `v4.35.0` is one.
@@ -158,9 +158,9 @@ Where `lake check` also refuses (as on `sorry` or an axiom in use), `lake lint` 
 
 ### Proof verdict
 
-- **Guarantee:** Passing `lake build --wfail` and the proof-verdict checker (`lake lint`, or out-of-tree `REGULA_PROOF=DIR lake exe lint PROFILE`) on one build means the proofs of the claimed modules are sound and use only axioms the profile allows, for a project that places no file or code aimed at the checker or the toolchain.
+- **Guarantee:** Passing `lake build --wfail` and the proof-verdict checker (`lake lint`, or out-of-tree `REGULA_PROOF=DIR lake exe lint PROFILE` from a Regula checkout built apart from the project) on one build means the proofs of the claimed modules are sound and use only axioms the profile allows, for a project that places no file or code aimed at the checker or the toolchain.
 - **Module files:** A pass also says that Lean read the file of each claimed module as a `module` file (RG1013), by what its `.olean` states.
-- **Kernel cone replay:** The proof-verdict checker (`lake lint`, or `REGULA_PROOF=DIR lake exe lint PROFILE`) submits to Lean's `Kernel.Environment.replay`, into an empty environment, each constant of the claimed modules, every constant reached through what each mentions in Lean's data (type, value, inductive block, and `Eq` for a quotient), and the constants the kernel itself builds into a term—except `Quot.mk`, `Quot.lift`, and `Quot.ind`, which the kernel adds with `Quot`—and nothing else. When two modules declare a theorem of one name and type, Lean's import keeps one, and the replay also gets each claimed module's differing copy under a name no constant of the build has, checking every module's proof. An unsound proof in a reached dependency fails it too.
+- **Kernel cone replay:** The proof-verdict checker (`lake lint`, or `REGULA_PROOF=DIR lake exe lint PROFILE` from a Regula checkout built apart from the project) submits to Lean's `Kernel.Environment.replay`, into an empty environment, each constant of the claimed modules, every constant reached through what each mentions in Lean's data (type, value, inductive block, and `Eq` for a quotient), and the constants the kernel itself builds into a term—except `Quot.mk`, `Quot.lift`, and `Quot.ind`, which the kernel adds with `Quot`—and nothing else. When two modules declare a theorem of one name and type, Lean's import keeps one, and the replay also gets each claimed module's differing copy under a name no constant of the build has, checking every module's proof. An unsound proof in a reached dependency fails it too.
 - **Outside its scope:**
   - *Checker-attack routes:* Because `lake build --wfail` and in-tree `lake lint` run in the project's Lake, a project aimed at the checker can forge a pass via build-time code—or, on `lake lint`, via a library loaded from the project's library directory into the checker, a doctored Regula from its configuration or package directory, or a `lakefile.lean` ([the specification](specification/README.md#a-project-aimed-at-the-checker)). On `REGULA_PROOF=DIR`, `lake build --wfail` still runs project build-time code beforehand.
   - *Compiled execution and RG1011:* RG1011 refuses each constant of a claimed module that has `@[implemented_by]` (other than the verified safe half `T.ctorIdx` of a compiler-generated `ctorIdx` pair) or `@[extern]`, each definition of one for which `@[init]` or `@[builtin_init]` names an initialization function, and each exported (`global` or `scoped`) `@[csimp]` entry registered in a claimed module whose theorem is not declared in any claimed module. Beyond that it says nothing about what a compiled program runs ([RG1011](specification/README.md#rg1011-replaced-compiled-code)):
@@ -191,13 +191,11 @@ Where `lake check` also refuses (as on `sorry` or an axiom in use), `lake lint` 
 
 ## The full gate
 
-Build and start the checker from its own checkout apart from the project (a precondition alongside `PATH`, since Lake runs a project's `lakefile.lean` on load and the checker does not test who started it). Check the latest release tag on [GitHub Releases](https://github.com/rbeauchamp/regula/releases/latest) and replace `<latest-release-tag>`:
+Build and start the checker from its own checkout apart from the project (a precondition alongside `PATH`, since Lake runs a project's `lakefile.lean` on load and the checker does not test who started it). Check the latest release tag on [GitHub Releases](https://github.com/rbeauchamp/regula/releases/latest) and replace `<latest-release-tag>` (chaining with `&&` so `lake exe lint` runs only after a clean clone and build):
 
 ```sh
-git clone --branch <latest-release-tag> https://github.com/rbeauchamp/regula
-cd regula
-lake build lint
-REGULA_FULL=/path/to/project lake exe lint standard-logical
+git clone --branch <latest-release-tag> https://github.com/rbeauchamp/regula /path/to/regula &&
+  (cd /path/to/regula && lake build lint && REGULA_FULL=/path/to/project lake exe lint standard-logical)
 ```
 
 Before any Lake call on the project, the checker reads `lean-toolchain`, `lakefile.lean` by name and `lakefile.toml`. In one process, it runs the check and, if admitted, builds, replays the claim's cone and runs the rules inside a fresh temporary directory holding only the judged files and pinned `lean-toolchain` (asking to remove it afterward); nothing in the project directory is written, and its `.lake`, manifest and other files are unused.
