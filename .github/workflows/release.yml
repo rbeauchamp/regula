@@ -9,10 +9,12 @@
 # (`v*`), valid tag ref format, checkout `HEAD`, `refs/remotes/origin/main` ancestry (populating
 # missing/non-commit `refs/remotes/origin/main` from `origin`'s verified exact `refs/heads/main`),
 # and exact remote tag binding (`git ls-remote` + `git fetch --no-tags` + `FETCH_HEAD` exact-ref/OID
-# check) with `FETCH_HEAD^{commit}` peeling before calling `gh release create --verify-tag`. Because
-# `gh release create` publishes by tag name (`--verify-tag` checks existence only) and GitHub's
-# immutable-release protection starts at publication, preventing tag updates or deletions between
-# verification and publication requires a GitHub repository ruleset protecting `v*` tags.
+# check) with `FETCH_HEAD^{commit}` peeling and `lakefile.toml` top-level `version` parity
+# (`"v" + version == TAG`, parsed via Python 3 stdlib `tomllib`) before calling
+# `gh release create --verify-tag`. Because `gh release create` publishes by tag name (`--verify-tag`
+# checks existence only) and GitHub's immutable-release protection starts at publication, preventing
+# tag updates or deletions between verification and publication requires a GitHub repository ruleset
+# protecting `v*` tags.
 name: Release
 
 on:
@@ -139,4 +141,24 @@ jobs:
             echo "Remote tag '${TAG}' resolves to commit:${REMOTE_COMMIT}, expected commit:${GITHUB_SHA}" >&2
             exit 1
           fi
+          TAG="$TAG" python3 - <<'PY'
+          import os
+          import sys
+          import tomllib
+
+          tag = os.environ["TAG"]
+          with open("lakefile.toml", "rb") as fh:
+              config = tomllib.load(fh)
+          version = config.get("version")
+          if not isinstance(version, str) or not version:
+              print("Expected non-empty top-level string `version` in lakefile.toml", file=sys.stderr)
+              sys.exit(1)
+          expected_tag = f"v{version}"
+          if expected_tag != tag:
+              print(
+                  f"Tag '{tag}' does not match lakefile.toml version '{version}' (expected '{expected_tag}')",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
           gh release create "$TAG" --repo "${GITHUB_REPOSITORY}" --title "$TAG" --generate-notes --verify-tag
