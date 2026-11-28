@@ -16,7 +16,7 @@ unsafe def main (args : List String) : IO UInt32 := do
   let env ← Lean.importModules
     #[{ module := `RegulaSpecification, importAll := true }] {} (loadExts := true) (level := .private)
   let ctx : Lean.Core.Context := { fileName := "RequiredGate.lean", fileMap := default }
-  let (implCount, reqCount) ← (Lean.Meta.MetaM.run' (do
+  let (implCount, reqCount, casesCount, unprovedCount) ← (Lean.Meta.MetaM.run' (do
     let implemented ← LeanIntent.Implementation.Read.check built
     let required ← LeanIntent.Required.Read.check built
     unless implemented.findings.isEmpty do
@@ -24,12 +24,15 @@ unsafe def main (args : List String) : IO UInt32 := do
     unless implemented.awaiting.isEmpty do
       throwError "deliverables still await implementation: {repr implemented.awaiting}"
     unless required.findings.isEmpty do
-      throwError "required theorems lie outside the build:\n{"\n".intercalate (required.findings.map (·.message))}"
+      throwError "required-theorems check failed:\n{"\n".intercalate (required.findings.map (·.message))}"
+    unless required.deferredO2Run.isEmpty do
+      throwError "deliverables still defer O2Run: {repr required.deferredO2Run}"
     if implemented.implementations.isEmpty then
       throwError "no deliverables were read"
     if required.theorems.isEmpty then
       throwError "no required theorems were read"
-    pure (implemented.implementations.length, required.theorems.length)
+    pure (implemented.implementations.length, required.theorems.length,
+      required.casesComparisons.length, required.unprovedComparisons.length)
   )).toIO' ctx { env }
-  IO.println s!"lean-intent gate: {implCount} deliverables implemented, {reqCount} required theorems verified across {built.size} built modules"
+  IO.println s!"lean-intent gate: {implCount} deliverables implemented, {reqCount} required theorems verified across {built.size} built modules ({casesCount} cases comparisons, {unprovedCount} unproved directions)"
   return 0
