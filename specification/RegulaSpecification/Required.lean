@@ -230,55 +230,55 @@ def runProgram : List String → Regula.Effect.Prog Unit Environment UInt32 :=
 
 def rg1001Implementation : Implementation rg1001Deliverable where
   subject := rg1001Checker
-  fulfils := fun _ => rg1001_meets.2
+  meets := rg1001_meets
 
 def rg1002Implementation : Implementation rg1002Deliverable where
   subject := rg1002Checker
-  fulfils := fun _ => rg1002_meets.2
+  meets := rg1002_meets
 
 def rg1003Implementation : Implementation rg1003Deliverable where
   subject := rg1003Checker
-  fulfils := fun _ => rg1003_meets.2
+  meets := rg1003_meets
 
 def rg1004Implementation : Implementation rg1004Deliverable where
   subject := rg1004Checker
-  fulfils := fun _ => rg1004_meets.2
+  meets := rg1004_meets
 
 def rg1005Implementation : Implementation rg1005Deliverable where
   subject := rg1005Checker
-  fulfils := fun _ => rg1005_meets.2
+  meets := rg1005_meets
 
 def rg1006Implementation : Implementation rg1006Deliverable where
   subject := rg1006Checker
-  fulfils := fun _ => rg1006_meets.2
+  meets := rg1006_meets
 
 def rg1011Implementation : Implementation rg1011Deliverable where
   subject := rg1011Checker
-  fulfils := fun _ => rg1011_meets.2
+  meets := rg1011_meets
 
 def rg1012Implementation : Implementation rg1012Deliverable where
   subject := rg1012Checker
-  fulfils := fun _ => rg1012_meets.2
+  meets := rg1012_meets
 
 def rg1013Implementation : Implementation rg1013Deliverable where
   subject := rg1013Checker
-  fulfils := fun _ => rg1013_meets.2
+  meets := rg1013_meets
 
 def gateImplementation : Implementation gateDeliverable where
   subject := runChecker
-  fulfils := fun _ => run_meets.2
+  meets := run_meets
 
 def languageImplementation : Implementation languageDeliverable where
   subject := Regula.Language.decision
-  fulfils := fun _ => Language.decision_meets.2
+  meets := Language.decision_meets
 
 def fullGateImplementation : Implementation fullGateDeliverable where
   subject := Language.traced
-  fulfils := fun _ => Language.gate_meets.2
+  meets := Language.gate_meets
 
 def programImplementation : Implementation programDeliverable where
   subject := runProgram
-  fulfils := fun _ => (Effects.run_meets_record (L := Unit) (E := Environment)).2
+  meets := Effects.run_meets_record (L := Unit) (E := Environment)
 
 def ruleDeliverableRecords : List (IntentRecord (Checker Input Name)) :=
   [rg1001Deliverable.record, rg1002Deliverable.record, rg1003Deliverable.record,
@@ -289,59 +289,171 @@ theorem ruleDeliverables_cover_registry :
     ruleDeliverableRecords = registry.map (fun p => ruleRecord p.rule.spelling p.Violates) := by
   rfl
 
+theorem rg1001_o2 : O2 rg1001 := Witnesses.rg1001_adequate.1
+theorem rg1001_o2Run : O2Run rg1001 := Witnesses.rg1001_adequate.2.1
+theorem rg1001_o3 : O3 rg1001 := Witnesses.rg1001_adequate.2.2.1
+theorem rg1001_o4 : O4 rg1001 := Witnesses.rg1001_adequate.2.2.2.1
+theorem rg1001_o5 : O5 rg1001 (.rel SameReports) := Witnesses.rg1001_adequate.2.2.2.2
+
+theorem rg1002_o2 : O2 rg1002 := Witnesses.rg1002_adequate.1
+theorem rg1002_o2Run : O2Run rg1002 := Witnesses.rg1002_adequate.2.1
+theorem rg1002_o3 : O3 rg1002 := Witnesses.rg1002_adequate.2.2.1
+theorem rg1002_o4 : O4 rg1002 := Witnesses.rg1002_adequate.2.2.2.1
+theorem rg1002_o5 : O5 rg1002 (.rel SameReports) := Witnesses.rg1002_adequate.2.2.2.2
+
+theorem rg1003_o2 : O2 rg1003 := Witnesses.rg1003_adequate.1
+theorem rg1003_o2Run : O2Run rg1003 := Witnesses.rg1003_adequate.2.1
+theorem rg1003_o3 : O3 rg1003 := Witnesses.rg1003_adequate.2.2.1
+theorem rg1003_o4 : O4 rg1003 := Witnesses.rg1003_adequate.2.2.2.1
+theorem rg1003_o5 : O5 rg1003 (.rel SameReports) := Witnesses.rg1003_adequate.2.2.2.2
+
+theorem rg1004_o2 : O2 rg1004 := Witnesses.rg1004_adequate.1
+theorem rg1004_o2Run : O2Run rg1004 := Witnesses.rg1004_adequate.2.1
+theorem rg1004_o3 : O3 rg1004 := Witnesses.rg1004_adequate.2.2.1
+theorem rg1004_o4 : O4 rg1004 := Witnesses.rg1004_adequate.2.2.2.1
+theorem rg1004_o5 : O5 rg1004 (.rel SameReports) := Witnesses.rg1004_adequate.2.2.2.2
+
+theorem rg1005_o2 : O2 rg1005 := Witnesses.rg1005_adequate.1
+theorem rg1005_o2Run : O2Run rg1005 := Witnesses.rg1005_adequate.2.1
+theorem rg1005_o3 : O3 rg1005 := Witnesses.rg1005_adequate.2.2.1
+theorem rg1005_o4 : O4 rg1005 := Witnesses.rg1005_adequate.2.2.2.1
+theorem rg1005_o5 : O5 rg1005 (.rel SameReports) := Witnesses.rg1005_adequate.2.2.2.2
+
+theorem rg1006_o2 : O2 rg1006 := Witnesses.rg1006_adequate.1
+theorem rg1006_o2Run : O2Run rg1006 := Witnesses.rg1006_adequate.2.1
+theorem rg1006_o3 : O3 rg1006 := Witnesses.rg1006_adequate.2.2.1
+theorem rg1006_o4 : O4 rg1006 := Witnesses.rg1006_adequate.2.2.2.1
+theorem rg1006_o5 : O5 rg1006 (.rel SameReports) := Witnesses.rg1006_adequate.2.2.2.2
+
+theorem rg1011_o2 : O2 rg1011 := Witnesses.rg1011_adequate.1
+theorem rg1011_o2Run : O2Run rg1011 := Witnesses.rg1011_adequate.2.1
+theorem rg1011_o3 : O3 rg1011 := Witnesses.rg1011_adequate.2.2.1
+theorem rg1011_o4 : O4 rg1011 := Witnesses.rg1011_adequate.2.2.2.1
+theorem rg1011_o5 : O5 rg1011 (.rel SameReports) := Witnesses.rg1011_adequate.2.2.2.2
+
+theorem rg1012_o2 : O2 rg1012 := Witnesses.rg1012_adequate.1
+theorem rg1012_o2Run : O2Run rg1012 := Witnesses.rg1012_adequate.2.1
+theorem rg1012_o3 : O3 rg1012 := Witnesses.rg1012_adequate.2.2.1
+theorem rg1012_o4 : O4 rg1012 := Witnesses.rg1012_adequate.2.2.2.1
+theorem rg1012_o5 : O5 rg1012 (.rel SameReports) := Witnesses.rg1012_adequate.2.2.2.2
+
+theorem rg1013_o2 : O2 rg1013 := Witnesses.rg1013_adequate.1
+theorem rg1013_o2Run : O2Run rg1013 := Witnesses.rg1013_adequate.2.1
+theorem rg1013_o3 : O3 rg1013 := Witnesses.rg1013_adequate.2.2.1
+theorem rg1013_o4 : O4 rg1013 := Witnesses.rg1013_adequate.2.2.2.1
+theorem rg1013_o5 : O5 rg1013 (.rel SameReports) := Witnesses.rg1013_adequate.2.2.2.2
+
+theorem gate_o2 : O2 gateRecord := Witnesses.gate_adequate.1
+theorem gate_o2Run : O2Run gateRecord := Witnesses.gate_adequate.2.1
+theorem gate_o3 : O3 gateRecord := Witnesses.gate_adequate.2.2.1
+
+theorem program_o2 : O2 programRecordUnitEnv := Effects.program_o2
+theorem program_o2Run : O2Run programRecordUnitEnv := Effects.program_o2Run
+theorem program_o3 : O3 programRecordUnitEnv := Effects.program_o3
+theorem program_o4 : O4 programRecordUnitEnv := Effects.program_o4
+theorem program_o5 : O5 programRecordUnitEnv .widest := Effects.program_o5
+
 def rg1001Required : LeanIntent.Required rg1001Deliverable where
-  theorems := [
+  o2 := rg1001_o2
+  o2Run := .proved rg1001_o2Run
+  o3 := rg1001_o3
+  o4 := rg1001_o4
+  freedom := .rel SameReports
+  o5 := rg1001_o5
+  comparison := .cases
+    [⟨rg1001_cases⟩, ⟨Witnesses.rg1001_noisy⟩]
+    "Rule record predates typed blind-record comparison; concrete refusal, admission, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1001."
+  additional := [
     ⟨Witnesses.rg1001_adequate⟩,
-    ⟨Witnesses.rg1001_noisy⟩,
     ⟨@Link.rg1001_exact⟩,
     ⟨@Link.rg1001_subject⟩,
-    ⟨rg1001_meets⟩,
-    ⟨rg1001_cases⟩]
+    ⟨rg1001_meets⟩]
 
 def rg1002Required : LeanIntent.Required rg1002Deliverable where
-  theorems := [
+  o2 := rg1002_o2
+  o2Run := .proved rg1002_o2Run
+  o3 := rg1002_o3
+  o4 := rg1002_o4
+  freedom := .rel SameReports
+  o5 := rg1002_o5
+  comparison := .cases
+    [⟨rg1002_cases⟩, ⟨Witnesses.rg1002_noisy⟩]
+    "Rule record predates typed blind-record comparison; concrete refusal, admission, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1002."
+  additional := [
     ⟨Witnesses.rg1002_adequate⟩,
-    ⟨Witnesses.rg1002_noisy⟩,
     ⟨@Link.rg1002_exact⟩,
     ⟨@Link.rg1002_subject⟩,
-    ⟨rg1002_meets⟩,
-    ⟨rg1002_cases⟩]
+    ⟨rg1002_meets⟩]
 
 def rg1003Required : LeanIntent.Required rg1003Deliverable where
-  theorems := [
+  o2 := rg1003_o2
+  o2Run := .proved rg1003_o2Run
+  o3 := rg1003_o3
+  o4 := rg1003_o4
+  freedom := .rel SameReports
+  o5 := rg1003_o5
+  comparison := .cases
+    [⟨rg1003_cases⟩, ⟨Witnesses.rg1003_noisy⟩]
+    "Rule record predates typed blind-record comparison; concrete refusal, admission, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1003."
+  additional := [
     ⟨Witnesses.rg1003_adequate⟩,
-    ⟨Witnesses.rg1003_noisy⟩,
     ⟨@Link.rg1003_exact⟩,
     ⟨@Link.rg1003_subject⟩,
-    ⟨rg1003_meets⟩,
-    ⟨rg1003_cases⟩]
+    ⟨rg1003_meets⟩]
 
 def rg1004Required : LeanIntent.Required rg1004Deliverable where
-  theorems := [
+  o2 := rg1004_o2
+  o2Run := .proved rg1004_o2Run
+  o3 := rg1004_o3
+  o4 := rg1004_o4
+  freedom := .rel SameReports
+  o5 := rg1004_o5
+  comparison := .cases
+    [⟨rg1004_cases⟩, ⟨Witnesses.rg1004_noisy⟩]
+    "Rule record predates typed blind-record comparison; concrete refusal, admission, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1004."
+  additional := [
     ⟨Witnesses.rg1004_adequate⟩,
-    ⟨Witnesses.rg1004_noisy⟩,
     ⟨@Link.rg1004_exact⟩,
     ⟨@Link.rg1004_subject⟩,
-    ⟨rg1004_meets⟩,
-    ⟨rg1004_cases⟩]
+    ⟨rg1004_meets⟩]
 
 def rg1005Required : LeanIntent.Required rg1005Deliverable where
-  theorems := [
+  o2 := rg1005_o2
+  o2Run := .proved rg1005_o2Run
+  o3 := rg1005_o3
+  o4 := rg1005_o4
+  freedom := .rel SameReports
+  o5 := rg1005_o5
+  comparison := .cases
+    [⟨rg1005_cases⟩, ⟨Witnesses.rg1005_noisy⟩]
+    "Rule record predates typed blind-record comparison; concrete refusal, admission, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1005."
+  additional := [
     ⟨Witnesses.rg1005_adequate⟩,
-    ⟨Witnesses.rg1005_noisy⟩,
     ⟨@Link.rg1005_exact⟩,
     ⟨@Link.rg1005_subject⟩,
-    ⟨rg1005_meets⟩,
-    ⟨rg1005_cases⟩]
+    ⟨rg1005_meets⟩]
 
 def rg1006Required : LeanIntent.Required rg1006Deliverable where
-  theorems := [
+  o2 := rg1006_o2
+  o2Run := .proved rg1006_o2Run
+  o3 := rg1006_o3
+  o4 := rg1006_o4
+  freedom := .rel SameReports
+  o5 := rg1006_o5
+  comparison := .cases
+    [⟨rg1006_cases⟩,
+      ⟨Witnesses.rg1006_noisy⟩,
+      ⟨@rg1006_checker_refuses_loop⟩,
+      ⟨rg1006_checker_refuses_forged_name⟩,
+      ⟨rg1006_checker_refuses_partial_fixpoint⟩,
+      ⟨rg1006_checker_admits_fix_theorem_and_lfp⟩,
+      ⟨rg1006_checker_ctorIdx⟩]
+    "Rule record predates typed blind-record comparison; concrete refusal, exemption, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1006."
+  additional := [
     ⟨Witnesses.rg1006_adequate⟩,
-    ⟨Witnesses.rg1006_noisy⟩,
     ⟨@Link.rg1006_exact⟩,
     ⟨@Link.rg1006_subject⟩,
     ⟨rg1006_meets⟩,
-    ⟨rg1006_cases⟩,
     ⟨@safe_reach_safe⟩,
     ⟨@helperForm_unreached⟩,
     ⟨@ctorIdxImpl_unreached⟩,
@@ -349,63 +461,87 @@ def rg1006Required : LeanIntent.Required rg1006Deliverable where
     ⟨Witnesses.safeMentionsSafe_refutable⟩,
     ⟨@Link.rg1006_reports_named_not_partial⟩,
     ⟨@Link.rg1006_admits_helper⟩,
-    ⟨@Link.rg1006_admits_ctorIdxImpl⟩,
-    ⟨@rg1006_checker_refuses_loop⟩,
-    ⟨rg1006_checker_refuses_forged_name⟩,
-    ⟨rg1006_checker_refuses_partial_fixpoint⟩,
-    ⟨rg1006_checker_admits_fix_theorem_and_lfp⟩,
-    ⟨rg1006_checker_ctorIdx⟩]
+    ⟨@Link.rg1006_admits_ctorIdxImpl⟩]
 
 def rg1011Required : LeanIntent.Required rg1011Deliverable where
-  theorems := [
+  o2 := rg1011_o2
+  o2Run := .proved rg1011_o2Run
+  o3 := rg1011_o3
+  o4 := rg1011_o4
+  freedom := .rel SameReports
+  o5 := rg1011_o5
+  comparison := .cases
+    [⟨rg1011_cases⟩,
+      ⟨Witnesses.rg1011_noisy⟩,
+      ⟨rg1011_checker_refuses_extern⟩,
+      ⟨rg1011_checker_reads_definitions⟩,
+      ⟨rg1011_checker_refuses_foreign_csimp⟩,
+      ⟨rg1011_checker_admits_claimed_csimp⟩,
+      ⟨rg1011_checker_ctorIdx⟩]
+    "Rule record predates typed blind-record comparison; concrete refusal, exemption, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1011."
+  additional := [
     ⟨Witnesses.rg1011_adequate⟩,
-    ⟨Witnesses.rg1011_noisy⟩,
     ⟨@Link.rg1011_exact⟩,
     ⟨@Link.rg1011_subject⟩,
     ⟨@Link.rg1011_attributed⟩,
     ⟨@Link.check_eq_replaced⟩,
     ⟨@Link.rg1011_admits_neither⟩,
     ⟨@Link.rg1011_admits_ctorIdxDef⟩,
-    ⟨rg1011_meets⟩,
-    ⟨rg1011_cases⟩,
-    ⟨rg1011_checker_refuses_extern⟩,
-    ⟨rg1011_checker_reads_definitions⟩,
-    ⟨rg1011_checker_refuses_foreign_csimp⟩,
-    ⟨rg1011_checker_admits_claimed_csimp⟩,
-    ⟨rg1011_checker_ctorIdx⟩]
+    ⟨rg1011_meets⟩]
 
 def rg1012Required : LeanIntent.Required rg1012Deliverable where
-  theorems := [
+  o2 := rg1012_o2
+  o2Run := .proved rg1012_o2Run
+  o3 := rg1012_o3
+  o4 := rg1012_o4
+  freedom := .rel SameReports
+  o5 := rg1012_o5
+  comparison := .cases
+    [⟨rg1012_cases⟩,
+      ⟨Witnesses.rg1012_noisy⟩,
+      ⟨Witnesses.rg1012_admits_theorems⟩,
+      ⟨Witnesses.bangNamed_hygienic⟩,
+      ⟨Witnesses.not_bangNamed_query⟩,
+      ⟨rg1012_checker_refuses_panic⟩]
+    "Rule record predates typed blind-record comparison; concrete panic-refusal, theorem-admission, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1012."
+  additional := [
     ⟨Witnesses.rg1012_adequate⟩,
-    ⟨Witnesses.rg1012_noisy⟩,
     ⟨@Link.rg1012_exact⟩,
     ⟨@Link.rg1012_subject⟩,
-    ⟨rg1012_meets⟩,
-    ⟨rg1012_cases⟩,
-    ⟨Witnesses.rg1012_admits_theorems⟩,
-    ⟨Witnesses.bangNamed_hygienic⟩,
-    ⟨Witnesses.not_bangNamed_query⟩,
-    ⟨rg1012_checker_refuses_panic⟩]
+    ⟨rg1012_meets⟩]
 
 def rg1013Required : LeanIntent.Required rg1013Deliverable where
-  theorems := [
+  o2 := rg1013_o2
+  o2Run := .proved rg1013_o2Run
+  o3 := rg1013_o3
+  o4 := rg1013_o4
+  freedom := .rel SameReports
+  o5 := rg1013_o5
+  comparison := .cases
+    [⟨rg1013_cases⟩, ⟨Witnesses.rg1013_noisy⟩]
+    "Rule record predates typed blind-record comparison; concrete module-header refusal, admission, and anti-vacuity case verdicts are proved in RegulaSpecification.Rules.RG1013."
+  additional := [
     ⟨Witnesses.rg1013_adequate⟩,
-    ⟨Witnesses.rg1013_noisy⟩,
     ⟨@Witnesses.rg1013_reads_modules⟩,
     ⟨@Link.rg1013_exact⟩,
     ⟨@Link.rg1013_subject⟩,
-    ⟨rg1013_meets⟩,
-    ⟨rg1013_cases⟩]
+    ⟨rg1013_meets⟩]
 
 def gateRequired : LeanIntent.Required gateDeliverable where
-  theorems := [
+  o2 := gate_o2
+  o2Run := .proved gate_o2Run
+  o3 := gate_o3
+  o4 := gate_o4
+  freedom := .eq
+  o5 := gate_o5
+  comparison := .cases
+    [⟨Witnesses.no_claim_refused⟩,
+      ⟨Witnesses.open_mention_refused⟩,
+      ⟨Witnesses.always_pass_fails⟩,
+      ⟨Witnesses.always_incomplete_fails⟩]
+    "Gate record predates typed blind-record comparison; concrete malformed-input and anti-vacuity case verdicts are proved in RegulaSpecification.CasesGate."
+  additional := [
     ⟨Witnesses.gate_adequate⟩,
-    ⟨gate_o4⟩,
-    ⟨gate_o5⟩,
-    ⟨Witnesses.no_claim_refused⟩,
-    ⟨Witnesses.open_mention_refused⟩,
-    ⟨Witnesses.always_pass_fails⟩,
-    ⟨Witnesses.always_incomplete_fails⟩,
     ⟨@admit_ok_iff⟩,
     ⟨@admit_error_iff⟩,
     ⟨@run_refused⟩,
@@ -420,13 +556,22 @@ def gateRequired : LeanIntent.Required gateDeliverable where
     ⟨ruleDeliverables_cover_registry⟩]
 
 def languageRequired : LeanIntent.Required languageDeliverable where
-  theorems := [
-    ⟨Language.language_o2⟩,
-    ⟨Language.language_o2Run⟩,
-    ⟨Language.language_o3⟩,
-    ⟨Language.language_o4⟩,
-    ⟨Language.language_o5⟩,
-    ⟨@Language.constant_fails⟩,
+  o2 := Language.language_o2
+  o2Run := .proved Language.language_o2Run
+  o3 := Language.language_o3
+  o4 := Language.language_o4
+  freedom := .eq
+  o5 := Language.language_o5
+  comparison := .cases
+    [⟨@Language.constant_fails⟩,
+      ⟨@Owner.refuses_named_kinds⟩,
+      ⟨@Owner.refuses_decide_native⟩,
+      ⟨@Owner.refuses_lakefile_lean⟩,
+      ⟨@Owner.refuses_plugin_key⟩,
+      ⟨Owner.admits_library_code⟩,
+      ⟨Owner.admits_configuration_keys⟩]
+    "Isolated blind second reading used a different subject type (specification/confirmation.md#the-language-check); settled via owner-confirmed literal refusal/admission and anti-vacuity case theorems."
+  additional := [
     ⟨@Language.admitted_iff⟩,
     ⟨Language.decision_meets⟩,
     ⟨@Language.decision_admitted_iff⟩,
@@ -434,37 +579,51 @@ def languageRequired : LeanIntent.Required languageDeliverable where
     ⟨@Language.mem_positions_iff⟩,
     ⟨@Language.dependency_not_admitted⟩,
     ⟨@Language.mathlib_not_admitted⟩,
-    ⟨@Language.admitted_runs_no_project_code⟩,
-    ⟨@Owner.refuses_named_kinds⟩,
-    ⟨@Owner.refuses_decide_native⟩,
-    ⟨@Owner.refuses_lakefile_lean⟩,
-    ⟨@Owner.refuses_plugin_key⟩,
-    ⟨Owner.admits_library_code⟩,
-    ⟨Owner.admits_configuration_keys⟩]
+    ⟨@Language.admitted_runs_no_project_code⟩]
 
 def fullGateRequired : LeanIntent.Required fullGateDeliverable where
-  theorems := [
-    ⟨Language.fullGate_o2⟩,
-    ⟨Language.fullGate_o2Run⟩,
-    ⟨Language.fullGate_o3⟩,
-    ⟨Language.fullGate_o4⟩,
-    ⟨Language.fullGate_o5⟩,
-    ⟨@Language.build_only_after_check⟩,
-    ⟨@Language.full_needs_no_mathlib⟩,
-    ⟨Language.gate_meets⟩,
-    ⟨@Language.gate_exit_zero_iff⟩]
+  o2 := Language.fullGate_o2
+  o2Run := .proved Language.fullGate_o2Run
+  o3 := Language.fullGate_o3
+  o4 := Language.fullGate_o4
+  freedom := .eq
+  o5 := Language.fullGate_o5
+  comparison := .cases
+    [⟨@Language.build_only_after_check⟩,
+      ⟨@Language.full_needs_no_mathlib⟩,
+      ⟨@Language.gate_exit_zero_iff⟩]
+    "Isolated blind second reading used a different subject type (specification/confirmation.md#the-language-check); settled via sequencing, Mathlib-exclusion, and exit-zero verdict theorems."
+  additional := [
+    ⟨Language.gate_meets⟩]
 
 def programRequired : LeanIntent.Required programDeliverable where
-  theorems := [
+  o2 := program_o2
+  o2Run := .proved program_o2Run
+  o3 := program_o3
+  o4 := program_o4
+  freedom := .widest
+  o5 := program_o5
+  comparison := .cases
+    [⟨@Effects.outProofRun_pass⟩,
+      ⟨@Effects.loadProof_spec⟩,
+      ⟨Effects.outProof_model⟩,
+      ⟨Effects.outProof_shadowed_model⟩,
+      ⟨@Effects.outProof_empty_refused⟩,
+      ⟨@Effects.outProof_both_vars_refused⟩,
+      ⟨@Effects.outProof_verdict_distinct_from_full⟩,
+      ⟨@Effects.outProof_emptyTarget_witness⟩,
+      ⟨@Effects.outProof_noSysroot_witness⟩,
+      ⟨@Effects.refuser_fails⟩,
+      ⟨@Effects.manufacturer_fails⟩,
+      ⟨@Effects.misjudge_fails⟩]
+    "Isolated blind second readings gave parametric schemas rather than a same-type IntentRecord (specification/confirmation.md); differences are settled by these case, model, and anti-cheating theorems."
+  additional := [
     ⟨@Effects.program_o2⟩,
     ⟨@Effects.program_o2Run⟩,
     ⟨@Effects.program_o3⟩,
     ⟨@Effects.program_o4⟩,
     ⟨@Effects.program_o5⟩,
     ⟨@Effects.constant_program_fails⟩,
-    ⟨@Effects.refuser_fails⟩,
-    ⟨@Effects.manufacturer_fails⟩,
-    ⟨@Effects.misjudge_fails⟩,
     ⟨@Effects.manufacturedCopy_fails⟩,
     ⟨@Effects.manufacturedCopyAnswered_fails⟩,
     ⟨@Effects.uncheckedCopy_fails⟩,
@@ -482,15 +641,6 @@ def programRequired : LeanIntent.Required programDeliverable where
     ⟨@Effects.plain_exit_zero⟩,
     ⟨@Effects.outProof_exit_zero⟩,
     ⟨@Effects.full_exit_zero⟩,
-    ⟨@Effects.outProofRun_pass⟩,
-    ⟨@Effects.loadProof_spec⟩,
-    ⟨Effects.outProof_model⟩,
-    ⟨Effects.outProof_shadowed_model⟩,
-    ⟨@Effects.outProof_empty_refused⟩,
-    ⟨@Effects.outProof_both_vars_refused⟩,
-    ⟨@Effects.outProof_verdict_distinct_from_full⟩,
-    ⟨@Effects.outProof_emptyTarget_witness⟩,
-    ⟨@Effects.outProof_noSysroot_witness⟩,
     ⟨@Effects.read_what_lake_compiles⟩,
     ⟨@Effects.lake_takes_judged⟩,
     ⟨@Effects.read_no_link⟩,
